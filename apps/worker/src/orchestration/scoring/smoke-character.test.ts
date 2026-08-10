@@ -80,14 +80,27 @@ function mockBlizzard(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockPrisma() {
+function mockPrisma(opts: { hasSeasonEvidence?: boolean } = {}) {
+  const hasSeasonEvidence = opts.hasSeasonEvidence !== false;
   return {
     character: {
       update: vi.fn(async () => ({})),
-      findUnique: vi.fn(async () => null),
+      findUnique: vi.fn(async () => ({ id: "char-1", level: 90, regionId: "reg-eu" })),
     },
+    verifiedCharacterOwnership: {
+      findFirst: vi.fn(async () =>
+        hasSeasonEvidence
+          ? {
+              currentSeasonMythicRating: 2500,
+              currentSeasonMythicSeasonId: authority.seasonRowId,
+            }
+          : null,
+      ),
+    },
+    metricObservation: { findFirst: vi.fn(async () => null) },
     characterSnapshot: {
       create: vi.fn(async () => ({})),
+      findMany: vi.fn(async () => []),
     },
     characterRunDigest: {
       findMany: vi.fn(async () => []),
@@ -245,14 +258,14 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     expect(result.providerCalls).toBe(2);
   });
 
-  it("DB hit complete → no Blizzard discovery", async () => {
+  it("DB hit complete with season evidence → no Blizzard discovery", async () => {
     const characterRepository = mockRepo({
       findByIdentity: vi.fn(async () => completeCharacter),
     });
     const blizzard = mockBlizzard();
 
     const result = await resolveOrDiscoverPublicCharacter({
-      prisma: mockPrisma() as never,
+      prisma: mockPrisma({ hasSeasonEvidence: true }) as never,
       characterRepository: characterRepository as never,
       blizzard: blizzard as never,
       identity,
@@ -265,6 +278,33 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     expect(result.bootstrapPerformed).toBe(false);
     expect(result.providerCalls).toBe(0);
     expect(result.character.id).toBe("char-1");
+    expect(result.currentSeasonEvidenceOutcome).toBe("CURRENT_SEASON_EVIDENCE_REUSED");
+  });
+
+  it("DB hit complete without season evidence → bounded Blizzard repair", async () => {
+    const characterRepository = mockRepo({
+      findByIdentity: vi.fn(async () => completeCharacter),
+      applyProviderProfile: vi.fn(async () => ({ ...completeCharacter })),
+      findById: vi.fn(async () => ({ ...completeCharacter })),
+    });
+    const blizzard = mockBlizzard();
+    const prisma = mockPrisma({ hasSeasonEvidence: false });
+
+    const result = await resolveOrDiscoverPublicCharacter({
+      prisma: prisma as never,
+      characterRepository: characterRepository as never,
+      blizzard: blizzard as never,
+      identity,
+      authority,
+    });
+
+    expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(characterRepository.upsertCharacter).not.toHaveBeenCalled();
+    expect(prisma.characterSnapshot.create).toHaveBeenCalled();
+    expect(result.reason).toBe("repaired");
+    expect(result.bootstrapPerformed).toBe(true);
+    expect(result.currentSeasonEvidenceOutcome).toBe("CURRENT_SEASON_EVIDENCE_REPAIRED");
   });
 
   it("DB hit incomplete → repair path reuses Blizzard bootstrap", async () => {

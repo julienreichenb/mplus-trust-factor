@@ -1,5 +1,6 @@
 import type { Character } from "@mplus/database";
 import {
+  CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE,
   CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN,
   extractJobErrorCode,
   isEligibilityFailureCode,
@@ -16,9 +17,12 @@ export const CHARACTER_BOOTSTRAP_INCOMPLETE = "CHARACTER_BOOTSTRAP_INCOMPLETE" a
  * eligibility gate can make a non-UNKNOWN decision from local data alone.
  *
  * Authoritative fields (minimum): level, Blizzard character ID, class, active spec, role.
- * Provider-assisted repair remains exact resolve / forceRetry only (see worker
+ * Provider-assisted repair remains exact resolve (and forceRetry) — see worker
  * `ensurePublicCharacterBootstrap` / `persistPublicCharacterBootstrap` /
- * `resolveOrDiscoverPublicCharacter`).
+ * `resolveOrDiscoverPublicCharacter`.
+ *
+ * Missing authoritative current-season Mythic+ evidence is also repairable on
+ * normal exact resolve (does not require forceRetry).
  */
 export function latestJobIsEligibilityUnknown(latestJob: {
   status: string;
@@ -29,8 +33,16 @@ export function latestJobIsEligibilityUnknown(latestJob: {
 }
 
 /**
- * Canonical signal for UI/admin: exact resolve with forceRetry can repair this row.
+ * Canonical signal for UI/admin: exact resolve can repair this row.
  * Shared by profile, refresh-status, requestRefresh conflict details, and admin actions.
+ *
+ * Repairable when:
+ * - shell bootstrap fields incomplete, or
+ * - prior fail-closed UNKNOWN job, or
+ * - authoritative current-season Mythic+ evidence was never acquired (missing).
+ *
+ * Confirmed no-score (CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE after successful
+ * provider proof) is NOT a bootstrap repair problem.
  */
 export function isBootstrapRepairRequired(input: {
   character: Pick<
@@ -38,14 +50,18 @@ export function isBootstrapRepairRequired(input: {
     "level" | "blizzardCharacterId" | "classId" | "activeSpecId" | "role"
   >;
   latestJob: { status: string; error?: unknown } | null;
+  /** When true, season-scoped Mythic+ evidence has never been authoritatively acquired. */
+  missingSeasonMythicEvidence?: boolean;
 }): boolean {
   if (characterLacksBootstrapEvidence(input.character)) return true;
-  return latestJobIsEligibilityUnknown(input.latestJob);
+  if (latestJobIsEligibilityUnknown(input.latestJob)) return true;
+  if (input.missingSeasonMythicEvidence === true) return true;
+  return false;
 }
 
 /**
  * Decide whether exact resolve may perform a bounded Blizzard bootstrap repair.
- * Complete, successful characters must not incur new provider calls.
+ * Complete characters with valid season evidence must not incur new provider calls.
  */
 export function shouldRepairCharacterBootstrap(input: {
   character: Pick<
@@ -64,8 +80,10 @@ export function shouldRepairCharacterBootstrap(input: {
   if (lacksBootstrap) return true;
   // Prior fail-closed UNKNOWN must not permanently strand the character.
   if (unknownFailure) return true;
-  // Explicit retry may refresh season-scoped Mythic+ evidence when still missing.
-  if (input.forceRetry && input.missingSeasonMythicEvidence) return true;
+  // Missing authoritative current-season Mythic+ evidence — repair on normal resolve.
+  // Valid persisted evidence ⇒ caller must pass missingSeasonMythicEvidence=false.
+  if (input.missingSeasonMythicEvidence) return true;
+  void input.forceRetry;
   return false;
 }
 
@@ -76,9 +94,15 @@ export function eligibilityConflictNeedsBootstrapRepair(input: {
     "level" | "blizzardCharacterId" | "classId" | "activeSpecId" | "role"
   >;
   eligibilityCode: string | null | undefined;
+  /** When known, missing (never acquired) season evidence is repairable. */
+  missingSeasonMythicEvidence?: boolean;
 }): boolean {
   if (characterLacksBootstrapEvidence(input.character)) return true;
-  return input.eligibilityCode === CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN;
+  if (input.eligibilityCode === CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN) return true;
+  if (input.missingSeasonMythicEvidence === true) return true;
+  // Confirmed authoritative no-score is not repairable via bootstrap.
+  if (input.eligibilityCode === CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE) return false;
+  return false;
 }
 
 export function isNonRetryableEligibilityErrorCode(code: string | null | undefined): boolean {

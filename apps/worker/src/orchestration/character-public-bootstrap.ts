@@ -15,7 +15,11 @@ import type {
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
 import type { CharacterRepository } from "../persistence/character-repository.js";
-import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
+import {
+  loadCharacterRefreshEligibilitySignals,
+  persistRefreshEligibilityEvidence,
+  type CurrentSeasonMythicPersistEvidence,
+} from "./refresh-eligibility-gate.js";
 import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { backfillCharacterRunDigestLinks } from "./character-run-digest-backfill.js";
 
@@ -34,13 +38,61 @@ export function characterLacksBootstrapEvidence(
   return false;
 }
 
+/**
+ * Authoritative current-season Mythic+ acquisition outcome.
+ * Provider failure must NEVER collapse into confirmed no-score.
+ */
+export type CurrentSeasonMythicEvidence =
+  | { state: "HAS_SCORE"; rating: number }
+  | { state: "CONFIRMED_NO_SCORE" }
+  | { state: "UNKNOWN"; error: ExternalApiError };
+
+export const CURRENT_SEASON_EVIDENCE_REUSED = "CURRENT_SEASON_EVIDENCE_REUSED" as const;
+export const CURRENT_SEASON_EVIDENCE_REPAIRED = "CURRENT_SEASON_EVIDENCE_REPAIRED" as const;
+export const CURRENT_SEASON_CONFIRMED_NO_SCORE = "CURRENT_SEASON_CONFIRMED_NO_SCORE" as const;
+export const CURRENT_SEASON_EVIDENCE_PROVIDER_FAILURE =
+  "CURRENT_SEASON_EVIDENCE_PROVIDER_FAILURE" as const;
+
+export type CurrentSeasonEvidenceOutcome =
+  | typeof CURRENT_SEASON_EVIDENCE_REUSED
+  | typeof CURRENT_SEASON_EVIDENCE_REPAIRED
+  | typeof CURRENT_SEASON_CONFIRMED_NO_SCORE
+  | typeof CURRENT_SEASON_EVIDENCE_PROVIDER_FAILURE;
+
 export type BlizzardPublicBootstrapFetch =
-  | { ok: true; profile: CanonicalCharacter; mythicRating: number | null; providerCalls: number }
+  | {
+      ok: true;
+      profile: CanonicalCharacter;
+      currentSeasonMythic: CurrentSeasonMythicEvidence;
+      /** @deprecated Prefer currentSeasonMythic — finite rating only when HAS_SCORE. */
+      mythicRating: number | null;
+      providerCalls: number;
+    }
   | { ok: false; error: ExternalApiError; providerCalls: number };
+
+export function currentSeasonMythicToPersistEvidence(
+  evidence: CurrentSeasonMythicEvidence,
+): CurrentSeasonMythicPersistEvidence {
+  if (evidence.state === "HAS_SCORE") {
+    return { state: "HAS_SCORE", rating: evidence.rating };
+  }
+  if (evidence.state === "CONFIRMED_NO_SCORE") {
+    return { state: "CONFIRMED_NO_SCORE" };
+  }
+  return { state: "UNKNOWN" };
+}
+
+function classifyKeystoneRating(rating: number | null | undefined): CurrentSeasonMythicEvidence {
+  if (rating != null && Number.isFinite(rating) && rating > 0) {
+    return { state: "HAS_SCORE", rating };
+  }
+  return { state: "CONFIRMED_NO_SCORE" };
+}
 
 /**
  * Bounded Blizzard profile + keystone reads (exact resolve / smoke bootstrap).
  * Does not invent eligibility evidence on NOT_FOUND.
+ * Keystone failure is UNKNOWN — never collapsed to confirmed no-score.
  */
 export async function fetchBlizzardPublicBootstrap(
   blizzard: BlizzardProvider,
@@ -58,15 +110,33 @@ export async function fetchBlizzardPublicBootstrap(
   try {
     const profileResult = await blizzard.getCharacterProfile(identity, ctx);
     providerCalls += 1;
-    let mythicRating: number | null = null;
+    let currentSeasonMythic: CurrentSeasonMythicEvidence;
     try {
       const keystone = await blizzard.getMythicKeystoneProfile(identity, ctx);
       providerCalls += 1;
-      mythicRating = keystone.data.currentMythicRating ?? null;
-    } catch {
-      mythicRating = null;
+      currentSeasonMythic = classifyKeystoneRating(keystone.data.currentMythicRating);
+    } catch (error) {
+      // Count the attempted keystone call even when it fails.
+      providerCalls += 1;
+      const apiError =
+        error instanceof ExternalApiError
+          ? error
+          : new ExternalApiError({
+              message: error instanceof Error ? error.message : "Blizzard keystone failed",
+              code: "UNKNOWN",
+              provider: "blizzard",
+              retryable: true,
+            });
+      currentSeasonMythic = { state: "UNKNOWN", error: apiError };
     }
-    return { ok: true, profile: profileResult.data, mythicRating, providerCalls };
+    return {
+      ok: true,
+      profile: profileResult.data,
+      currentSeasonMythic,
+      mythicRating:
+        currentSeasonMythic.state === "HAS_SCORE" ? currentSeasonMythic.rating : null,
+      providerCalls,
+    };
   } catch (error) {
     if (error instanceof ExternalApiError) {
       return { ok: false, error, providerCalls };
@@ -90,7 +160,9 @@ export async function persistPublicCharacterBootstrap(input: {
   characterRepository: Pick<CharacterRepository, "applyProviderProfile" | "findById">;
   character: Character;
   profile: CanonicalCharacter;
-  mythicRating: number | null;
+  currentSeasonMythic: CurrentSeasonMythicEvidence;
+  /** @deprecated Prefer currentSeasonMythic. */
+  mythicRating?: number | null;
   authority: VerifiedSeasonAuthority;
 }): Promise<Character> {
   const updated = await input.characterRepository.applyProviderProfile(
@@ -100,7 +172,7 @@ export async function persistPublicCharacterBootstrap(input: {
   await persistRefreshEligibilityEvidence(input.prisma, {
     characterId: updated.id,
     level: input.profile.level ?? updated.level ?? null,
-    mythicRating: input.mythicRating,
+    currentSeasonMythic: currentSeasonMythicToPersistEvidence(input.currentSeasonMythic),
     authoritativeSeasonRowId: input.authority.seasonRowId,
   });
   const character =
@@ -119,11 +191,13 @@ export type ResolveOrDiscoverPublicCharacterResult = {
   bootstrapPerformed: boolean;
   providerCalls: number;
   reason: "created" | "repaired" | "already_complete";
+  currentSeasonEvidenceOutcome?: CurrentSeasonEvidenceOutcome;
 };
 
 /**
  * Canonical production operation:
- * lookup Character → reuse when complete → Blizzard discover/repair when absent/incomplete.
+ * lookup Character → reuse when complete + season evidence known →
+ * Blizzard discover/repair when absent/incomplete/missing season evidence.
  *
  * Never creates an empty shell before Blizzard succeeds. On failure after a fresh
  * create, compensates by deleting an unreferenced shell when possible.
@@ -139,16 +213,25 @@ export async function resolveOrDiscoverPublicCharacter(input: {
   const existing = await input.characterRepository.findByIdentity(input.identity);
 
   if (existing && !characterLacksBootstrapEvidence(existing)) {
-    await backfillCharacterRunDigestLinks({
-      prisma: input.prisma,
+    const signals = await loadCharacterRefreshEligibilitySignals(input.prisma, {
       characterId: existing.id,
+      authority: input.authority,
     });
-    return {
-      character: existing,
-      bootstrapPerformed: false,
-      providerCalls: 0,
-      reason: "already_complete",
-    };
+    // undefined = season evidence never acquired → must repair.
+    // null = confirmed absence; number = has score → reuse.
+    if (signals.currentSeasonMythicScore !== undefined) {
+      await backfillCharacterRunDigestLinks({
+        prisma: input.prisma,
+        characterId: existing.id,
+      });
+      return {
+        character: existing,
+        bootstrapPerformed: false,
+        providerCalls: 0,
+        reason: "already_complete",
+        currentSeasonEvidenceOutcome: CURRENT_SEASON_EVIDENCE_REUSED,
+      };
+    }
   }
 
   const fetched = await fetchBlizzardPublicBootstrap(input.blizzard, input.identity, {
@@ -157,6 +240,9 @@ export async function resolveOrDiscoverPublicCharacter(input: {
   });
   if (!fetched.ok) {
     throw fetched.error;
+  }
+  if (fetched.currentSeasonMythic.state === "UNKNOWN") {
+    throw fetched.currentSeasonMythic.error;
   }
 
   let character = existing;
@@ -180,7 +266,7 @@ export async function resolveOrDiscoverPublicCharacter(input: {
       characterRepository: input.characterRepository,
       character,
       profile: fetched.profile,
-      mythicRating: fetched.mythicRating,
+      currentSeasonMythic: fetched.currentSeasonMythic,
       authority: input.authority,
     });
   } catch (error) {
@@ -199,6 +285,10 @@ export async function resolveOrDiscoverPublicCharacter(input: {
     bootstrapPerformed: true,
     providerCalls: fetched.providerCalls,
     reason,
+    currentSeasonEvidenceOutcome:
+      fetched.currentSeasonMythic.state === "CONFIRMED_NO_SCORE"
+        ? CURRENT_SEASON_CONFIRMED_NO_SCORE
+        : CURRENT_SEASON_EVIDENCE_REPAIRED,
   };
 }
 

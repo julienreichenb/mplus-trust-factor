@@ -1,9 +1,7 @@
 /**
- * Agent 01 diagnostic freeze — public bootstrap keystone failure collapse.
+ * Agent 02 acceptance — public bootstrap current-season Mythic+ states.
  *
- * CURRENT BEHAVIOR (not a desired fix): when getMythicKeystoneProfile throws,
- * fetchBlizzardPublicBootstrap returns mythicRating=null, indistinguishable from
- * a successful provider response proving no current-season rating.
+ * Provider failure must NEVER collapse into confirmed no-score.
  */
 import { describe, expect, it, vi } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
@@ -28,8 +26,8 @@ const profile = {
   blizzardCharacterId: "42",
 };
 
-describe("scoring-stabilization: public bootstrap keystone collapse", () => {
-  it("collapses keystone provider failure to mythicRating=null (same as no rating)", async () => {
+describe("scoring-stabilization: public bootstrap current-season Mythic states", () => {
+  it("provider keystone failure is UNKNOWN (not confirmed no-score)", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -50,14 +48,14 @@ describe("scoring-stabilization: public bootstrap keystone collapse", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.currentSeasonMythic.state).toBe("UNKNOWN");
     expect(result.mythicRating).toBeNull();
-    // CURRENT: failed keystone calls are not counted in providerCalls (only success increments).
-    expect(result.providerCalls).toBe(1);
+    expect(result.providerCalls).toBe(2);
     expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
     expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps successful currentMythicRating when keystone succeeds", async () => {
+  it("keeps successful currentMythicRating as HAS_SCORE", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -74,10 +72,11 @@ describe("scoring-stabilization: public bootstrap keystone collapse", () => {
     const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.currentSeasonMythic).toEqual({ state: "HAS_SCORE", rating: 1842 });
     expect(result.mythicRating).toBe(1842);
   });
 
-  it("maps successful keystone with missing rating to null (true absence)", async () => {
+  it("successful keystone with missing rating is CONFIRMED_NO_SCORE", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -94,7 +93,8 @@ describe("scoring-stabilization: public bootstrap keystone collapse", () => {
     const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Same null as the failure path — diagnostic point for Agent 02.
+    expect(result.currentSeasonMythic.state).toBe("CONFIRMED_NO_SCORE");
     expect(result.mythicRating).toBeNull();
+    expect(result.providerCalls).toBe(2);
   });
 });

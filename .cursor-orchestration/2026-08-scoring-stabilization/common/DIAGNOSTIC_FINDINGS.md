@@ -1,21 +1,69 @@
-# DIAGNOSTIC FINDINGS — Scoring Stabilization Agent 01
+# DIAGNOSTIC FINDINGS — Scoring Stabilization
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Diagnostic only — no scoring behavior changes.
+**Mode:** Agent 01 diagnostic baseline + Agent 02 Problem 1 fix (code done; UI gate pending).
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
 
 ---
 
+## 0. Problem 1 status (Agent 02)
+
+| Field | Value |
+|-------|-------|
+| Status | **FIXED IN CODE** — **PENDING MANUAL UI VALIDATION** |
+| Not fully accepted until | Human UI gate in `LATEST_HANDOFF.md` passes |
+| Agent 03 | **Do not start** until Problem 1 UI gate passes |
+
+### Root cause (confirmed)
+
+1. A complete Character shell (level, Blizzard ID, class, spec, role) could exist **without** authoritative current-season Mythic+ evidence.
+2. Exact public resolve skipped Blizzard keystone unless `forceRetry` / incomplete shell / UNKNOWN job.
+3. Missing season evidence was loaded/evaluated as proven absence → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`.
+4. Keystone provider failures collapsed to `mythicRating = null`, indistinguishable from confirmed no-score.
+5. `bootstrapRepairRequired` stayed `false` for that code, so UI/admin had no repair path.
+
+### Exact fix
+
+1. Typed `CurrentSeasonMythicEvidence`: `HAS_SCORE` | `CONFIRMED_NO_SCORE` | `UNKNOWN`.
+2. `shouldRepairCharacterBootstrap`: missing season evidence repairs on **normal** exact resolve (no `forceRetry`).
+3. Load path: no season-scoped evidence → `undefined` (UNKNOWN/repairable); tagged `confirmedNoScore` / rating 0 → `null` (confirmed absence); rating > 0 → number.
+4. Persist: UNKNOWN writes **no** rating row (preserves prior evidence); CONFIRMED_NO writes season-tagged snapshot `mythicRating: 0` + `confirmedNoScore: true`; HAS_SCORE writes positive tagged snapshot.
+5. Keystone throw → `UNKNOWN` (counted provider call), never confirmed no-score.
+6. `bootstrapRepairRequired` / conflict repair: true when missing/UNKNOWN; **false** for confirmed `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`.
+
+### Provider-state semantics
+
+| State | Meaning | Persist | Eligibility |
+|-------|---------|---------|-------------|
+| HAS_SCORE | Finite current-season rating proved | Season-tagged positive snapshot | Pass (if max level) |
+| CONFIRMED_NO_SCORE | Provider succeeded; no rating | Season-tagged 0 + `confirmedNoScore` | `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`, retryable=false |
+| UNKNOWN | Provider failed / unresolved | No rating write | Not `NO_CURRENT…`; 503 / retryable; repair remains possible |
+
+### Provider call bounds
+
+Per exact public resolve: **≤1** keystone acquisition when evidence missing; **0** when evidence already known. No loops. Owned Battle.net path unchanged.
+
+### Tests (acceptance)
+
+- `character-bootstrap-repair.test.ts` — repair without forceRetry; repair flags
+- `character-public-bootstrap.keystone-collapse.test.ts` — UNKNOWN vs CONFIRMED_NO
+- `refresh-eligibility-gate.test.ts` — missing→UNKNOWN; confirmed absence; UNKNOWN persist no-write
+- `smoke-character.test.ts` — complete+missing repairs; complete+evidence reuses
+- `character-refresh-eligibility.test.ts` — undefined ≠ null semantics
+- Owned discovery + Blizzard provider suites remain green
+
+---
+
 ## 1. Executive summary
 
-| # | Problem | Root cause (verdict) | Confidence |
-|---|---------|----------------------|------------|
-| 1 | Public search → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` | Complete Character shells skip Blizzard M+ re-fetch; missing season-scoped evidence is treated as proven absence; keystone failures collapse to `mythicRating=null`; `bootstrapRepairRequired=false` by design for this code | **OBSERVED** |
-| 2 | Utility identical “+8” / “contributed 8” | Explainability prints `cappedContribution`; `UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 8`. Strong dual-domain players saturate both domains (CASE A). `expectedDungeons=8` is unrelated | **OBSERVED** |
-| 3 | Perf confidence Warlock ≫ Warrior/Shaman | **Lfgmasochist (live):** cooldown coverage already 1.0; low Perf confidence is Phase1 `profile_only` / incomplete dungeon+detailed slots — **not** cooldown. Latent class risk remains: null `specSlug` + ABSENT loadout zeros Warrior/Shaman eligibility (fixtures). Wallidrixe: 16/16 usable, conf 100% | **OBSERVED** (Wallidrixe/Lfgmasochist live) + **OBSERVED** fixtures for null-spec risk; Warrior live **NOT YET PROVEN** |
-| 4 | Lfgmasochist Experience “Previous-season evidence unavailable” | **Live:** `experience: null`, reason `PREVIOUS_EVIDENCE_UNAVAILABLE`; **no** `PREVIOUS_SEASON_RATING` evidence row. Previous TWW season-15 **has COMPLETE population policy** locally — so this instance is **not** `MISSING_POPULATION_POLICY`. Still a real integrity bug: `NO_USABLE_POLICY` is treated as ensure-complete (Midnight hole risk). User fact (played TWW) conflicts with Wallidrixe-style RIO CONFIRMED_ABSENCE path; Lfgmasochist never persisted a previous rating | **OBSERVED** (Lfgmasochist score + evidence) / **OBSERVED** (ensure-complete code bug) |
+| # | Problem | Root cause (verdict) | Confidence | Agent status |
+|---|---------|----------------------|------------|--------------|
+| 1 | Public search → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` | Complete shells skipped M+ re-fetch; missing evidence treated as absence; keystone failure→null; repair flag false | **OBSERVED** | **FIXED IN CODE** / **PENDING MANUAL UI** |
+| 2 | Utility identical “+8” / “contributed 8” | Explainability prints `cappedContribution`; `UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 8`. Strong dual-domain players saturate both domains (CASE A). `expectedDungeons=8` is unrelated | **OBSERVED** | Out of scope (Agent 02+) |
+| 3 | Perf confidence Warlock ≫ Warrior/Shaman | **Lfgmasochist (live):** cooldown coverage already 1.0; low Perf confidence is Phase1 `profile_only` / incomplete dungeon+detailed slots — **not** cooldown. Latent class risk remains: null `specSlug` + ABSENT loadout zeros Warrior/Shaman eligibility (fixtures). Wallidrixe: 16/16 usable, conf 100% | **OBSERVED** (Wallidrixe/Lfgmasochist live) + **OBSERVED** fixtures for null-spec risk; Warrior live **NOT YET PROVEN** | Out of scope |
+| 4 | Lfgmasochist Experience “Previous-season evidence unavailable” | **Live:** `experience: null`, reason `PREVIOUS_EVIDENCE_UNAVAILABLE`; **no** `PREVIOUS_SEASON_RATING` evidence row. Previous TWW season-15 **has COMPLETE population policy** locally — so this instance is **not** `MISSING_POPULATION_POLICY`. Still a real integrity bug: `NO_USABLE_POLICY` is treated as ensure-complete (Midnight hole risk). User fact (played TWW) conflicts with Wallidrixe-style RIO CONFIRMED_ABSENCE path; Lfgmasochist never persisted a previous rating | **OBSERVED** (Lfgmasochist score + evidence) / **OBSERVED** (ensure-complete code bug) | Out of scope |
 
 **Production invariant:** P/S/U/E calculators and WCL acquisition were not modified.
 
@@ -42,30 +90,32 @@ pnpm scoring:diagnose:stabilization -- --region EU --realm <realm> --character <
 
 ### 3.1 Public search / eligibility
 
-**State machine**
+**Agent 01 baseline (faulty) — superseded by Agent 02 for Problem 1.**
+
+**State machine AFTER Agent 02**
 
 | Case | Bootstrap Blizzard on resolve? | Persist season M+ evidence? | Enqueue refresh? | `bootstrapRepairRequired` |
 |------|-------------------------------|-----------------------------|------------------|---------------------------|
-| Unknown public, rating>0, max level | Yes | Yes if rating≠null | Yes if eligible | false |
-| Unknown public, rating null/0 | Yes | No if null | No (READY) | false |
-| Existing complete + published score | No | No | No on resolve | false |
-| **Existing complete + no authoritative-season M+ evidence, !forceRetry** | **No** | **No** | **No / 409 on refresh** | **false** |
-| Same + `forceRetry` | Yes if missing season evidence | If rating≠null | If eligible | depends |
-| Incomplete shell | Yes | If rating≠null | If eligible | **true** |
+| Unknown public, HAS_SCORE, max level | Yes (≤1 keystone) | Yes (tagged positive) | Yes if eligible | false after persist |
+| Unknown public, CONFIRMED_NO_SCORE | Yes | Yes (tagged 0 + confirmedNoScore) | No | **false** |
+| Unknown public, UNKNOWN (provider fail) | Yes | Profile only; **no** rating write | No; 503 retryable | **true** (still repairable) |
+| Existing complete + season evidence known | **No** | Reuse | Unchanged | false |
+| **Existing complete + missing season evidence** | **Yes (≤1 keystone)** | Per typed result | If HAS_SCORE + eligible | **true** until repaired |
+| Incomplete shell | Yes | Per typed result | If eligible | **true** |
 | Prior job `UNKNOWN` | Yes | … | … | **true** |
-| Owned discovery max-level | Always keystone | Ownership + snapshot if rating | Auto if rating≥1000 | Gate may pass via ownership |
+| Owned discovery max-level | Always keystone (unchanged) | Ownership + snapshot | Unchanged | Gate may pass via ownership |
 
-**Why public ≠ owned**
+**Why public ≠ owned (still true)**
 
 - Public completeness = profile shell fields only (`characterLacksBootstrapEvidence`).
 - Owned discovery always fetches current-season keystone and writes `verified_character_ownership.currentSeasonMythic*`.
-- Worker gate is provider-free and reads only persisted evidence.
+- Worker gate remains provider-free and reads only persisted evidence.
 
-**A–E answers**
+**A–E answers AFTER Agent 02**
 
-- **C:** Missing season evidence ≠ incomplete bootstrap. Season known + no evidence → `currentSeasonMythicScore: null` → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`. Incomplete level → `UNKNOWN` + repair true.
-- **D:** Yes — keystone throw → `mythicRating=null`, same as successful no-rating. Failed keystone also undercounts `providerCalls` (stays 1).
-- **E:** `isBootstrapRepairRequired` / `eligibilityConflictNeedsBootstrapRepair` only fire for incomplete shell or `UNKNOWN`, never for `NO_CURRENT_SEASON_MYTHIC_SCORE`.
+- **C:** Missing season evidence (`undefined`) is repairable UNKNOWN — **not** confirmed absence (`null` → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`).
+- **D:** Keystone throw → `UNKNOWN` + counted provider call; never collapsed to confirmed no-score.
+- **E:** Repair flags fire for incomplete shell, UNKNOWN job, or **missing** season evidence; confirmed `NO_CURRENT…` does **not** advertise fake repairability.
 
 ### 3.2 Utility “+8”
 
@@ -163,11 +213,12 @@ Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column
 
 ### Agent 02 — Eligibility / public search
 
-- Distinguish keystone **failure** from proven absence (do not persist/consume failure as null proof).
-- When complete shell lacks authoritative-season evidence, allow bounded bootstrap repair without requiring unrelated incomplete-shell semantics — or map `NO_CURRENT…` to an explicit repair advertisement carefully.
-- Keep worker gate provider-free.
-- Do not change eligibility thresholds (max level / min score) unless explicitly approved.
-- Acceptance: tests already freezing current behavior become failing→passing acceptance after fix.
+**DONE IN CODE** (2026-08-10) — see §0. **PENDING MANUAL UI VALIDATION.** Do not start Agent 03 until UI gate passes.
+
+Shipped:
+- Typed keystone states (`HAS_SCORE` / `CONFIRMED_NO_SCORE` / `UNKNOWN`).
+- Missing season evidence repairs on normal exact resolve; reuse when known.
+- Worker gate remains provider-free; no eligibility threshold changes; no migration.
 
 ### Agent 03 — Utility explainability (optional product)
 
@@ -195,14 +246,15 @@ Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column
 
 ## 7. Tests that should become acceptance tests
 
-| Test | File | Today |
-|------|------|-------|
-| Complete shell + missing season + !forceRetry → no repair; repairRequired false; conflict no repair | `character-bootstrap-repair.test.ts` | Freezes bug |
-| Keystone throw → null indistinguishable from absence; providerCalls undercount | `character-public-bootstrap.keystone-collapse.test.ts` | Freezes bug |
-| Dual-domain cap=8 with distinct uncapped; expectedDungeons unrelated | `utility-v2.test.ts` | Documents design |
-| Warlock BASELINE vs Warrior/Shaman null-spec zero eligible; coverage blend | `phase2.test.ts` | Documents asymmetry |
-| `NO_USABLE_POLICY` ensure-complete | `experience-agent02-integrity.test.ts` | Freezes bug |
-| `MISSING_POPULATION_POLICY` → null not 0; confirmed absence → 0 | `calculate.test.ts` | Semantics lock |
+| Test | File | Status |
+|------|------|--------|
+| Complete shell + missing season → repair without forceRetry; flags advertise repair | `character-bootstrap-repair.test.ts` | **Agent 02 acceptance** |
+| Keystone throw → UNKNOWN (not confirmed no-score); providerCalls counted | `character-public-bootstrap.keystone-collapse.test.ts` | **Agent 02 acceptance** |
+| Missing evidence → UNKNOWN; confirmed absence → NO_CURRENT; UNKNOWN persist no-write | `refresh-eligibility-gate.test.ts` | **Agent 02 acceptance** |
+| Dual-domain cap=8 with distinct uncapped; expectedDungeons unrelated | `utility-v2.test.ts` | Documents design (later agents) |
+| Warlock BASELINE vs Warrior/Shaman null-spec zero eligible; coverage blend | `phase2.test.ts` | Documents asymmetry (later) |
+| `NO_USABLE_POLICY` ensure-complete | `experience-agent02-integrity.test.ts` | Freezes bug (later) |
+| `MISSING_POPULATION_POLICY` → null not 0; confirmed absence → 0 | `calculate.test.ts` | Semantics lock (later) |
 
 ---
 
@@ -218,37 +270,29 @@ Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column
 
 ---
 
-## Manual UI baseline checklist (human gate — before Agent 02)
+## Manual UI validation checklist (human gate — after Agent 02, before Agent 03)
 
-Keep short. Record exact strings/numbers.
+See full checklist in `LATEST_HANDOFF.md`. Summary:
 
-### PUBLIC SEARCH
+### A. Non-owned character with current-season M+ score
+Public search → resolve successfully; must **not** fail with `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` solely because local season evidence was absent; refresh should enqueue/become available.
 
-1. Search a non-owned character known to exist on Blizzard (note name/realm/region).
-2. Expect error code `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` (or profile READY without refresh).
-3. Confirm `bootstrapRepairRequired` is **false** / no repair CTA if shell looks complete.
-4. Retry search without `forceRetry` — expect **same** failure.
-5. Compare with an owned Battle.net character that refreshes successfully.
+### B. Second search of same character
+Still works; persisted evidence reused.
 
-### UTILITY
+### C. Real character with no current-season M+ score
+Legitimate `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` OK; `bootstrapRepairRequired` false.
 
-1. Open a scored character showing Utility strengths.
-2. Note labels: `Cast stops contributed …` and `Strategic CC contribution …`.
-3. Record Utility score and both contribution numbers (expect **8** / **8** on strong characters).
-4. Do **not** treat “8” as event count.
+### D. Owned character
+Battle.net-linked path unchanged.
 
-### PERFORMANCE
+### E. Provider failure
+Automated only — do not break production credentials.
 
-1. Wallidrixe (Warlock): record Performance confidence % and confidence limitation labels.
-2. Warrior character: same.
-3. Shaman (Lfgmasochist if scored): same.
-4. Note whether Warlock is ~100% and others show incomplete cooldown coverage / lower %.
+**Gate rule:** Problem 1 is **not fully accepted** until this checklist passes. Agent 03 must not start before then.
 
-### EXPERIENCE
+---
 
-1. Open Lfgmasochist.
-2. Record Experience score/state exactly (null/unavailable vs `0`).
-3. Record exact explainability/confidence label (expect **“Previous-season evidence unavailable”** if RCA holds).
-4. Confirm it is **not** “Previous-season activity: none confirmed” unless truly E=0.
+## Manual UI baseline checklist (Agent 01 — historical)
 
-**Gate rule:** Agent 02 starts only after this checklist is filled and attached to the chantier notes.
+Kept for chantier archive. Agent 01 expected the **faulty** public-search failure modes; Agent 02 reverses those for Problem 1.

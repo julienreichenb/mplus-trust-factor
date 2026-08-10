@@ -86,7 +86,7 @@ describe("character bootstrap repair triggers", () => {
     ).toBe(true);
   });
 
-  it("does not repair ordinary complete characters", () => {
+  it("does not repair ordinary complete characters with season evidence", () => {
     expect(
       shouldRepairCharacterBootstrap({
         character: complete,
@@ -95,26 +95,6 @@ describe("character bootstrap repair triggers", () => {
         missingSeasonMythicEvidence: false,
       }),
     ).toBe(false);
-
-    expect(
-      shouldRepairCharacterBootstrap({
-        character: complete,
-        latestJob: null,
-        forceRetry: false,
-        missingSeasonMythicEvidence: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("allows forceRetry to refresh missing season Mythic+ evidence", () => {
-    expect(
-      shouldRepairCharacterBootstrap({
-        character: complete,
-        latestJob: null,
-        forceRetry: true,
-        missingSeasonMythicEvidence: true,
-      }),
-    ).toBe(true);
   });
 
   it("maps refresh conflicts to repair when bootstrap incomplete or UNKNOWN", () => {
@@ -139,30 +119,44 @@ describe("character bootstrap repair triggers", () => {
   });
 
   /**
-   * Agent 01 diagnostic freeze — current production behavior (NOT the desired fix).
-   *
-   * A complete Character shell with missing authoritative-season Mythic+ evidence
-   * fails eligibility as CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE, but:
-   * - ordinary exact resolve does NOT re-bootstrap (needs forceRetry)
-   * - bootstrapRepairRequired stays false (UI does not advertise resolve repair)
-   * - eligibility conflicts do NOT map to bootstrap repair
+   * Agent 02 acceptance — complete shell + missing season Mythic evidence is repairable
+   * on normal exact resolve (forceRetry not required).
    */
   describe("scoring-stabilization: complete shell + missing season Mythic evidence", () => {
-    it("does not repair without forceRetry when season Mythic evidence is missing", () => {
+    it("repairs missing season Mythic evidence without forceRetry", () => {
       expect(
         shouldRepairCharacterBootstrap({
           character: complete,
           latestJob: {
             status: "FAILED",
-            error: { code: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" },
+            error: { code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN" },
           },
           forceRetry: false,
           missingSeasonMythicEvidence: true,
         }),
-      ).toBe(false);
+      ).toBe(true);
+
+      expect(
+        shouldRepairCharacterBootstrap({
+          character: complete,
+          latestJob: null,
+          forceRetry: false,
+          missingSeasonMythicEvidence: true,
+        }),
+      ).toBe(true);
     });
 
-    it("keeps bootstrapRepairRequired=false for NO_CURRENT_SEASON_MYTHIC_SCORE", () => {
+    it("advertises bootstrapRepairRequired when season evidence is missing", () => {
+      expect(
+        isBootstrapRepairRequired({
+          character: complete,
+          latestJob: null,
+          missingSeasonMythicEvidence: true,
+        }),
+      ).toBe(true);
+    });
+
+    it("does NOT advertise repair for confirmed authoritative no-score", () => {
       expect(
         isBootstrapRepairRequired({
           character: complete,
@@ -170,17 +164,27 @@ describe("character bootstrap repair triggers", () => {
             status: "FAILED",
             error: { code: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" },
           },
+          missingSeasonMythicEvidence: false,
         }),
       ).toBe(false);
-    });
 
-    it("does not advertise bootstrap repair for NO_CURRENT_SEASON_MYTHIC_SCORE conflicts", () => {
       expect(
         eligibilityConflictNeedsBootstrapRepair({
           character: complete,
           eligibilityCode: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
+          missingSeasonMythicEvidence: false,
         }),
       ).toBe(false);
+    });
+
+    it("advertises repair for UNKNOWN eligibility / missing season evidence conflicts", () => {
+      expect(
+        eligibilityConflictNeedsBootstrapRepair({
+          character: complete,
+          eligibilityCode: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+          missingSeasonMythicEvidence: true,
+        }),
+      ).toBe(true);
     });
   });
 });
