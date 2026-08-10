@@ -97,33 +97,16 @@ describe("refresh eligibility gate", () => {
     ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE });
   });
 
-  it("blocks confirmed absence (null score with persisted evidence)", async () => {
+  it("blocks current-season rating null", async () => {
     const prisma = prismaEligible();
     prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null);
     prisma.metricObservation.findFirst = vi.fn(async () => null);
-    prisma.characterSnapshot.findMany = vi.fn(async () => [
-      {
-        mythicRating: 0,
-        rawSummary: {
-          eligibility: { authoritativeSeasonId: authority.seasonRowId, confirmedNoScore: true },
-        },
-      },
-    ]);
     await expect(
       runRefreshEligibilityGate({ prisma: prisma as never, logger }, { characterId: "c1", authority, jobId: "j" }),
     ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE });
   });
 
-  it("treats missing season-scoped evidence as UNKNOWN (not confirmed no-score)", async () => {
-    const prisma = prismaEligible();
-    prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null);
-    prisma.metricObservation.findFirst = vi.fn(async () => null);
-    await expect(
-      runRefreshEligibilityGate({ prisma: prisma as never, logger }, { characterId: "c1", authority, jobId: "j" }),
-    ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN });
-  });
-
-  it("blocks previous-season rating > 0 as UNKNOWN when no current-season evidence", async () => {
+  it("blocks previous-season rating > 0", async () => {
     const prisma = prismaEligible();
     prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null); // season filter excludes old
     prisma.metricObservation.findFirst = vi.fn(async () => null);
@@ -135,10 +118,10 @@ describe("refresh eligibility gate", () => {
     ]);
     await expect(
       runRefreshEligibilityGate({ prisma: prisma as never, logger }, { characterId: "c1", authority, jobId: "j" }),
-    ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN });
+    ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE });
   });
 
-  it("blocks season mismatch on tagged snapshot as UNKNOWN when no matching evidence", async () => {
+  it("blocks season mismatch on tagged snapshot", async () => {
     const prisma = prismaEligible();
     prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null);
     prisma.metricObservation.findFirst = vi.fn(async () => null);
@@ -150,7 +133,7 @@ describe("refresh eligibility gate", () => {
     ]);
     await expect(
       runRefreshEligibilityGate({ prisma: prisma as never, logger }, { characterId: "c1", authority, jobId: "j" }),
-    ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN });
+    ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE });
   });
 
   it("fails closed when authoritative season is missing", async () => {
@@ -162,7 +145,7 @@ describe("refresh eligibility gate", () => {
     ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN });
   });
 
-  it("fails closed on unscoped snapshot mythicRating as UNKNOWN", async () => {
+  it("fails closed on unscoped snapshot mythicRating", async () => {
     const prisma = prismaEligible();
     prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null);
     prisma.metricObservation.findFirst = vi.fn(async () => null);
@@ -171,7 +154,7 @@ describe("refresh eligibility gate", () => {
     ]);
     await expect(
       runRefreshEligibilityGate({ prisma: prisma as never, logger }, { characterId: "c1", authority, jobId: "j" }),
-    ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN });
+    ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE });
   });
 
   it("fails closed when level is missing — identical for every provider mode", async () => {
@@ -218,7 +201,7 @@ describe("refresh eligibility gate", () => {
         { prisma: prisma as never, logger },
         { characterId: "c1", authority, jobId: "job-mismatch" },
       ),
-    ).rejects.toMatchObject({ code: CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN, providerCalls: 0 });
+    ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE, providerCalls: 0 });
 
     expect(prisma.verifiedCharacterOwnership.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -264,45 +247,6 @@ describe("refresh eligibility gate", () => {
       { characterId: "c1", authority, jobId: "j" },
     );
     expect(result.eligible).toBe(true);
-  });
-
-  it("UNKNOWN persist does not write rating evidence; CONFIRMED_NO_SCORE writes tagged 0", async () => {
-    const { persistRefreshEligibilityEvidence } = await import("./refresh-eligibility-gate.js");
-    const create = vi.fn(async () => ({}));
-    const update = vi.fn(async () => ({}));
-    const prisma = {
-      character: { update },
-      characterSnapshot: { create },
-    };
-
-    await persistRefreshEligibilityEvidence(prisma as never, {
-      characterId: "c1",
-      level: 90,
-      authoritativeSeasonRowId: authority.seasonRowId,
-      currentSeasonMythic: { state: "UNKNOWN" },
-    });
-    expect(create).not.toHaveBeenCalled();
-    expect(update).toHaveBeenCalled();
-
-    await persistRefreshEligibilityEvidence(prisma as never, {
-      characterId: "c1",
-      level: null,
-      authoritativeSeasonRowId: authority.seasonRowId,
-      currentSeasonMythic: { state: "CONFIRMED_NO_SCORE" },
-    });
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          mythicRating: 0,
-          rawSummary: {
-            eligibility: {
-              authoritativeSeasonId: authority.seasonRowId,
-              confirmedNoScore: true,
-            },
-          },
-        }),
-      }),
-    );
   });
 
   it("maps pure evaluator consistently for admin/bulk/explicit triggers", () => {

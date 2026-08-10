@@ -86,7 +86,7 @@ describe("character bootstrap repair triggers", () => {
     ).toBe(true);
   });
 
-  it("does not repair ordinary complete characters with season evidence", () => {
+  it("does not repair ordinary complete characters with season score present", () => {
     expect(
       shouldRepairCharacterBootstrap({
         character: complete,
@@ -119,23 +119,10 @@ describe("character bootstrap repair triggers", () => {
   });
 
   /**
-   * Agent 02 acceptance — complete shell + missing season Mythic evidence is repairable
-   * on normal exact resolve (forceRetry not required).
+   * Agent 02 acceptance — missing current-season Mythic+ score fetches on normal resolve.
    */
   describe("scoring-stabilization: complete shell + missing season Mythic evidence", () => {
-    it("repairs missing season Mythic evidence without forceRetry", () => {
-      expect(
-        shouldRepairCharacterBootstrap({
-          character: complete,
-          latestJob: {
-            status: "FAILED",
-            error: { code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN" },
-          },
-          forceRetry: false,
-          missingSeasonMythicEvidence: true,
-        }),
-      ).toBe(true);
-
+    it("fetches when season Mythic score is missing without forceRetry", () => {
       expect(
         shouldRepairCharacterBootstrap({
           character: complete,
@@ -146,17 +133,18 @@ describe("character bootstrap repair triggers", () => {
       ).toBe(true);
     });
 
-    it("advertises bootstrapRepairRequired when season evidence is missing", () => {
+    it("does not fetch when season Mythic score is already present", () => {
       expect(
-        isBootstrapRepairRequired({
+        shouldRepairCharacterBootstrap({
           character: complete,
-          latestJob: null,
-          missingSeasonMythicEvidence: true,
+          latestJob: { status: "COMPLETED", error: null },
+          forceRetry: false,
+          missingSeasonMythicEvidence: false,
         }),
-      ).toBe(true);
+      ).toBe(false);
     });
 
-    it("does NOT advertise repair for confirmed authoritative no-score", () => {
+    it("keeps bootstrapRepairRequired=false for NO_CURRENT_SEASON_MYTHIC_SCORE jobs", () => {
       expect(
         isBootstrapRepairRequired({
           character: complete,
@@ -164,27 +152,17 @@ describe("character bootstrap repair triggers", () => {
             status: "FAILED",
             error: { code: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" },
           },
-          missingSeasonMythicEvidence: false,
-        }),
-      ).toBe(false);
-
-      expect(
-        eligibilityConflictNeedsBootstrapRepair({
-          character: complete,
-          eligibilityCode: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
-          missingSeasonMythicEvidence: false,
         }),
       ).toBe(false);
     });
 
-    it("advertises repair for UNKNOWN eligibility / missing season evidence conflicts", () => {
+    it("does not advertise bootstrap repair for NO_CURRENT_SEASON_MYTHIC_SCORE conflicts", () => {
       expect(
         eligibilityConflictNeedsBootstrapRepair({
           character: complete,
-          eligibilityCode: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
-          missingSeasonMythicEvidence: true,
+          eligibilityCode: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
         }),
-      ).toBe(true);
+      ).toBe(false);
     });
   });
 });

@@ -41,7 +41,7 @@ describe("character refresh eligibility", () => {
     expect(result.code).toBeNull();
   });
 
-  it("blocks missing current-season score (confirmed absence)", () => {
+  it("blocks missing current-season score", () => {
     const result = evaluateCharacterRefreshEligibility({
       characterLevel: 90,
       currentSeasonMythicScore: null,
@@ -49,16 +49,6 @@ describe("character refresh eligibility", () => {
     });
     expect(result.eligible).toBe(false);
     expect(result.code).toBe(CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE);
-  });
-
-  it("treats unevaluated current-season score as UNKNOWN (repairable)", () => {
-    const result = evaluateCharacterRefreshEligibility({
-      characterLevel: 90,
-      currentSeasonMythicScore: undefined,
-      authoritativeSeasonKnown: true,
-    });
-    expect(result.eligible).toBe(false);
-    expect(result.code).toBe(CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN);
   });
 
   it("treats zero score as missing", () => {

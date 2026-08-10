@@ -1,7 +1,8 @@
 /**
- * Agent 02 acceptance — public bootstrap current-season Mythic+ states.
+ * Agent 02 acceptance — public bootstrap current-season Mythic+ lookup.
  *
- * Provider failure must NEVER collapse into confirmed no-score.
+ * Provider failure must NEVER collapse into null/"no score".
+ * Successful response with null rating remains a genuine no-score.
  */
 import { describe, expect, it, vi } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
@@ -26,8 +27,8 @@ const profile = {
   blizzardCharacterId: "42",
 };
 
-describe("scoring-stabilization: public bootstrap current-season Mythic states", () => {
-  it("provider keystone failure is UNKNOWN (not confirmed no-score)", async () => {
+describe("scoring-stabilization: public bootstrap current-season Mythic lookup", () => {
+  it("propagates keystone provider failure (does not collapse to mythicRating=null)", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -46,16 +47,16 @@ describe("scoring-stabilization: public bootstrap current-season Mythic states",
 
     const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.currentSeasonMythic.state).toBe("UNKNOWN");
-    expect(result.mythicRating).toBeNull();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("UPSTREAM_5XX");
+    expect(result.error.retryable).toBe(true);
     expect(result.providerCalls).toBe(2);
     expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
     expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps successful currentMythicRating as HAS_SCORE", async () => {
+  it("keeps successful currentMythicRating when keystone succeeds", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -72,11 +73,10 @@ describe("scoring-stabilization: public bootstrap current-season Mythic states",
     const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.currentSeasonMythic).toEqual({ state: "HAS_SCORE", rating: 1842 });
     expect(result.mythicRating).toBe(1842);
   });
 
-  it("successful keystone with missing rating is CONFIRMED_NO_SCORE", async () => {
+  it("maps successful keystone with missing rating to null (true absence)", async () => {
     const blizzard = {
       getCharacterProfile: vi.fn(async () => ({
         data: profile,
@@ -93,7 +93,6 @@ describe("scoring-stabilization: public bootstrap current-season Mythic states",
     const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.currentSeasonMythic.state).toBe("CONFIRMED_NO_SCORE");
     expect(result.mythicRating).toBeNull();
     expect(result.providerCalls).toBe(2);
   });

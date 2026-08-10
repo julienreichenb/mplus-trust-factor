@@ -14,11 +14,8 @@
  *   where season_id = authoritative Season.id
  * - character_snapshots.mythic_rating where raw_summary.eligibility.authoritativeSeasonId
  *   equals authoritative Season.id
- *   - rating > 0 → HAS_SCORE
- *   - rating === 0 and/or eligibility.confirmedNoScore → CONFIRMED_NO_SCORE
  *
  * Unscoped CharacterSnapshot.mythicRating alone never qualifies.
- * Missing season-scoped evidence is UNKNOWN (undefined), not confirmed no-score.
  * Behavior is identical for live / fixture / mock / inline / BullMQ.
  */
 import type { Logger } from "@mplus/observability";
@@ -36,11 +33,6 @@ export const REFRESH_ELIGIBILITY_GATE_EVENT = "refresh_eligibility_gate";
 
 /** Persisted on CharacterSnapshot.rawSummary when season identity is known. */
 export const SNAPSHOT_ELIGIBILITY_SEASON_KEY = "eligibility" as const;
-
-export type CurrentSeasonMythicPersistEvidence =
-  | { state: "HAS_SCORE"; rating: number }
-  | { state: "CONFIRMED_NO_SCORE" }
-  | { state: "UNKNOWN" };
 
 export class RefreshEligibilityError extends Error {
   readonly code: CharacterRefreshEligibilityCode;
@@ -96,35 +88,23 @@ export interface RefreshEligibilityGateDeps {
   maxCharacterLevel?: number;
 }
 
-function readSeasonTaggedSnapshotEvidence(
+function readSeasonTaggedSnapshotRating(
   rawSummary: unknown,
   mythicRating: number | null,
   authoritativeSeasonRowId: string,
-): { kind: "HAS_SCORE"; rating: number } | { kind: "CONFIRMED_NO_SCORE" } | null {
+): number | null {
+  if (mythicRating == null || !(mythicRating > 0)) return null;
   if (!rawSummary || typeof rawSummary !== "object" || Array.isArray(rawSummary)) return null;
   const eligibility = (rawSummary as Record<string, unknown>)[SNAPSHOT_ELIGIBILITY_SEASON_KEY];
   if (!eligibility || typeof eligibility !== "object" || Array.isArray(eligibility)) return null;
   const seasonId = (eligibility as { authoritativeSeasonId?: unknown }).authoritativeSeasonId;
   if (typeof seasonId !== "string" || seasonId !== authoritativeSeasonRowId) return null;
-
-  const confirmedNoScore = (eligibility as { confirmedNoScore?: unknown }).confirmedNoScore === true;
-  if (confirmedNoScore || mythicRating === 0) {
-    return { kind: "CONFIRMED_NO_SCORE" };
-  }
-  if (mythicRating != null && mythicRating > 0) {
-    return { kind: "HAS_SCORE", rating: mythicRating };
-  }
-  return null;
+  return mythicRating;
 }
 
 /**
  * Load persisted eligibility signals for a character against verified season authority.
  * Never contacts Blizzard / Raider.IO / WCL.
- *
- * currentSeasonMythicScore:
- * - number → HAS_SCORE
- * - null → CONFIRMED_NO_SCORE (authoritative absence persisted)
- * - undefined → UNKNOWN (no season-scoped evidence yet / never confirmed)
  */
 export async function loadCharacterRefreshEligibilitySignals(
   prisma: PrismaClient,
@@ -136,12 +116,7 @@ export async function loadCharacterRefreshEligibilitySignals(
   characterLevel: number | null;
   currentSeasonMythicScore: number | null | undefined;
   authoritativeSeasonKnown: boolean;
-  evidenceSource:
-    | "ownership"
-    | "metric_observation"
-    | "season_tagged_snapshot"
-    | "confirmed_absence"
-    | null;
+  evidenceSource: "ownership" | "metric_observation" | "season_tagged_snapshot" | null;
 }> {
   if (!input.characterId) {
     return {
@@ -190,20 +165,11 @@ export async function loadCharacterRefreshEligibilitySignals(
   });
 
   if (ownership?.currentSeasonMythicRating != null) {
-    const rating = ownership.currentSeasonMythicRating;
-    if (rating > 0) {
-      return {
-        characterLevel: character.level,
-        currentSeasonMythicScore: rating,
-        authoritativeSeasonKnown: true,
-        evidenceSource: "ownership",
-      };
-    }
     return {
       characterLevel: character.level,
-      currentSeasonMythicScore: null,
+      currentSeasonMythicScore: ownership.currentSeasonMythicRating,
       authoritativeSeasonKnown: true,
-      evidenceSource: "confirmed_absence",
+      evidenceSource: "ownership",
     };
   }
 
@@ -219,20 +185,11 @@ export async function loadCharacterRefreshEligibilitySignals(
   });
 
   if (observation?.rawValue != null) {
-    const rating = Number(observation.rawValue);
-    if (rating > 0) {
-      return {
-        characterLevel: character.level,
-        currentSeasonMythicScore: rating,
-        authoritativeSeasonKnown: true,
-        evidenceSource: "metric_observation",
-      };
-    }
     return {
       characterLevel: character.level,
-      currentSeasonMythicScore: null,
+      currentSeasonMythicScore: Number(observation.rawValue),
       authoritativeSeasonKnown: true,
-      evidenceSource: "confirmed_absence",
+      evidenceSource: "metric_observation",
     };
   }
 
@@ -243,33 +200,25 @@ export async function loadCharacterRefreshEligibilitySignals(
     select: { mythicRating: true, rawSummary: true },
   });
   for (const snap of snapshots) {
-    const tagged = readSeasonTaggedSnapshotEvidence(
+    const tagged = readSeasonTaggedSnapshotRating(
       snap.rawSummary,
       snap.mythicRating,
       authority.seasonRowId,
     );
-    if (tagged?.kind === "HAS_SCORE") {
+    if (tagged != null) {
       return {
         characterLevel: character.level,
-        currentSeasonMythicScore: tagged.rating,
+        currentSeasonMythicScore: tagged,
         authoritativeSeasonKnown: true,
         evidenceSource: "season_tagged_snapshot",
       };
     }
-    if (tagged?.kind === "CONFIRMED_NO_SCORE") {
-      return {
-        characterLevel: character.level,
-        currentSeasonMythicScore: null,
-        authoritativeSeasonKnown: true,
-        evidenceSource: "confirmed_absence",
-      };
-    }
   }
 
-  // No season-scoped evidence — UNKNOWN (repairable), not confirmed absence.
+  // Explicitly no proven current-season score (unscoped / old-season do not count).
   return {
     characterLevel: character.level,
-    currentSeasonMythicScore: undefined,
+    currentSeasonMythicScore: null,
     authoritativeSeasonKnown: true,
     evidenceSource: null,
   };
@@ -277,22 +226,14 @@ export async function loadCharacterRefreshEligibilitySignals(
 
 /**
  * Persist cheap season-scoped eligibility evidence (API/resolve/discovery — not the worker gate).
- * UNKNOWN never writes rating evidence and never overwrites prior authoritative evidence.
  */
 export async function persistRefreshEligibilityEvidence(
   prisma: PrismaClient,
   input: {
     characterId: string;
     level: number | null;
+    mythicRating: number | null;
     authoritativeSeasonRowId: string;
-    /**
-     * Preferred typed evidence. When omitted, legacy `mythicRating` is used:
-     * - number > 0 → HAS_SCORE
-     * - null/undefined → UNKNOWN (no rating write)
-     */
-    currentSeasonMythic?: CurrentSeasonMythicPersistEvidence;
-    /** @deprecated Prefer currentSeasonMythic. */
-    mythicRating?: number | null;
   },
 ): Promise<void> {
   if (input.level != null) {
@@ -301,41 +242,16 @@ export async function persistRefreshEligibilityEvidence(
       data: { level: input.level },
     });
   }
+  if (input.mythicRating == null) return;
 
-  const evidence: CurrentSeasonMythicPersistEvidence =
-    input.currentSeasonMythic ??
-    (input.mythicRating != null && input.mythicRating > 0
-      ? { state: "HAS_SCORE", rating: input.mythicRating }
-      : { state: "UNKNOWN" });
-
-  if (evidence.state === "UNKNOWN") return;
-
-  if (evidence.state === "HAS_SCORE") {
-    await prisma.characterSnapshot.create({
-      data: {
-        characterId: input.characterId,
-        capturedAt: new Date(),
-        mythicRating: evidence.rating,
-        rawSummary: {
-          [SNAPSHOT_ELIGIBILITY_SEASON_KEY]: {
-            authoritativeSeasonId: input.authoritativeSeasonRowId,
-          },
-        },
-      },
-    });
-    return;
-  }
-
-  // CONFIRMED_NO_SCORE — durable season-tagged absence (rating 0), not UNKNOWN.
   await prisma.characterSnapshot.create({
     data: {
       characterId: input.characterId,
       capturedAt: new Date(),
-      mythicRating: 0,
+      mythicRating: input.mythicRating,
       rawSummary: {
         [SNAPSHOT_ELIGIBILITY_SEASON_KEY]: {
           authoritativeSeasonId: input.authoritativeSeasonRowId,
-          confirmedNoScore: true,
         },
       },
     },
@@ -398,10 +314,7 @@ export async function runRefreshEligibilityGate(
       eligible: result.eligible,
       code: result.code,
       characterLevel: signals.characterLevel,
-      currentSeasonMythicScore:
-        signals.currentSeasonMythicScore === undefined
-          ? "UNKNOWN"
-          : signals.currentSeasonMythicScore,
+      currentSeasonMythicScore: signals.currentSeasonMythicScore ?? null,
       maxCharacterLevel: result.maxCharacterLevel,
       authoritativeSeasonSlug: input.authority.slug,
       evidenceSource: signals.evidenceSource,
