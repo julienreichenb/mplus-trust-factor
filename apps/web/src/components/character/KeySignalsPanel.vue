@@ -17,6 +17,7 @@ const props = defineProps<{
 const contributorSignals = computed(() => parseContributorSignals(props.dimensions));
 const positives = computed(() => topSignals(contributorSignals.value, "positive", 3));
 const risks = computed(() => topSignals(contributorSignals.value, "risk", 3));
+const facts = computed(() => topSignals(contributorSignals.value, "fact", 3));
 const publicFlags = computed(() => props.flags.filter((f) => f.public));
 </script>
 
@@ -42,15 +43,26 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
       </div>
 
       <div>
-        <h3>Risks & limitations</h3>
+        <h3>Risks &amp; weaknesses</h3>
         <ul v-if="risks.length">
           <li v-for="(item, index) in risks" :key="`risk-${index}`">
-            <span class="kind kind--risk">Risk</span>
+            <span class="kind kind--risk">Weakness</span>
             {{ item.label }}
             <span v-if="item.dimension" class="dim">{{ item.dimension }}</span>
           </li>
         </ul>
         <p v-else class="empty">No risk contributor labels in this snapshot.</p>
+      </div>
+
+      <div v-if="facts.length">
+        <h3>Facts / context</h3>
+        <ul>
+          <li v-for="(item, index) in facts" :key="`fact-${index}`">
+            <span class="kind kind--fact">Fact</span>
+            {{ item.label }}
+            <span v-if="item.dimension" class="dim">{{ item.dimension }}</span>
+          </li>
+        </ul>
       </div>
     </div>
 
@@ -140,6 +152,10 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
 
 .kind--risk {
   color: var(--color-ember-500);
+}
+
+.kind--fact {
+  color: var(--color-text-muted);
 }
 
 .dim {

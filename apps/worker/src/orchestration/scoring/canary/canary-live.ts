@@ -461,177 +461,178 @@ export async function runScoringCanaryLive(
 
   let ports = input.ports;
   let redisForLock: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
+  let cold: AuthoritativeScoringResult;
+  let replay: AuthoritativeScoringResult;
 
-  // One Redis connection for the full cold+replay canary operation.
-  if (input.useRedisLock !== false) {
-    redisForLock = input.container.createRedisConnection();
-  }
+  // Every path after createRedisConnection must quit — including early validation failures.
+  try {
+    // One Redis connection for the full cold+replay canary operation.
+    if (input.useRedisLock !== false) {
+      redisForLock = input.container.createRedisConnection();
+    }
 
-  if (!ports) {
-    let liveHook:
-      | ((args: {
-          sourceFight: SourceFightIdentity;
-          dungeonSlug: string | null;
-          keyLevel: number | null;
-          participants: OrchestrationParticipant[];
-        }) => Promise<LiveCapabilityAcquireResult>)
-      | undefined;
-    if (capabilityLiveProviderPermission === "ALLOWED") {
-      const client = new LiveWarcraftLogsProvider({
-        env: input.env,
-      }).getGraphQlClient();
-      const baseHook = createLiveCapabilityAcquireHook({
-        env: input.env,
+    if (!ports) {
+      let liveHook:
+        | ((args: {
+            sourceFight: SourceFightIdentity;
+            dungeonSlug: string | null;
+            keyLevel: number | null;
+            participants: OrchestrationParticipant[];
+          }) => Promise<LiveCapabilityAcquireResult>)
+        | undefined;
+      if (capabilityLiveProviderPermission === "ALLOWED") {
+        const client = new LiveWarcraftLogsProvider({
+          env: input.env,
+        }).getGraphQlClient();
+        const baseHook = createLiveCapabilityAcquireHook({
+          env: input.env,
+          prisma: input.prisma,
+          artifacts: input.container.repositories.artifacts,
+          wclSource: input.container.repositories.wclSource,
+          client,
+          region: input.region,
+          permission: permissionInput,
+        });
+        liveHook = async (args) => {
+          acquisitionsAttempted += 1;
+          try {
+            const result = await baseHook(args);
+            if (result.created) acquisitionsSucceeded += 1;
+            eventPageRequestCount += result.accounting.pagesFetched ?? 0;
+            if (result.accounting.pointsConsumed != null) {
+              measuredPointsAcc =
+                (measuredPointsAcc ?? 0) + result.accounting.pointsConsumed;
+            } else if (result.accounting.estimatedPointsConsumed != null) {
+              estimatedPointsAcc += result.accounting.estimatedPointsConsumed;
+            } else if (result.providerCalls > 0) {
+              estimatedPointsAcc += CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
+            }
+            return result;
+          } catch (err) {
+            acquisitionsFailed += 1;
+            throw err;
+          }
+        };
+      }
+
+      const rosterPorts = createProductionRunOrchestrationPorts({
         prisma: input.prisma,
         artifacts: input.container.repositories.artifacts,
-        wclSource: input.container.repositories.wclSource,
-        client,
-        region: input.region,
-        permission: permissionInput,
+        evidence: input.container.repositories.evidence,
+        liveAcquireCapabilityPackage: liveHook,
+        targetCharacter: {
+          characterId: input.characterId,
+          characterName: input.characterName,
+          realmSlug: input.realm,
+          regionCode: input.region,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+          role: input.role,
+        },
       });
-      liveHook = async (args) => {
-        acquisitionsAttempted += 1;
-        try {
-          const result = await baseHook(args);
-          if (result.created) acquisitionsSucceeded += 1;
-          eventPageRequestCount += result.accounting.pagesFetched ?? 0;
-          if (result.accounting.pointsConsumed != null) {
-            measuredPointsAcc =
-              (measuredPointsAcc ?? 0) + result.accounting.pointsConsumed;
-          } else if (result.accounting.estimatedPointsConsumed != null) {
-            estimatedPointsAcc += result.accounting.estimatedPointsConsumed;
-          } else if (result.providerCalls > 0) {
-            estimatedPointsAcc += CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
+      const withSourceFightLock = redisForLock
+        ? createRedisSourceFightLock({
+            redis: redisForLock,
+            appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
+            findCompatiblePackage: (args) =>
+              rosterPorts.findCompatibleCapabilityPackage(args),
+          })
+        : undefined;
+
+      ports = {
+        ...rosterPorts,
+        withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
+      };
+    } else if (redisForLock) {
+      // Injected ports (tests): keep Redis open for cold+replay and fail if quit early.
+      const redis = redisForLock as {
+        assertOpen?: () => void;
+      } & typeof redisForLock;
+      const innerLock = ports.withSourceFightLock.bind(ports);
+      ports = {
+        ...ports,
+        withSourceFightLock: async (sourceFight, work) => {
+          if (typeof redis.assertOpen === "function") {
+            redis.assertOpen();
           }
-          return result;
-        } catch (err) {
-          acquisitionsFailed += 1;
-          throw err;
-        }
+          return innerLock(sourceFight, work);
+        },
       };
     }
 
-    const rosterPorts = createProductionRunOrchestrationPorts({
-      prisma: input.prisma,
-      artifacts: input.container.repositories.artifacts,
-      evidence: input.container.repositories.evidence,
-      liveAcquireCapabilityPackage: liveHook,
-      targetCharacter: {
-        characterId: input.characterId,
-        characterName: input.characterName,
-        realmSlug: input.realm,
-        regionCode: input.region,
-        classSlug: input.classSlug,
-        specSlug: input.specSlug,
-        role: input.role,
-      },
-    });
-    const withSourceFightLock = redisForLock
-      ? createRedisSourceFightLock({
-          redis: redisForLock,
-          appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
-          findCompatiblePackage: (args) =>
-            rosterPorts.findCompatibleCapabilityPackage(args),
-        })
-      : undefined;
-
-    ports = {
-      ...rosterPorts,
-      withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
-    };
-  } else if (redisForLock) {
-    // Injected ports (tests): keep Redis open for cold+replay and fail if quit early.
-    const redis = redisForLock as {
-      assertOpen?: () => void;
-    } & typeof redisForLock;
-    const innerLock = ports.withSourceFightLock.bind(ports);
-    ports = {
-      ...ports,
-      withSourceFightLock: async (sourceFight, work) => {
-        if (typeof redis.assertOpen === "function") {
-          redis.assertOpen();
+    let scoringModelId = input.scoringModelId ?? "canary-shadow-model";
+    let scoreModelKey = "canary-shadow-model";
+    let scoreModelVersionNum = 1;
+    if (!input.scoringModelId) {
+      try {
+        const activeModel = await input.container.repositories.score.getActiveModel();
+        if (activeModel?.id) {
+          scoringModelId = activeModel.id;
+          const modelKey =
+            "key" in activeModel && typeof activeModel.key === "string"
+              ? activeModel.key
+              : activeModel.id;
+          scoreModelKey = modelKey;
+          scoreModelVersionNum =
+            typeof activeModel.version === "number"
+              ? activeModel.version
+              : Number(activeModel.version) || 1;
         }
-        return innerLock(sourceFight, work);
-      },
-    };
-  }
-
-  let scoringModelId = input.scoringModelId ?? "canary-shadow-model";
-  let scoreModelKey = "canary-shadow-model";
-  let scoreModelVersionNum = 1;
-  if (!input.scoringModelId) {
-    try {
-      const activeModel = await input.container.repositories.score.getActiveModel();
-      if (activeModel?.id) {
-        scoringModelId = activeModel.id;
-        const modelKey =
-          "key" in activeModel && typeof activeModel.key === "string"
-            ? activeModel.key
-            : activeModel.id;
-        scoreModelKey = modelKey;
-        scoreModelVersionNum =
-          typeof activeModel.version === "number"
-            ? activeModel.version
-            : Number(activeModel.version) || 1;
+      } catch {
+        // Tests / missing score repo — keep canary shadow model id.
       }
-    } catch {
-      // Tests / missing score repo — keep canary shadow model id.
+    } else if (input.scoringModelVersion != null) {
+      scoreModelVersionNum = Number(input.scoringModelVersion) || 1;
+      scoreModelKey = input.scoringModelId;
     }
-  } else if (input.scoringModelVersion != null) {
-    scoreModelVersionNum = Number(input.scoringModelVersion) || 1;
-    scoreModelKey = input.scoringModelId;
-  }
 
-  const zoneId = season.configuredZoneId;
-  if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
-    throw Object.assign(new Error("canary_live_requires_wcl_zone_id"), {
-      code: "CANARY_ZONE_ID_REQUIRED",
+    const zoneId = season.configuredZoneId;
+    if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
+      throw Object.assign(new Error("canary_live_requires_wcl_zone_id"), {
+        code: "CANARY_ZONE_ID_REQUIRED",
+      });
+    }
+
+    const refreshContract = buildCanaryRefreshContract({
+      seasonSlug: season.seasonSlug,
+      zoneId,
+      scoreModelKey,
+      scoreModelVersion: scoreModelVersionNum,
     });
-  }
 
-  const refreshContract = buildCanaryRefreshContract({
-    seasonSlug: season.seasonSlug,
-    zoneId,
-    scoreModelKey,
-    scoreModelVersion: scoreModelVersionNum,
-  });
+    const evidenceCutoffAt =
+      manifest.evidenceCutoffAt ?? "2099-01-01T00:00:00.000Z";
+    const highKeyPolicyId = manifest.highKeyPolicyId ?? "canary-live-v1";
+    const calculatedAt = new Date().toISOString();
 
-  const evidenceCutoffAt =
-    manifest.evidenceCutoffAt ?? "2099-01-01T00:00:00.000Z";
-  const highKeyPolicyId = manifest.highKeyPolicyId ?? "canary-live-v1";
-  const calculatedAt = new Date().toISOString();
+    const commonScoringInput = {
+      container: input.container,
+      characterId: input.characterId,
+      seasonId: season.seasonId,
+      seasonSlug: season.seasonSlug,
+      role: input.role,
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      refreshContract,
+      evidenceCutoffAt,
+      highKeyPolicyId,
+      activeDungeonSlugs: [...season.activeDungeonSlugs],
+      candidates,
+      scoreModelKey,
+      scoreModelVersion: scoreModelVersionNum,
+      scoreModelId: scoringModelId,
+      calculatedAt,
+      region: input.region,
+      realm: input.realm,
+      characterName: input.characterName,
+      persistCharacterScore: false as const,
+      existingManifest: manifest,
+      portsOverride: ports,
+      experienceOverride: input.experienceOverride,
+      performanceAggregateProviderOverride:
+        input.performanceAggregateProviderOverride,
+    };
 
-  const commonScoringInput = {
-    container: input.container,
-    characterId: input.characterId,
-    seasonId: season.seasonId,
-    seasonSlug: season.seasonSlug,
-    role: input.role,
-    classSlug: input.classSlug,
-    specSlug: input.specSlug,
-    refreshContract,
-    evidenceCutoffAt,
-    highKeyPolicyId,
-    activeDungeonSlugs: [...season.activeDungeonSlugs],
-    candidates,
-    scoreModelKey,
-    scoreModelVersion: scoreModelVersionNum,
-    scoreModelId: scoringModelId,
-    calculatedAt,
-    region: input.region,
-    realm: input.realm,
-    characterName: input.characterName,
-    persistCharacterScore: false as const,
-    existingManifest: manifest,
-    portsOverride: ports,
-    experienceOverride: input.experienceOverride,
-    performanceAggregateProviderOverride:
-      input.performanceAggregateProviderOverride,
-  };
-
-  let cold: AuthoritativeScoringResult;
-  let replay: AuthoritativeScoringResult;
-  try {
     // Cold + replay are one canary operation — keep Redis lock alive for both.
     cold = await runAuthoritativeScoring(commonScoringInput);
 

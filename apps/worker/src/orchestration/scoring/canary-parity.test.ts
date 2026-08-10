@@ -760,6 +760,64 @@ describe("Agent 03 canary authoritative parity", () => {
     }
   });
 
+  it("quits owned Redis when validation fails after create (early-failure cleanup)", async () => {
+    let quitCount = 0;
+    const fakeRedis = {
+      async quit() {
+        quitCount += 1;
+      },
+    };
+    const ports = createMemoryOrchestrationPorts();
+    const manifest = buildManifest(
+      fullCandidates(),
+      MIDNIGHT_SEASON_1_DUNGEON_SLUGS,
+    );
+    const container = mockContainer(manifest);
+    container.createRedisConnection = vi.fn(() => fakeRedis);
+    const outDir = await mkdtemp(join(tmpdir(), "canary-redis-early-fail-"));
+    const badSeason: CanarySeasonResolution = {
+      ...seasonResolutionOk,
+      configuredZoneId: null,
+    };
+    try {
+      await expect(
+        runScoringCanaryLive({
+          prisma: container.prisma as never,
+          container: container as never,
+          characterId: CHAR_ID,
+          characterName: "Target",
+          region: "EU",
+          realm: "archimonde",
+          characterResolution: {
+            characterResolutionSource: "test.injected",
+            characterId: CHAR_ID,
+            characterCanonicalIdentity: {
+              region: "EU",
+              realmSlug: "archimonde",
+              name: "Target",
+            },
+            repositoryMode: "PRODUCTION",
+          },
+          seasonResolution: badSeason,
+          role: "DPS",
+          classSlug: "mage",
+          specSlug: "arcane",
+          rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+          env: liveEnv,
+          ports,
+          ensureRateLimitSnapshot: okBootstrap(100),
+          outputDir: outDir,
+          scoringModelId: "model-1",
+          experienceOverride: confirmedNoActivityExperience(),
+        }),
+      ).rejects.toMatchObject({ code: "CANARY_ZONE_ID_REQUIRED" });
+      expect(container.createRedisConnection).toHaveBeenCalled();
+      expect(quitCount).toBe(1);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("standalone replay does not mutate caller-owned ports.acquire", async () => {
     const ports = createMemoryOrchestrationPorts();
     const originalAcquire = ports.acquireAndPersistCapabilityPackage;

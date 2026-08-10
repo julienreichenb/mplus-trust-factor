@@ -106,7 +106,7 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
   },
   "experience.confirmed_no_activity": {
     labelKey: "score.experience.confirmed_no_activity",
-    template: "Confirmed no previous Mythic+ activity → Experience 0",
+    template: "Previous-season activity: none confirmed",
     visibility: "PUBLIC",
   },
 };

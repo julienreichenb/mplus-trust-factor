@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDimensionExplainabilityView,
+  EXPLAINABILITY_UNAVAILABLE_MESSAGE,
   mapEquipmentSlots,
   parseContributorSignals,
+  parseConfidenceReasons,
   presentGrade,
   resolveDataConfidence,
   topSignals,
 } from "./characterViewModel";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
+import type { DimensionScoreDTO } from "@mplus/contracts";
 
 describe("characterViewModel", () => {
   it("presents letter grades with textual interpretation", () => {
@@ -36,11 +40,36 @@ describe("characterViewModel", () => {
     ).toBe(42);
   });
 
-  it("extracts contributor signals without inventing labels", () => {
+  it("extracts contributor signals from Score Explainability V1 fixtures", () => {
     const dims = FIXTURE_CHARACTERS[0]!.profile.score!.dimensions;
     const signals = parseContributorSignals(dims);
-    expect(signals.some((s) => s.kind === "positive" && s.label.includes("DPS"))).toBe(true);
-    expect(topSignals(signals, "risk", 2)).toHaveLength(2);
+    expect(signals.some((s) => s.kind === "positive" && s.label.includes("Phase 1"))).toBe(true);
+    expect(signals.some((s) => s.kind === "risk")).toBe(true);
+    expect(
+      signals.some(
+        (s) =>
+          s.kind === "fact" &&
+          s.code === "experience.confirmed_no_activity" &&
+          /none confirmed/i.test(s.label),
+      ),
+    ).toBe(true);
+    // Confirmed absence must never appear as a weakness.
+    expect(
+      signals.some(
+        (s) => s.kind === "risk" && s.code === "experience.confirmed_no_activity",
+      ),
+    ).toBe(false);
+    expect(topSignals(signals, "risk", 2).length).toBeGreaterThan(0);
+  });
+
+  it("keeps confidence reasons out of score weaknesses", () => {
+    const dims = FIXTURE_CHARACTERS[0]!.profile.score!.dimensions;
+    const scoreSignals = parseContributorSignals(dims);
+    const conf = parseConfidenceReasons(dims);
+    expect(conf.some((s) => /cooldown evidence/i.test(s.label))).toBe(true);
+    expect(scoreSignals.some((s) => s.kind === "risk" && /cooldown evidence/i.test(s.label))).toBe(
+      false,
+    );
   });
 
   it("maps known equipment slots and leaves others unavailable", () => {
@@ -51,7 +80,7 @@ describe("characterViewModel", () => {
     expect(slots.find((s) => s.id === "head")?.filled).toBe(false);
   });
 
-  it("maps live available contributors into positive/risk signals", () => {
+  it("maps live available contributors into positive/risk signals when explainability absent", () => {
     const signals = parseContributorSignals([
       {
         dimension: "PERFORMANCE",
@@ -110,5 +139,143 @@ describe("characterViewModel", () => {
     expect(signals.some((s) => s.label.includes("Missing"))).toBe(false);
     // Genuine scored zero remains a risk signal, distinct from unavailable.
     expect(signals.some((s) => s.kind === "risk" && s.dimensionKey === "PERFORMANCE")).toBe(true);
+  });
+
+  it("categorizes POSITIVE/NEGATIVE/NEUTRAL scoreDrivers without inventing from thresholds", () => {
+    const dim: DimensionScoreDTO = {
+      dimension: "UTILITY",
+      score: 70,
+      confidence: 0.6,
+      weight: 0.25,
+      state: "AVAILABLE",
+      reason: null,
+      contributors: null,
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "utility.cast_stops",
+            labelKey: "score.utility.cast_stops",
+            label: "Cast stops contributed",
+            direction: "POSITIVE",
+            value: 20,
+          },
+          {
+            code: "utility.strategic_cc",
+            labelKey: "score.utility.strategic_cc",
+            label: "No strategic CC observed",
+            direction: "NEUTRAL",
+            value: 0,
+          },
+          {
+            code: "future.unknown_driver",
+            labelKey: "score.future.unknown_driver",
+            label: "Future unknown driver label",
+            direction: "NEGATIVE",
+            value: 10,
+          },
+        ],
+        confidenceReasons: [
+          {
+            code: "tiny_run_sample",
+            labelKey: "confidence.utility.tiny_run_sample",
+            label: "Tiny run sample",
+          },
+        ],
+      },
+    };
+    const view = buildDimensionExplainabilityView(dim);
+    expect(view.strengths.map((s) => s.code)).toEqual(["utility.cast_stops"]);
+    expect(view.weaknesses.map((s) => s.code)).toEqual(["future.unknown_driver"]);
+    expect(view.facts.map((s) => s.code)).toEqual(["utility.strategic_cc"]);
+    expect(view.confidenceReasons.map((s) => s.code)).toEqual(["tiny_run_sample"]);
+    expect(view.weaknesses.some((s) => /Tiny run sample/i.test(s.label))).toBe(false);
+  });
+
+  it("soft-fails when explainability is null without inventing weaknesses from limitations", () => {
+    const dim: DimensionScoreDTO = {
+      dimension: "PERFORMANCE",
+      score: 80,
+      confidence: 0.7,
+      weight: 0.35,
+      state: "AVAILABLE",
+      reason: null,
+      contributors: {
+        limitations: ["partial_dungeon_coverage"],
+        positive: [],
+        negative: [],
+        missing: [{ metricKey: "partial_dungeon_coverage", available: false }],
+      },
+    };
+    const view = buildDimensionExplainabilityView(dim);
+    expect(view.hasExplainability).toBe(false);
+    expect(view.legacyFallbackMessage).toBe(EXPLAINABILITY_UNAVAILABLE_MESSAGE);
+    expect(view.weaknesses).toEqual([]);
+    const signals = parseContributorSignals([dim]);
+    expect(signals.some((s) => /partial_dungeon/i.test(s.label))).toBe(false);
+  });
+
+  it("treats Experience E0 confirmed absence as a score fact with full confidence", () => {
+    const dim: DimensionScoreDTO = {
+      dimension: "EXPERIENCE",
+      score: 0,
+      confidence: 1,
+      weight: 0.1,
+      state: "AVAILABLE",
+      reason: null,
+      contributors: null,
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "experience.confirmed_no_activity",
+            labelKey: "score.experience.confirmed_no_activity",
+            label: "Previous-season activity: none confirmed",
+            direction: "NEUTRAL",
+            value: 0,
+          },
+        ],
+        confidenceReasons: [],
+      },
+    };
+    const view = buildDimensionExplainabilityView(dim);
+    expect(view.facts[0]?.code).toBe("experience.confirmed_no_activity");
+    expect(view.weaknesses).toEqual([]);
+    expect(view.fullConfidence).toBe(true);
+  });
+
+  it("shows confidence reasons only for unavailable Experience evidence", () => {
+    const dim: DimensionScoreDTO = {
+      dimension: "EXPERIENCE",
+      score: null,
+      confidence: 0,
+      weight: 0.1,
+      state: "UNAVAILABLE",
+      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+      contributors: null,
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "should.not.render",
+            labelKey: "x",
+            label: "Should not render as strength",
+            direction: "POSITIVE",
+            value: 1,
+          },
+        ],
+        confidenceReasons: [
+          {
+            code: "previous_evidence_unavailable",
+            labelKey: "confidence.experience.previous_evidence_unavailable",
+            label: "Previous-season evidence is unavailable",
+          },
+        ],
+      },
+    };
+    const view = buildDimensionExplainabilityView(dim);
+    expect(view.strengths).toEqual([]);
+    expect(view.weaknesses).toEqual([]);
+    expect(view.facts).toEqual([]);
+    expect(view.confidenceReasons.map((r) => r.code)).toEqual([
+      "previous_evidence_unavailable",
+    ]);
   });
 });

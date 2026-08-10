@@ -1101,7 +1101,7 @@ describe("Score Explainability V1", () => {
       ).toBe(false);
     });
 
-    it("exposes CONFIRMED_NO_ACTIVITY as score fact with confidence 1", () => {
+    it("exposes CONFIRMED_NO_ACTIVITY as NEUTRAL score fact with confidence 1", () => {
       const dim = buildScoreExplainabilityV1({
         performance: null,
         survival: null,
@@ -1122,7 +1122,8 @@ describe("Score Explainability V1", () => {
       expect(dim.scoreStory.drivers[0]?.code).toBe(
         "experience.confirmed_no_activity",
       );
-      expect(dim.scoreStory.drivers[0]?.direction).toBe("NEGATIVE");
+      expect(dim.scoreStory.drivers[0]?.direction).toBe("NEUTRAL");
+      expect(dim.scoreStory.drivers[0]?.label).toMatch(/none confirmed/i);
       expect(dim.confidenceStory.value).toBe(1);
       expect(dim.confidenceStory.reasons).toEqual([]);
     });

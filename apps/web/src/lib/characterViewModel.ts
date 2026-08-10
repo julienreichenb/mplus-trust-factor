@@ -1,4 +1,8 @@
-import type { DimensionScoreDTO } from "@mplus/contracts";
+import type {
+  DimensionScoreDTO,
+  PublicDimensionExplainabilityV1,
+  ScoreDriverDirection,
+} from "@mplus/contracts";
 import type {
   CharacterProfileView,
   Grade,
@@ -15,14 +19,35 @@ export interface GradePresentation {
   isUnrated: boolean;
 }
 
+/** Score-driver / confidence-signal kinds for product UI. */
+export type ContributorSignalKind = "positive" | "risk" | "fact" | "confidence";
+
 export interface ContributorSignal {
-  kind: "positive" | "risk";
+  kind: ContributorSignalKind;
   label: string;
   /** Human-readable dimension name (e.g. Survival). */
   dimension?: string;
   /** Stable dimension key for icons / filters. */
   dimensionKey?: RadarDimension;
+  /** Stable machine code when from Score Explainability V1. */
+  code?: string;
 }
+
+/** Per-dimension product explainability view (score story vs confidence story). */
+export interface DimensionExplainabilityView {
+  hasExplainability: boolean;
+  strengths: ContributorSignal[];
+  weaknesses: ContributorSignal[];
+  facts: ContributorSignal[];
+  confidenceReasons: ContributorSignal[];
+  /** True when confidence is full and pipeline supplied no reasons. */
+  fullConfidence: boolean;
+  /** Soft message when legacy row has no V1 explainability. */
+  legacyFallbackMessage: string | null;
+}
+
+export const EXPLAINABILITY_UNAVAILABLE_MESSAGE =
+  "Detailed score explanation is not available for this calculation.";
 
 /** @deprecated Prefer EquipmentItemViewModel from equipmentViewModel. */
 export interface EquipmentSlotView {
@@ -76,18 +101,127 @@ export function resolveDataConfidence(profile: CharacterProfileView): number | n
   return null;
 }
 
+function isScoredDimension(dim: DimensionScoreDTO): boolean {
+  return !(
+    dim.state === "UNAVAILABLE" ||
+    dim.state === "PROCESSING" ||
+    dim.state === "ERROR" ||
+    dim.score == null ||
+    dim.confidence <= 0
+  );
+}
+
+function signalFromDriver(
+  dim: DimensionScoreDTO,
+  kind: ContributorSignalKind,
+  label: string,
+  code?: string,
+): ContributorSignal {
+  const dimKey = dim.dimension as RadarDimension;
+  return {
+    kind,
+    label,
+    code,
+    dimension: DIMENSION_LABELS[dimKey] ?? dim.dimension,
+    dimensionKey: dimKey,
+  };
+}
+
+function kindFromDirection(direction: ScoreDriverDirection): ContributorSignalKind {
+  if (direction === "POSITIVE") return "positive";
+  if (direction === "NEGATIVE") return "risk";
+  return "fact";
+}
+
+/**
+ * Build product explainability for one dimension from PublicDimensionExplainabilityV1.
+ * POSITIVE → strength; NEGATIVE → weakness; NEUTRAL → score fact (never weakness).
+ * Confidence reasons stay in a separate list.
+ */
+export function buildDimensionExplainabilityView(
+  dim: DimensionScoreDTO,
+): DimensionExplainabilityView {
+  const dimKey = dim.dimension as RadarDimension;
+  const dimLabel = DIMENSION_LABELS[dimKey] ?? dim.dimension;
+  const empty: DimensionExplainabilityView = {
+    hasExplainability: false,
+    strengths: [],
+    weaknesses: [],
+    facts: [],
+    confidenceReasons: [],
+    fullConfidence: false,
+    legacyFallbackMessage: null,
+  };
+
+  const expl = dim.explainability as PublicDimensionExplainabilityV1 | null | undefined;
+  if (!expl) {
+    return {
+      ...empty,
+      legacyFallbackMessage: isScoredDimension(dim) ? EXPLAINABILITY_UNAVAILABLE_MESSAGE : null,
+    };
+  }
+
+  const strengths: ContributorSignal[] = [];
+  const weaknesses: ContributorSignal[] = [];
+  const facts: ContributorSignal[] = [];
+
+  // UNAVAILABLE: no product strengths/weaknesses; confidence/data reasons may remain.
+  if (isScoredDimension(dim)) {
+    for (const driver of expl.scoreDrivers ?? []) {
+      if (!driver?.label?.trim()) continue;
+      const kind = kindFromDirection(driver.direction);
+      const signal = signalFromDriver(dim, kind, driver.label.trim(), driver.code);
+      if (kind === "positive") strengths.push(signal);
+      else if (kind === "risk") weaknesses.push(signal);
+      else facts.push(signal);
+    }
+  }
+
+  const confidenceReasons: ContributorSignal[] = (expl.confidenceReasons ?? [])
+    .filter((r) => r?.label?.trim())
+    .map((r) => ({
+      kind: "confidence" as const,
+      label: r.label.trim(),
+      code: r.code,
+      dimension: dimLabel,
+      dimensionKey: dimKey,
+    }));
+
+  const fullConfidence =
+    isScoredDimension(dim) &&
+    dim.confidence >= 0.999 &&
+    confidenceReasons.length === 0;
+
+  return {
+    hasExplainability: true,
+    strengths,
+    weaknesses,
+    facts,
+    confidenceReasons,
+    fullConfidence,
+    legacyFallbackMessage: null,
+  };
+}
+
+/**
+ * Prefer Score Explainability V1 scoreDrivers when present.
+ * Legacy contributor fallback remains for older rows without explainability.
+ * Does NOT invent strengths/weaknesses from contributors.limitations.
+ * Does NOT use normalizedValue thresholds as authoritative when V1 exists.
+ */
 export function parseContributorSignals(dimensions: DimensionScoreDTO[]): ContributorSignal[] {
   const signals: ContributorSignal[] = [];
   for (const dim of dimensions) {
     if (dim.dimension === "AUTHENTICITY") continue;
+
+    if (dim.explainability) {
+      const view = buildDimensionExplainabilityView(dim);
+      signals.push(...view.strengths, ...view.weaknesses, ...view.facts);
+      continue;
+    }
+
     // Unavailable / processing / error dimensions are missing evidence — not player weaknesses.
-    if (
-      dim.state === "UNAVAILABLE" ||
-      dim.state === "PROCESSING" ||
-      dim.state === "ERROR" ||
-      dim.score == null ||
-      dim.confidence <= 0
-    ) {
+    if (!isScoredDimension(dim)) {
       continue;
     }
     const dimKey = dim.dimension as RadarDimension;
@@ -106,7 +240,7 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
       | null
       | undefined;
 
-    // Preferred shape (mock / legacy explainers).
+    // Preferred legacy shape (mock / older explainers).
     for (const item of contrib?.positive ?? []) {
       if (item?.label?.trim()) {
         signals.push({
@@ -128,7 +262,8 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
       }
     }
 
-    // Live scoring shape: { available, missing } metric contributors.
+    // Live scoring shape without V1: { available, missing } metric contributors.
+    // Heuristic thresholds are legacy-only — never used when explainability exists.
     if ((contrib?.positive?.length ?? 0) === 0 && (contrib?.negative?.length ?? 0) === 0) {
       for (const item of contrib?.available ?? []) {
         if (!item?.metricKey) continue;
@@ -151,8 +286,18 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
         }
       }
       // Missing metrics on an otherwise scored dimension are data gaps, not poor play.
-      // Surface as informational positives? No — omit from weaknesses/strengths entirely.
     }
+  }
+  return signals;
+}
+
+/** Collect confidence reasons across dimensions (never mixed into weaknesses). */
+export function parseConfidenceReasons(dimensions: DimensionScoreDTO[]): ContributorSignal[] {
+  const signals: ContributorSignal[] = [];
+  for (const dim of dimensions) {
+    if (dim.dimension === "AUTHENTICITY") continue;
+    if (!dim.explainability) continue;
+    signals.push(...buildDimensionExplainabilityView(dim).confidenceReasons);
   }
   return signals;
 }

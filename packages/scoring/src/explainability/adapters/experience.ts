@@ -74,10 +74,12 @@ export function adaptExperienceExplainability(
     !result.eliteFloorApplied;
 
   if (isConfirmedNoActivityOnly) {
+    // Authoritative score fact (E=0 with confidence 1) — NEUTRAL so product never
+    // presents confirmed absence as a player weakness.
     drivers.push(
       buildScoreDriver({
         code: "experience.confirmed_no_activity",
-        direction: "NEGATIVE",
+        direction: "NEUTRAL",
         value: EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE,
         weight: null,
         contribution: null,
@@ -85,6 +87,7 @@ export function adaptExperienceExplainability(
         params: {
           determinedFinalScore: true,
           confidence: 1,
+          confirmedNoActivity: true,
         },
       }),
     );

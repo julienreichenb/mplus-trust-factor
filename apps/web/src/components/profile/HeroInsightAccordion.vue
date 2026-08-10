@@ -24,6 +24,7 @@ const signals = computed(() =>
 );
 const positives = computed(() => topSignals(signals.value, "positive", 5));
 const risks = computed(() => topSignals(signals.value, "risk", 5));
+const facts = computed(() => topSignals(signals.value, "fact", 5));
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const loadoutCode = computed(() => props.profile.talents?.loadoutCode?.trim() || null);
 
@@ -192,6 +193,20 @@ async function copyLoadout(): Promise<void> {
               />
             </ul>
             <p v-else class="empty">No standout weaknesses in this snapshot</p>
+          </section>
+          <section
+            v-if="facts.length"
+            class="key-signals__col key-signals__col--facts"
+            aria-labelledby="key-signals-facts"
+          >
+            <h3 id="key-signals-facts" class="key-signals__title">Facts / context</h3>
+            <ul class="key-signals__list">
+              <KeySignalRow
+                v-for="(item, index) in facts"
+                :key="`f-${index}`"
+                :signal="item"
+              />
+            </ul>
           </section>
         </div>
 

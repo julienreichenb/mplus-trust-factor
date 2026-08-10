@@ -36,6 +36,8 @@ export interface CanaryAuthoritativeDimensionReport {
   strengths: string[];
   /** Operator-friendly labels derived only from public scoreDrivers (NEGATIVE). NEUTRAL excluded. */
   weaknesses: string[];
+  /** Operator-friendly labels from public scoreDrivers (NEUTRAL) — score facts / context. */
+  scoreFacts: string[];
   /** Operator-friendly confidence reason labels. */
   confidenceReasonLabels: string[];
 }
@@ -75,9 +77,11 @@ export function buildCanaryAuthoritativeDimensionReport(
   );
   const strengths: string[] = [];
   const weaknesses: string[] = [];
+  const scoreFacts: string[] = [];
   for (const driver of publicProj.scoreDrivers) {
     if (driver.direction === "POSITIVE") strengths.push(driver.label);
     else if (driver.direction === "NEGATIVE") weaknesses.push(driver.label);
+    else scoreFacts.push(driver.label);
   }
   return {
     score: dim.score,
@@ -87,6 +91,7 @@ export function buildCanaryAuthoritativeDimensionReport(
     confidenceReasons: publicProj.confidenceReasons,
     strengths,
     weaknesses,
+    scoreFacts,
     confidenceReasonLabels: publicProj.confidenceReasons.map((r) => r.label),
   };
 }
@@ -231,15 +236,9 @@ export function formatCanaryDimensionCliSummary(
     lines.push("  weaknesses:");
     for (const w of dim.weaknesses) lines.push(`    - ${w}`);
   }
-  const facts =
-    name === "EXPERIENCE"
-      ? dim.scoreDrivers
-          .filter((d) => d.direction !== "POSITIVE")
-          .map((d) => d.label)
-      : [];
-  if (facts.length > 0) {
+  if (dim.scoreFacts.length > 0) {
     lines.push("  score facts:");
-    for (const f of facts) lines.push(`    - ${f}`);
+    for (const f of dim.scoreFacts) lines.push(`    - ${f}`);
   }
   lines.push("  confidence limits:");
   if (dim.confidenceReasonLabels.length === 0) {

@@ -319,12 +319,17 @@ describe("mapCharacterScoreToSnapshotDto Score Explainability V1", () => {
     expect(experience?.explainability?.scoreDrivers.map((d) => d.code)).toContain(
       "experience.confirmed_no_activity",
     );
+    expect(
+      experience?.explainability?.scoreDrivers.find(
+        (d) => d.code === "experience.confirmed_no_activity",
+      )?.direction,
+    ).toBe("NEUTRAL");
     expect(experience?.explainability?.confidenceReasons).toEqual([]);
     expect(
       (experience?.contributors as { negative?: Array<{ metricKey: string }> }).negative?.map(
         (n) => n.metricKey,
       ),
-    ).toContain("experience.confirmed_no_activity");
+    ).not.toContain("experience.confirmed_no_activity");
     expect(
       (dto.explanation as { explainabilityFingerprint?: string })
         .explainabilityFingerprint,

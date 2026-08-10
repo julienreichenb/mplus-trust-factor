@@ -39,13 +39,26 @@ function contributors(positive: string, negative: string): unknown {
   };
 }
 
+type FixtureDim = {
+  dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"];
+  score: number;
+  weight: number;
+  confidence: number;
+  pos: string;
+  neg: string;
+  /** Optional Score Explainability V1 public projection. */
+  explainability?: ScoreSnapshotDTO["dimensions"][number]["explainability"];
+  /** When true, omit explainability (legacy row simulation). */
+  legacyNoExplainability?: boolean;
+};
+
 function baseScore(
   characterId: string,
   overall: number,
   grade: ScoreSnapshotDTO["grade"],
   authenticity: number,
   confidence: number,
-  dims: Array<{ dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"]; score: number; weight: number; confidence: number; pos: string; neg: string }>,
+  dims: FixtureDim[],
   redFlags: RedFlagDTO[],
   calculatedAt: string,
   modelVersion = 1,
@@ -77,6 +90,38 @@ function baseScore(
             : ("AVAILABLE" as const),
       reason: d.confidence <= 0 ? "FIXTURE_UNAVAILABLE" : null,
       contributors: contributors(d.pos, d.neg),
+      ...(d.legacyNoExplainability
+        ? {}
+        : {
+            explainability: d.explainability ?? {
+              scoreDrivers: [
+                {
+                  code: `${d.dimension.toLowerCase()}.fixture_strength`,
+                  labelKey: `score.${d.dimension.toLowerCase()}.fixture_strength`,
+                  label: d.pos,
+                  direction: "POSITIVE" as const,
+                  value: d.score,
+                },
+                {
+                  code: `${d.dimension.toLowerCase()}.fixture_weakness`,
+                  labelKey: `score.${d.dimension.toLowerCase()}.fixture_weakness`,
+                  label: d.neg,
+                  direction: "NEGATIVE" as const,
+                  value: Math.max(0, 100 - d.score),
+                },
+              ],
+              confidenceReasons:
+                d.confidence < 0.999
+                  ? [
+                      {
+                        code: `${d.dimension.toLowerCase()}.fixture_confidence`,
+                        labelKey: `confidence.${d.dimension.toLowerCase()}.fixture`,
+                        label: "Sample coverage is incomplete for this fixture",
+                      },
+                    ]
+                  : [],
+            },
+          }),
     })),
     redFlags,
     explanation: {
@@ -92,10 +137,125 @@ const aleriaScore = baseScore(
   82,
   0.78,
   [
-    { dimension: "PERFORMANCE", score: 91, weight: 0.35, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
-    { dimension: "SURVIVAL", score: 84, weight: 0.3, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
-    { dimension: "UTILITY", score: 86, weight: 0.25, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
-    { dimension: "EXPERIENCE", score: 80, weight: 0.1, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
+    {
+      dimension: "PERFORMANCE",
+      score: 91,
+      weight: 0.35,
+      confidence: 0.85,
+      pos: "Strong DPS percentile on +12s",
+      neg: "Slight dip on Tyrannical weeks",
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "performance.phase1_performance",
+            labelKey: "score.performance.phase1_performance",
+            label: "Strong Phase 1 performance",
+            direction: "POSITIVE",
+            value: 92,
+          },
+          {
+            code: "performance.offensive_cooldown_discipline",
+            labelKey: "score.performance.offensive_cooldown_discipline",
+            label: "Offensive cooldown discipline below neutral",
+            direction: "NEGATIVE",
+            value: 42,
+          },
+        ],
+        confidenceReasons: [
+          {
+            code: "incomplete_cooldown_run_coverage",
+            labelKey: "confidence.performance.incomplete_cooldown_run_coverage",
+            label: "Incomplete cooldown evidence coverage",
+          },
+        ],
+      },
+    },
+    {
+      dimension: "SURVIVAL",
+      score: 84,
+      weight: 0.3,
+      confidence: 0.8,
+      pos: "Low avoidable damage",
+      neg: "Two deaths on first boss pull",
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "survival.outcome",
+            labelKey: "score.survival.outcome",
+            label: "Strong survival outcomes",
+            direction: "POSITIVE",
+            value: 90,
+          },
+          {
+            code: "survival.defensive_response",
+            labelKey: "score.survival.defensive_response",
+            label: "Defensive response below neutral",
+            direction: "NEGATIVE",
+            value: 38,
+          },
+        ],
+        confidenceReasons: [
+          {
+            code: "partial_health_evidence",
+            labelKey: "confidence.survival.partial_health_evidence",
+            label: "Some health evidence is incomplete",
+          },
+        ],
+      },
+    },
+    {
+      dimension: "UTILITY",
+      score: 86,
+      weight: 0.25,
+      confidence: 0.75,
+      pos: "Consistent interrupts",
+      neg: "Missed one purge window",
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "utility.cast_stops",
+            labelKey: "score.utility.cast_stops",
+            label: "Observed cast stops contributed to Utility",
+            direction: "POSITIVE",
+            value: 22,
+          },
+          {
+            code: "utility.strategic_cc",
+            labelKey: "score.utility.strategic_cc",
+            label: "No strategic CC observed in scoring runs",
+            direction: "NEUTRAL",
+            value: 0,
+          },
+        ],
+        confidenceReasons: [
+          {
+            code: "tiny_run_sample",
+            labelKey: "confidence.utility.tiny_run_sample",
+            label: "Utility sample size is small",
+          },
+        ],
+      },
+    },
+    {
+      dimension: "EXPERIENCE",
+      score: 0,
+      weight: 0.1,
+      confidence: 1,
+      pos: "Confirmed absence",
+      neg: "unused",
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "experience.confirmed_no_activity",
+            labelKey: "score.experience.confirmed_no_activity",
+            label: "Previous-season activity: none confirmed",
+            direction: "NEUTRAL",
+            value: 0,
+          },
+        ],
+        confidenceReasons: [],
+      },
+    },
   ],
   [
     {
@@ -121,7 +281,24 @@ const lowConfScore = baseScore(
     { dimension: "PERFORMANCE", score: 58, weight: 0.32, confidence: 0.25, pos: "Average parses when logged", neg: "Sparse sample" },
     { dimension: "SURVIVAL", score: 50, weight: 0.27, confidence: 0.2, pos: "Neutral", neg: "Insufficient logs" },
     { dimension: "UTILITY", score: 52, weight: 0.23, confidence: 0.2, pos: "Neutral", neg: "Insufficient logs" },
-    { dimension: "EXPERIENCE", score: 45, weight: 0.13, confidence: 0.4, pos: "Some prior-season play", neg: "Low current volume" },
+    {
+      dimension: "EXPERIENCE",
+      score: 0,
+      weight: 0.13,
+      confidence: 0,
+      pos: "unused",
+      neg: "unused",
+      explainability: {
+        scoreDrivers: [],
+        confidenceReasons: [
+          {
+            code: "previous_evidence_unavailable",
+            labelKey: "confidence.experience.previous_evidence_unavailable",
+            label: "Previous-season evidence is unavailable",
+          },
+        ],
+      },
+    },
     { dimension: "RAID", score: 40, weight: 0.05, confidence: 0.15, pos: "None", neg: "No Mythic signal" },
   ],
   [

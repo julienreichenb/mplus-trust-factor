@@ -1189,6 +1189,7 @@ export async function runCanaryLiveCommand(
               state: report.dimensions.performance.state,
               strengths: report.dimensions.performance.strengths,
               weaknesses: report.dimensions.performance.weaknesses,
+              scoreFacts: report.dimensions.performance.scoreFacts,
               confidenceReasons:
                 report.dimensions.performance.confidenceReasonLabels,
               scoreDrivers: report.dimensions.performance.scoreDrivers,
@@ -1201,6 +1202,7 @@ export async function runCanaryLiveCommand(
               state: report.dimensions.survival.state,
               strengths: report.dimensions.survival.strengths,
               weaknesses: report.dimensions.survival.weaknesses,
+              scoreFacts: report.dimensions.survival.scoreFacts,
               confidenceReasons:
                 report.dimensions.survival.confidenceReasonLabels,
               scoreDrivers: report.dimensions.survival.scoreDrivers,
@@ -1213,6 +1215,7 @@ export async function runCanaryLiveCommand(
               state: report.dimensions.utility.state,
               strengths: report.dimensions.utility.strengths,
               weaknesses: report.dimensions.utility.weaknesses,
+              scoreFacts: report.dimensions.utility.scoreFacts,
               confidenceReasons:
                 report.dimensions.utility.confidenceReasonLabels,
               scoreDrivers: report.dimensions.utility.scoreDrivers,
@@ -1224,6 +1227,7 @@ export async function runCanaryLiveCommand(
               state: report.dimensions.experience.state,
               strengths: report.dimensions.experience.strengths,
               weaknesses: report.dimensions.experience.weaknesses,
+              scoreFacts: report.dimensions.experience.scoreFacts,
               confidenceReasons:
                 report.dimensions.experience.confidenceReasonLabels,
               scoreDrivers: report.dimensions.experience.scoreDrivers,
@@ -1341,6 +1345,7 @@ async function main(): Promise<void> {
                 confidence: report.dimensions.performance.confidence,
                 strengths: report.dimensions.performance.strengths,
                 weaknesses: report.dimensions.performance.weaknesses,
+                scoreFacts: report.dimensions.performance.scoreFacts,
                 confidenceReasons:
                   report.dimensions.performance.confidenceReasonLabels,
               },
@@ -1349,6 +1354,7 @@ async function main(): Promise<void> {
                 confidence: report.dimensions.survival.confidence,
                 strengths: report.dimensions.survival.strengths,
                 weaknesses: report.dimensions.survival.weaknesses,
+                scoreFacts: report.dimensions.survival.scoreFacts,
                 confidenceReasons:
                   report.dimensions.survival.confidenceReasonLabels,
               },
@@ -1357,6 +1363,7 @@ async function main(): Promise<void> {
                 confidence: report.dimensions.utility.confidence,
                 strengths: report.dimensions.utility.strengths,
                 weaknesses: report.dimensions.utility.weaknesses,
+                scoreFacts: report.dimensions.utility.scoreFacts,
                 confidenceReasons:
                   report.dimensions.utility.confidenceReasonLabels,
               },
@@ -1365,6 +1372,7 @@ async function main(): Promise<void> {
                 confidence: report.dimensions.experience.confidence,
                 strengths: report.dimensions.experience.strengths,
                 weaknesses: report.dimensions.experience.weaknesses,
+                scoreFacts: report.dimensions.experience.scoreFacts,
                 confidenceReasons:
                   report.dimensions.experience.confidenceReasonLabels,
               },

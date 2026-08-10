@@ -159,8 +159,17 @@ describe("scoreCharacter explainability integration", () => {
     expect(expPublic.explainability.scoreDrivers.map((d) => d.code)).toContain(
       "experience.confirmed_no_activity",
     );
+    expect(
+      expPublic.explainability.scoreDrivers.find(
+        (d) => d.code === "experience.confirmed_no_activity",
+      )?.direction,
+    ).toBe("NEUTRAL");
     expect(expPublic.explainability.confidenceReasons).toEqual([]);
-    expect(expPublic.contributors.negative.map((n) => n.metricKey)).toContain(
+    // NEUTRAL score facts are omitted from legacy contributors (never a weakness).
+    expect(expPublic.contributors.negative.map((n) => n.metricKey)).not.toContain(
+      "experience.confirmed_no_activity",
+    );
+    expect(expPublic.contributors.positive.map((n) => n.metricKey)).not.toContain(
       "experience.confirmed_no_activity",
     );
   });

@@ -76,7 +76,7 @@ describe("ExplainabilityV2Panel", () => {
     const wrapper = mount(ExplainabilityV2Panel, {
       props: { explainability: sample },
     });
-    expect(wrapper.text()).toContain("Evidence & confidence");
+    expect(wrapper.text()).toContain("Selected-run evidence (Scoring V2)");
     expect(wrapper.text()).toContain("unavailable or unranked");
     expect(wrapper.text()).toContain("observed combat contribution");
     expect(wrapper.text()).toContain("Missing actions are not scored as zero");

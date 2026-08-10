@@ -7,6 +7,36 @@ defineProps<{
   /** Hide dimension subtitle when already scoped to a dimension card. */
   hideDimension?: boolean;
 }>();
+
+function kindPrefix(kind: ContributorSignal["kind"]): string {
+  switch (kind) {
+    case "positive":
+      return "+";
+    case "risk":
+      return "−";
+    case "fact":
+      return "•";
+    case "confidence":
+      return "•";
+    default:
+      return "•";
+  }
+}
+
+function kindAria(kind: ContributorSignal["kind"]): string {
+  switch (kind) {
+    case "positive":
+      return "Strength";
+    case "risk":
+      return "Weakness";
+    case "fact":
+      return "Score fact";
+    case "confidence":
+      return "Confidence reason";
+    default:
+      return "Signal";
+  }
+}
 </script>
 
 <template>
@@ -19,7 +49,11 @@ defineProps<{
       <DimensionAxisIcon v-if="signal.dimensionKey" :dimension="signal.dimensionKey" />
     </span>
     <div class="signal-row__body">
-      <p class="signal-row__label">{{ signal.label }}</p>
+      <p class="signal-row__label">
+        <span class="signal-row__prefix" aria-hidden="true">{{ kindPrefix(signal.kind) }}</span>
+        <span class="sr-only">{{ kindAria(signal.kind) }}:</span>
+        {{ signal.label }}
+      </p>
       <p v-if="signal.dimension && !hideDimension" class="signal-row__dimension">{{ signal.dimension }}</p>
     </div>
   </li>
@@ -46,6 +80,11 @@ defineProps<{
 
 .signal-row[data-kind="risk"] {
   border-left-color: var(--color-danger-500);
+}
+
+.signal-row[data-kind="fact"],
+.signal-row[data-kind="confidence"] {
+  border-left-color: var(--color-text-muted);
 }
 
 .signal-row__icon {
@@ -84,6 +123,23 @@ defineProps<{
   line-height: 1.35;
 }
 
+.signal-row__prefix {
+  display: inline-block;
+  min-width: 0.85em;
+  margin-right: 0.2rem;
+  font-family: var(--font-data);
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.signal-row[data-kind="positive"] .signal-row__prefix {
+  color: var(--color-success-500);
+}
+
+.signal-row[data-kind="risk"] .signal-row__prefix {
+  color: var(--color-danger-500);
+}
+
 .signal-row__dimension {
   margin: 0;
   font-family: var(--font-data);
@@ -91,5 +147,17 @@ defineProps<{
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
