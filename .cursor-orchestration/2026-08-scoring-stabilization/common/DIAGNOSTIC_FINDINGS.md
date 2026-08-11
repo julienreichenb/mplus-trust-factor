@@ -2,9 +2,23 @@
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Agents 01–03C + **04A complete** + **04B complete (code)**. **STOP for manual UI review.** Do not start Agent 05.
+**Mode:** Agents 01–03C + **04A complete** + **04B complete** + **04C complete** + **04D complete (code)**. **STOP for manual UI review.** Do not start Agent 05.
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
+
+---
+
+## 0f. Agent 04D — Role-aware Performance public summary
+
+| Field | Value |
+|-------|-------|
+| Status | **COMPLETE IN CODE** — **PENDING MANUAL UI VALIDATION** |
+| DTO | `PerformanceSummaryDTO.roleAware?` additive (legacy snapshots unchanged) |
+| Persistence | `CharacterScore.dimensionDetails.performance.roleAware` + `performanceAggregate.compact` (sanitized V2, no raw WCL) |
+| Projection | `mapCharacterScoreToSnapshotDto` → `explanation.performanceSummary` |
+| Profile source | Operational CharacterScore role-aware summary wins; selected-run links merged from published snapshot when safe |
+| UI | `PerformanceSummaryPanel`: DPS/Tank damage table; Healer single merged table (Healing + Damage columns) |
+| Scoring | **Unchanged** — projection + public UI only |
 
 ---
 

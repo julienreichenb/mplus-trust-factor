@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mapCharacterScoreToSnapshotDto } from "./character-score-read.js";
+import {
+  mapCharacterScoreToSnapshotDto,
+  resolveProfilePerformanceSummary,
+} from "./character-score-read.js";
 
 describe("mapCharacterScoreToSnapshotDto partial composite", () => {
   const baseRow = {
@@ -406,5 +409,202 @@ describe("mapCharacterScoreToSnapshotDto Score Explainability V1", () => {
       ).toEqual([]);
       expect(dim?.explainability).toBeUndefined();
     }
+  });
+});
+
+describe("mapCharacterScoreToSnapshotDto role-aware performanceSummary", () => {
+  it("projects roleAware performanceSummary from dimensionDetails", async () => {
+    const {
+      CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+      CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      assertPersistedCharacterPerformanceAggregateV2,
+    } = await import("@mplus/contracts");
+    const {
+      computeRoleAwarePerformance,
+      extractPersistedRoleAwarePerformanceEvidence,
+    } = await import("@mplus/scoring");
+
+    const active = ["algethar-academy"];
+    const roleAware = computeRoleAwarePerformance({
+      role: "DPS",
+      specSlug: "demonology",
+      activeDungeonSlugs: active,
+      damage: {
+        kind: "damage",
+        metric: "points_and_damage",
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 70,
+        partition: 1,
+        zoneId: 47,
+        totalLoggedRuns: 4,
+        observedSpecs: ["Demonology"],
+        specBinding: "EXACT_MATCH",
+        perDungeon: [
+          {
+            dungeonSlug: "algethar-academy",
+            bestParsePercentile: 80,
+            medianParsePercentile: 70,
+          },
+        ],
+      },
+      healing: null,
+      cooldownRuns: [],
+    });
+    const compact = assertPersistedCharacterPerformanceAggregateV2({
+      state: "OK",
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+      role: "DPS",
+      targetSpecSlug: "demonology",
+      zoneId: 47,
+      partition: 1,
+      damage: {
+        metric: "points_and_damage",
+        dungeonAggregates: [
+          {
+            dungeonSlug: "algethar-academy",
+            dungeonName: "Algeth'ar Academy",
+            encounterId: 1,
+            bestParsePercentile: 80,
+            medianParsePercentile: 70,
+            loggedRunCount: 4,
+            specialization: "Demonology",
+            keystoneLevel: 12,
+            bestDps: 1000,
+          },
+        ],
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 70,
+        totalLoggedRuns: 4,
+        totalMythicPlusScore: 1000,
+        partition: 1,
+        zoneId: 47,
+        observedSpecs: ["Demonology"],
+        specBinding: "EXACT_MATCH",
+        wclBestPerformanceAverage: 80,
+        wclMedianPerformanceAverage: 70,
+      },
+      healing: null,
+      diagnostics: {
+        adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+        provenance: "AGGREGATE_ZONE_RANKINGS",
+        role: "DPS",
+        targetSpecSlug: "demonology",
+        damageDungeonCount: 1,
+        healingDungeonCount: 0,
+        expectedDungeonCount: 1,
+        specBindingPolicy: "test",
+        limitations: [],
+      },
+    });
+
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        id: "score-1",
+        characterId: "char-1",
+        seasonId: "season-1",
+        scoringVersion: "scoring-v1",
+        performance: roleAware.score,
+        utility: null,
+        survival: null,
+        experience: null,
+        composite: roleAware.score,
+        confidence: roleAware.confidence,
+        calculatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        dimensionDetails: {
+          performance: {
+            confidence: roleAware.confidence,
+            roleAware: extractPersistedRoleAwarePerformanceEvidence({
+              roleAware,
+              activeDungeonSlugs: active,
+            }),
+          },
+          performanceAggregate: { compact },
+        },
+        season: { slug: "season-tww-3" },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+
+    const summary = (dto.explanation as { performanceSummary?: { roleAware?: { role: string } } })
+      .performanceSummary;
+    expect(summary?.roleAware?.role).toBe("DPS");
+  });
+});
+
+describe("resolveProfilePerformanceSummary", () => {
+  it("operational roleAware summary wins over stale published summary", () => {
+    const operational = {
+      currentSeason: {
+        peakScore: 80,
+        consistencyScore: 70,
+        score: 76,
+        confidence: 0.9,
+        dungeonCount: 8,
+        expectedDungeonCount: 8,
+        latestObservedAt: null,
+        dungeons: [],
+      },
+      historical: null,
+      roleAware: {
+        role: "DPS" as const,
+        performanceScore: 76,
+        weightsApplied: { damageParse: 0.8, healingParse: 0, cooldown: 0.2 },
+        damage: {
+          score: 80,
+          confidence: 1,
+          bestAverage: 80,
+          medianAverage: 70,
+          availableCells: 8,
+          expectedCells: 8,
+          dungeons: [],
+        },
+        healing: null,
+      },
+    };
+    const published = {
+      currentSeason: {
+        peakScore: 10,
+        consistencyScore: 10,
+        score: 10,
+        confidence: 0.1,
+        dungeonCount: 1,
+        expectedDungeonCount: 8,
+        latestObservedAt: null,
+        dungeons: [],
+      },
+      historical: null,
+    };
+    const resolved = resolveProfilePerformanceSummary({
+      productScoreSource: "character_score",
+      operationalExplanation: { performanceSummary: operational },
+      publishedExplanation: { performanceSummary: published },
+    });
+    expect(resolved?.roleAware?.performanceScore).toBe(76);
+    expect(resolved?.currentSeason.peakScore).toBe(80);
+  });
+
+  it("falls back to published legacy summary when operational has no roleAware", () => {
+    const published = {
+      currentSeason: {
+        peakScore: 10,
+        consistencyScore: 10,
+        score: 10,
+        confidence: 0.1,
+        dungeonCount: 1,
+        expectedDungeonCount: 8,
+        latestObservedAt: null,
+        dungeons: [],
+      },
+      historical: null,
+    };
+    const resolved = resolveProfilePerformanceSummary({
+      productScoreSource: "character_score",
+      operationalExplanation: {},
+      publishedExplanation: { performanceSummary: published },
+    });
+    expect(resolved?.currentSeason.score).toBe(10);
+    expect(resolved?.roleAware).toBeUndefined();
   });
 });

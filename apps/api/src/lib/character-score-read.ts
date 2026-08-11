@@ -2,12 +2,14 @@
  * Map persisted CharacterScore → ScoreSnapshotDTO for API reads when
  * publication is off / ScoreSnapshot rows are absent.
  */
-import type { DimensionScoreDTO, Grade, ScoreSnapshotDTO } from "@mplus/contracts";
+import type { DimensionScoreDTO, Grade, PerformanceSummaryDTO, ScoreSnapshotDTO } from "@mplus/contracts";
 import {
   computePartialComposite,
   contributorsFromLegacyConfidenceContext,
   defaultSkillDimensionWeights,
+  mergePublishedSelectedRunsIntoPerformanceSummary,
   productDimensionExplainabilityFields,
+  projectPerformanceSummaryFromDimensionDetails,
   tryParsePersistedScoreExplainability,
 } from "@mplus/scoring";
 
@@ -161,6 +163,36 @@ function resolveExperienceFromRow(
     confidence: null,
     causes: detailCauses.length > 0 ? detailCauses : [unavailableReason],
   };
+}
+
+function readPerformanceSummaryFromExplanation(
+  explanation: unknown,
+): PerformanceSummaryDTO | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const summary = (explanation as { performanceSummary?: unknown }).performanceSummary;
+  if (!summary || typeof summary !== "object") return null;
+  return summary as PerformanceSummaryDTO;
+}
+
+/**
+ * Operational CharacterScore role-aware summary wins over stale published snapshot.
+ * Selected-run links may be merged from the published snapshot when safe.
+ */
+export function resolveProfilePerformanceSummary(input: {
+  productScoreSource: "character_score" | "published_snapshot" | "none";
+  operationalExplanation: unknown;
+  publishedExplanation: unknown;
+}): PerformanceSummaryDTO | null {
+  const published = readPerformanceSummaryFromExplanation(input.publishedExplanation);
+  if (input.productScoreSource !== "character_score") {
+    return published;
+  }
+  const operational = readPerformanceSummaryFromExplanation(input.operationalExplanation);
+  if (operational?.roleAware) {
+    return mergePublishedSelectedRunsIntoPerformanceSummary(operational, published);
+  }
+  if (operational) return operational;
+  return published;
 }
 
 export function mapCharacterScoreToSnapshotDto(
@@ -357,6 +389,12 @@ export function mapCharacterScoreToSnapshotDto(
   // calculable P/U/S composite on the product read path.
   const grade: Grade = partial.grade;
 
+  const performanceSummary = projectPerformanceSummaryFromDimensionDetails(
+    details,
+    row.performance,
+    perfConfidence,
+  );
+
   return {
     characterId: row.characterId,
     seasonSlug: row.season?.slug ?? "",
@@ -407,6 +445,7 @@ export function mapCharacterScoreToSnapshotDto(
       effectiveWeights: partial.effectiveWeights,
       missingDimensionsExcluded:
         "Unavailable dimensions are excluded; remaining weights are renormalized.",
+      ...(performanceSummary ? { performanceSummary } : {}),
     },
   };
 }

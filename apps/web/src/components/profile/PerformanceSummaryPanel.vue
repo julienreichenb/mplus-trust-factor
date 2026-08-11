@@ -13,8 +13,9 @@ const props = defineProps<{
 
 const current = computed(() => props.summary?.currentSeason ?? null);
 const historical = computed(() => props.summary?.historical ?? null);
+const roleAware = computed(() => props.summary?.roleAware ?? null);
 
-const STAT_TOOLTIPS = {
+const LEGACY_STAT_TOOLTIPS = {
   peak:
     "Equal-weighted average of Warcraft Logs Best % (peak parse) across current-season dungeons. Measures ceiling execution.",
   consistency:
@@ -25,9 +26,35 @@ const STAT_TOOLTIPS = {
     "How many of the expected season dungeons have usable WCL percentile data. Lower coverage reduces confidence, not the score itself.",
 } as const;
 
+const ROLE_AWARE_TOOLTIPS = {
+  bestAverage: "Equal-weighted average of Best % parse percentiles across active dungeons.",
+  medianAverage:
+    "Equal-weighted average of Median % parse percentiles across active dungeons.",
+  damageParse: "Role-aware damage throughput parse score from profile zone rankings.",
+  healingParse: "Role-aware healing throughput parse score from profile zone rankings.",
+  performance: "Final Performance dimension score for this role.",
+  coverage:
+    "How many active dungeon cells have usable parse percentiles per throughput channel.",
+} as const;
+
+const hasRenderableData = computed(() => {
+  if (roleAware.value) {
+    if (roleAware.value.role === "HEALER") {
+      return healerRows.value.length > 0;
+    }
+    return roleAware.value.damage.dungeons.length > 0;
+  }
+  return Boolean(current.value && current.value.dungeonCount > 0);
+});
+
 function formatPct(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return `${value.toFixed(1)}%`;
+}
+
+function formatScore(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return value.toFixed(1);
 }
 
 function parsePctClass(value: number | null | undefined): string {
@@ -38,10 +65,78 @@ type ExplanatoryRun = NonNullable<
   NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number]["bestRun"]
 >;
 
+type LegacyDungeon = NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number];
+
+interface HealerDungeonRow {
+  dungeonSlug: string;
+  dungeonName: string;
+  healingBest: number | null;
+  healingMedian: number | null;
+  damageBest: number | null;
+  damageMedian: number | null;
+  healingLoggedRuns: number | null;
+  damageLoggedRuns: number | null;
+  legacyDungeon: LegacyDungeon | null;
+}
+
+const legacyDungeonBySlug = computed(() => {
+  const map = new Map<string, LegacyDungeon>();
+  for (const dungeon of current.value?.dungeons ?? []) {
+    map.set(dungeon.dungeonSlug, dungeon);
+  }
+  return map;
+});
+
+const healerRows = computed((): HealerDungeonRow[] => {
+  const ra = roleAware.value;
+  if (!ra || ra.role !== "HEALER") return [];
+
+  const damageBySlug = new Map(ra.damage.dungeons.map((dungeon) => [dungeon.dungeonSlug, dungeon]));
+  const healingBySlug = new Map(
+    (ra.healing?.dungeons ?? []).map((dungeon) => [dungeon.dungeonSlug, dungeon]),
+  );
+  const slugs = new Set([...damageBySlug.keys(), ...healingBySlug.keys()]);
+  const preferredOrder = current.value?.dungeons.map((dungeon) => dungeon.dungeonSlug) ?? [
+    ...ra.healing?.dungeons.map((dungeon) => dungeon.dungeonSlug) ?? [],
+    ...ra.damage.dungeons.map((dungeon) => dungeon.dungeonSlug),
+  ];
+  const orderedSlugs = [
+    ...preferredOrder.filter((slug) => slugs.has(slug)),
+    ...[...slugs].filter((slug) => !preferredOrder.includes(slug)),
+  ];
+
+  return orderedSlugs.map((slug) => {
+    const damage = damageBySlug.get(slug);
+    const healing = healingBySlug.get(slug);
+    return {
+      dungeonSlug: slug,
+      dungeonName:
+        healing?.dungeonName ?? damage?.dungeonName ?? legacyDungeonBySlug.value.get(slug)?.dungeonName ?? slug,
+      healingBest: healing?.bestParsePercentile ?? null,
+      healingMedian: healing?.medianParsePercentile ?? null,
+      damageBest: damage?.bestParsePercentile ?? null,
+      damageMedian: damage?.medianParsePercentile ?? null,
+      healingLoggedRuns: healing?.loggedRunCount ?? null,
+      damageLoggedRuns: damage?.loggedRunCount ?? null,
+      legacyDungeon: legacyDungeonBySlug.value.get(slug) ?? null,
+    };
+  });
+});
+
+const roleAwareCoverageLabel = computed(() => {
+  const ra = roleAware.value;
+  if (!ra) return "";
+  if (ra.role === "HEALER" && ra.healing) {
+    return `Heal ${ra.healing.availableCells}/${ra.healing.expectedCells} · Damage ${ra.damage.availableCells}/${ra.damage.expectedCells}`;
+  }
+  return `${ra.damage.availableCells}/${ra.damage.expectedCells} dungeons`;
+});
+
 /** Preserve best → latest order; collapse identical BOTH entries to one numbered link. */
 function selectedRunEntries(
-  dungeon: NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number],
+  dungeon: LegacyDungeon | null | undefined,
 ): Array<{ index: number; run: ExplanatoryRun }> {
+  if (!dungeon) return [];
   const runs: ExplanatoryRun[] = [];
   if (dungeon.bestRun) runs.push(dungeon.bestRun);
   if (
@@ -55,6 +150,11 @@ function selectedRunEntries(
 
 function safeWclUrl(url: string | null | undefined): string | null {
   return sanitizeWarcraftLogsUrl(url);
+}
+
+function formatLoggedRuns(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return String(value);
 }
 </script>
 
@@ -71,34 +171,230 @@ function safeWclUrl(url: string | null | undefined): string | null {
     </template>
 
     <p v-if="locked" class="locked">Details unlock with entitlements.</p>
-    <template v-else-if="!current || current.dungeonCount === 0">
+    <template v-else-if="!hasRenderableData">
       <p class="empty" data-testid="performance-summary-empty">
         No current-season WCL percentile data is available for this character.
       </p>
     </template>
+
+    <template v-else-if="roleAware">
+      <dl class="cards" data-testid="performance-summary-role-aware-cards">
+        <template v-if="roleAware.role === 'HEALER'">
+          <div class="card" tabindex="0">
+            <dt>Healing parse</dt>
+            <dd class="mpts-data">{{ formatScore(roleAware.healing?.score) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.healingParse }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Damage parse</dt>
+            <dd class="mpts-data">{{ formatScore(roleAware.damage.score) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.damageParse }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Performance</dt>
+            <dd class="mpts-data">{{ formatScore(roleAware.performanceScore) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.performance }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Coverage</dt>
+            <dd class="mpts-data">{{ roleAwareCoverageLabel }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.coverage }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="card" tabindex="0">
+            <dt>Best avg</dt>
+            <dd class="mpts-data">{{ formatPct(roleAware.damage.bestAverage) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.bestAverage }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Median avg</dt>
+            <dd class="mpts-data">{{ formatPct(roleAware.damage.medianAverage) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.medianAverage }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Damage parse</dt>
+            <dd class="mpts-data">{{ formatScore(roleAware.damage.score) }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.damageParse }}</span>
+          </div>
+          <div class="card" tabindex="0">
+            <dt>Coverage</dt>
+            <dd class="mpts-data">{{ roleAwareCoverageLabel }}</dd>
+            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.coverage }}</span>
+          </div>
+        </template>
+      </dl>
+
+      <div v-if="roleAware.role === 'HEALER'" class="table-wrap">
+        <table data-testid="performance-summary-healer-table">
+          <caption class="sr-only">Per-dungeon healing and damage parse percentiles</caption>
+          <thead>
+            <tr>
+              <th scope="col" rowspan="2">Dungeon</th>
+              <th scope="colgroup" colspan="2">Healing</th>
+              <th scope="colgroup" colspan="2">Damage</th>
+              <th scope="colgroup" colspan="2">Logs</th>
+              <th scope="col" rowspan="2">Selected runs</th>
+            </tr>
+            <tr>
+              <th scope="col">Best %</th>
+              <th scope="col">Median %</th>
+              <th scope="col">Best %</th>
+              <th scope="col">Median %</th>
+              <th scope="col">Healing</th>
+              <th scope="col">Damage</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in healerRows" :key="row.dungeonSlug">
+              <th scope="row">{{ row.dungeonName }}</th>
+              <td class="mpts-data">
+                <span class="parse-pct" :class="parsePctClass(row.healingBest)">{{
+                  formatPct(row.healingBest)
+                }}</span>
+              </td>
+              <td class="mpts-data">
+                <span class="parse-pct" :class="parsePctClass(row.healingMedian)">{{
+                  formatPct(row.healingMedian)
+                }}</span>
+              </td>
+              <td class="mpts-data">
+                <span class="parse-pct" :class="parsePctClass(row.damageBest)">{{
+                  formatPct(row.damageBest)
+                }}</span>
+              </td>
+              <td class="mpts-data">
+                <span class="parse-pct" :class="parsePctClass(row.damageMedian)">{{
+                  formatPct(row.damageMedian)
+                }}</span>
+              </td>
+              <td class="mpts-data">{{ formatLoggedRuns(row.healingLoggedRuns) }}</td>
+              <td class="mpts-data">{{ formatLoggedRuns(row.damageLoggedRuns) }}</td>
+              <td>
+                <span
+                  v-if="selectedRunEntries(row.legacyDungeon).length === 0"
+                  class="selected-runs selected-runs--empty"
+                >—</span>
+                <span v-else class="selected-runs" data-testid="selected-run-links">
+                  <template
+                    v-for="(entry, i) in selectedRunEntries(row.legacyDungeon)"
+                    :key="entry.run.runId + entry.index"
+                  >
+                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
+                    <a
+                      v-if="safeWclUrl(entry.run.wclUrl)"
+                      class="selected-runs__link"
+                      :href="safeWclUrl(entry.run.wclUrl)!"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
+                    >{{ entry.index }}</a>
+                    <span
+                      v-else
+                      class="selected-runs__plain"
+                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
+                    >{{ entry.index }}</span>
+                  </template>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-else class="table-wrap">
+        <table data-testid="performance-summary-damage-table">
+          <caption class="sr-only">Per-dungeon Best and Median parse percentiles</caption>
+          <thead>
+            <tr>
+              <th scope="col">Dungeon</th>
+              <th scope="col">Best %</th>
+              <th scope="col">Median %</th>
+              <th scope="col">Logs</th>
+              <th scope="col">Selected runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="dungeon in roleAware.damage.dungeons"
+              :key="dungeon.dungeonSlug"
+            >
+              <th scope="row">{{ dungeon.dungeonName }}</th>
+              <td class="mpts-data">
+                <span
+                  class="parse-pct"
+                  :class="parsePctClass(dungeon.bestParsePercentile)"
+                >{{ formatPct(dungeon.bestParsePercentile) }}</span>
+              </td>
+              <td class="mpts-data">
+                <span
+                  class="parse-pct"
+                  :class="parsePctClass(dungeon.medianParsePercentile)"
+                >{{ formatPct(dungeon.medianParsePercentile) }}</span>
+              </td>
+              <td class="mpts-data">{{ dungeon.loggedRunCount }}</td>
+              <td>
+                <span
+                  v-if="selectedRunEntries(legacyDungeonBySlug.get(dungeon.dungeonSlug)).length === 0"
+                  class="selected-runs selected-runs--empty"
+                >—</span>
+                <span v-else class="selected-runs" data-testid="selected-run-links">
+                  <template
+                    v-for="(entry, i) in selectedRunEntries(legacyDungeonBySlug.get(dungeon.dungeonSlug))"
+                    :key="entry.run.runId + entry.index"
+                  >
+                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
+                    <a
+                      v-if="safeWclUrl(entry.run.wclUrl)"
+                      class="selected-runs__link"
+                      :href="safeWclUrl(entry.run.wclUrl)!"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
+                    >{{ entry.index }}</a>
+                    <span
+                      v-else
+                      class="selected-runs__plain"
+                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
+                    >{{ entry.index }}</span>
+                  </template>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p v-if="historical" class="hist mpts-data">
+        Historical best-average ({{ historical.seasonsUsed }} season{{
+          historical.seasonsUsed === 1 ? "" : "s"
+        }}): {{ formatPct(historical.score) }}
+      </p>
+    </template>
+
     <template v-else>
       <dl class="cards">
         <div class="card" tabindex="0">
           <dt>Peak</dt>
-          <dd class="mpts-data">{{ formatPct(current.peakScore) }}</dd>
-          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.peak }}</span>
+          <dd class="mpts-data">{{ formatPct(current!.peakScore) }}</dd>
+          <span class="card__tip" role="tooltip">{{ LEGACY_STAT_TOOLTIPS.peak }}</span>
         </div>
         <div class="card" tabindex="0">
           <dt>Consistency</dt>
-          <dd class="mpts-data">{{ formatPct(current.consistencyScore) }}</dd>
-          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.consistency }}</span>
+          <dd class="mpts-data">{{ formatPct(current!.consistencyScore) }}</dd>
+          <span class="card__tip" role="tooltip">{{ LEGACY_STAT_TOOLTIPS.consistency }}</span>
         </div>
         <div class="card" tabindex="0">
           <dt>Score</dt>
-          <dd class="mpts-data">{{ formatPct(current.score) }}</dd>
-          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.score }}</span>
+          <dd class="mpts-data">{{ formatPct(current!.score) }}</dd>
+          <span class="card__tip" role="tooltip">{{ LEGACY_STAT_TOOLTIPS.score }}</span>
         </div>
         <div class="card" tabindex="0">
           <dt>Coverage</dt>
           <dd class="mpts-data">
-            {{ current.dungeonCount }}/{{ current.expectedDungeonCount }} dungeons
+            {{ current!.dungeonCount }}/{{ current!.expectedDungeonCount }} dungeons
           </dd>
-          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.coverage }}</span>
+          <span class="card__tip" role="tooltip">{{ LEGACY_STAT_TOOLTIPS.coverage }}</span>
         </div>
       </dl>
 
@@ -115,7 +411,7 @@ function safeWclUrl(url: string | null | undefined): string | null {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in current.dungeons" :key="d.dungeonSlug">
+            <tr v-for="d in current!.dungeons" :key="d.dungeonSlug">
               <th scope="row">{{ d.dungeonName }}</th>
               <td class="mpts-data">
                 <span

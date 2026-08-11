@@ -49,6 +49,7 @@ import {
   throughputChannelsFromPersistedV2,
   resolveTunableWeights,
   trustDimensionWeightsFromTunable,
+  extractPersistedRoleAwarePerformanceEvidence,
   type ExperiencePhase1Result,
   type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
@@ -427,6 +428,17 @@ export async function scoreCharacter(
 
   const persistCharacterScore = input.persistCharacterScore !== false;
   let characterScoreId: string | null = null;
+  const roleAwareEvidence =
+    performance?.roleAware != null
+      ? extractPersistedRoleAwarePerformanceEvidence({
+          roleAware: performance.roleAware,
+          activeDungeonSlugs: input.activeDungeonSlugs,
+        })
+      : null;
+  const persistedAggregateCompact =
+    performanceAggregate.state === "AVAILABLE" && performanceAggregate.data != null
+      ? performanceAggregate.data.compact
+      : null;
   if (persistCharacterScore) {
     const scores = new CharacterScoreRepository(input.prisma);
     const saved = await scores.save({
@@ -474,6 +486,7 @@ export async function scoreCharacter(
                 state: performance.state,
                 confidence: performance.confidence,
                 confidenceBreakdown: performance.confidenceBreakdown,
+                roleAware: roleAwareEvidence,
               }
             : null,
           utility: utility
@@ -515,6 +528,7 @@ export async function scoreCharacter(
             cache: performanceAggregate.cache,
             contentHash: performanceAggregate.contentHash,
             aggregateRowId: performanceAggregate.aggregateRowId,
+            compact: persistedAggregateCompact,
           },
         }),
       ),

@@ -52,7 +52,8 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { resolveProductScoreDto } from "../lib/product-score-resolve.js";
+import { resolveProductScoreDto, type ResolvedProductScore } from "../lib/product-score-resolve.js";
+import { resolveProfilePerformanceSummary } from "../lib/character-score-read.js";
 import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
@@ -1167,6 +1168,7 @@ export class CharacterService {
     highestRunId: string | null,
     sources: CharacterSourceAttribution[],
     refreshStatus: CharacterProfileResponse["refreshStatus"],
+    productScore?: ResolvedProductScore | null,
   ): Promise<CharacterProfileResponse> {
     const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclProvenance, providerStates] =
       await Promise.all([
@@ -1189,7 +1191,12 @@ export class CharacterService {
     const observationProviders = readScoreObservationProviders(snapshot?.explanation);
     const freshness = readFreshness(snapshot?.explanation);
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
-    const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+    const performanceSummary =
+      resolveProfilePerformanceSummary({
+        productScoreSource: productScore?.source ?? "none",
+        operationalExplanation: productScore?.score?.explanation,
+        publishedExplanation: snapshot?.explanation,
+      }) ?? readPerformanceSummary(snapshot?.explanation);
     const survivalSummary = readSurvivalSummary(snapshot?.explanation);
     const scoringRunSelection = readScoringRunSelection(snapshot?.explanation);
     const coverageCounts = readCoverageCounts(snapshot?.explanation);
@@ -1362,6 +1369,7 @@ export class CharacterService {
         null,
         [],
         decision.profileRefreshStatus,
+        productScore,
       );
       this.applyDecisionWarnings(body, decision);
       this.applyBootstrapRepairSignal(body, character, latestJob);
@@ -1385,6 +1393,7 @@ export class CharacterService {
         WARCRAFT_LOGS: deriveWclContributionTypes(readScoreObservations(snapshot?.explanation)),
       }),
       decision.profileRefreshStatus,
+      productScore,
     );
 
     // Operational CharacterScore wins over published ScoreSnapshot for product UI.

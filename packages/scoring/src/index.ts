@@ -569,6 +569,10 @@ export {
   computeRoleAwarePerformance,
   computeRoleAwarePerformanceInputFingerprint,
   throughputChannelsFromPersistedV2,
+  extractPersistedRoleAwarePerformanceEvidence,
+  buildRoleAwarePerformanceSummary,
+  projectPerformanceSummaryFromDimensionDetails,
+  mergePublishedSelectedRunsIntoPerformanceSummary,
 } from "./performance/role-aware/index.js";
 export type {
   PerformanceThroughputChannelFact,
@@ -577,6 +581,8 @@ export type {
   RoleAwarePerformanceComputeInput,
   RoleAwarePerformanceComputeResult,
   RoleAwarePerformanceWeightsApplied,
+  PersistedRoleAwarePerformanceEvidence,
+  PersistedParseChannelEvidence,
 } from "./performance/role-aware/index.js";
 
 /** Experience V3 Phase 1 calculator (shadow — not public-activated). */

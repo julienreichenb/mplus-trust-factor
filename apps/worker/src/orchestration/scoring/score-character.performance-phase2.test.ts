@@ -5,8 +5,9 @@
 import { describe, expect, it } from "vitest";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
 import {
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-  type PersistedCharacterPerformanceAggregateV1,
+  type PersistedCharacterPerformanceAggregateV2,
 } from "@mplus/contracts";
 import {
   computePerformanceV2,
@@ -71,43 +72,52 @@ function fakePrisma(saved: Array<Record<string, unknown>> = []) {
   } as never;
 }
 
-function aggregateCompact(): PersistedCharacterPerformanceAggregateV1 {
+function aggregateCompact(): PersistedCharacterPerformanceAggregateV2 {
+  const dungeonAggregates = DUNGEONS.map((slug) => ({
+    dungeonSlug: slug,
+    dungeonName: slug,
+    encounterId: 1,
+    bestParsePercentile: 80,
+    medianParsePercentile: 70,
+    loggedRunCount: 4,
+    specialization: "Fire",
+    keystoneLevel: 12,
+    bestDps: 1_000_000,
+  }));
   return {
     state: "OK",
     adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+    role: "DPS",
+    targetSpecSlug: "fire",
     zoneId: 47,
     partition: null,
-    dungeonAggregates: DUNGEONS.map((slug) => ({
-      dungeonSlug: slug,
-      dungeonName: slug,
-      encounterId: 1,
-      bestParsePercentile: 80,
-      medianParsePercentile: 70,
-      loggedRunCount: 4,
-      specialization: "Fire",
-      keystoneLevel: 12,
-      bestDps: 1_000_000,
-    })),
-    global: {
-      totalMythicPlusScore: 3000,
+    damage: {
+      metric: "points_and_damage",
+      dungeonAggregates,
+      bestPercentileAverage: 80,
+      medianPercentileAverage: 70,
       totalLoggedRuns: 40,
-      bestDpsPercentileAverage: 80,
-      medianDpsPercentileAverage: 70,
+      totalMythicPlusScore: 3000,
       partition: null,
       zoneId: 47,
-    },
-    diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
-      provenance: "AGGREGATE_ZONE_RANKINGS",
-      availableDungeonCount: 8,
-      expectedDungeonCount: 8,
-      unavailableEncounters: [],
+      observedSpecs: ["Fire"],
+      specBinding: "EXACT_MATCH",
       wclBestPerformanceAverage: 80,
       wclMedianPerformanceAverage: 70,
-      computedBestAverage: 80,
-      computedMedianAverage: 70,
+    },
+    healing: null,
+    diagnostics: {
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+      provenance: "AGGREGATE_ZONE_RANKINGS",
+      role: "DPS",
+      targetSpecSlug: "fire",
+      damageDungeonCount: 8,
+      healingDungeonCount: 0,
+      expectedDungeonCount: 8,
+      specBindingPolicy: "test",
+      limitations: [],
     },
   };
 }
@@ -130,11 +140,18 @@ describe("scoreCharacter Performance Phase 2 product boundary", () => {
           zoneId: 47,
           partitionKey: "current",
           rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-          metric: "points_and_damage",
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
           state: "OK" as const,
           rawPayload: {},
-          dungeonAggregates: compact.dungeonAggregates,
-          globalSummary: compact.global,
+          dungeonAggregates: compact.damage.dungeonAggregates,
+          globalSummary: {
+            totalMythicPlusScore: compact.damage.totalMythicPlusScore,
+            totalLoggedRuns: compact.damage.totalLoggedRuns,
+            bestDpsPercentileAverage: compact.damage.bestPercentileAverage,
+            medianDpsPercentileAverage: compact.damage.medianPercentileAverage,
+            partition: compact.partition,
+            zoneId: compact.zoneId,
+          },
           diagnostics: compact.diagnostics,
           contentHash: "agg-hash-1",
           sourceRequestFingerprint: "fp-1",
@@ -185,7 +202,7 @@ describe("scoreCharacter Performance Phase 2 product boundary", () => {
       allowProviderCalls: true,
     });
     expect(cold.scoringVersion).toBe(SCORING_VERSION);
-    expect(cold.scoringVersion).toContain("performance-phase2");
+    expect(cold.scoringVersion).toContain("performance-role-aware-v1");
     expect(cold.performanceAggregate.state).toBe("AVAILABLE");
     expect(cold.orchestration.characterDigests.length).toBe(16);
 
@@ -195,7 +212,7 @@ describe("scoreCharacter Performance Phase 2 product boundary", () => {
     expect(perf).not.toBeNull();
     expect(perf!.calculatorVersion).toBe(PERFORMANCE_PHASE2_ALGORITHM_VERSION);
     expect(perf!.phase1Score).not.toBeNull();
-    expect(perf!.profileSummary).not.toBeNull();
+    expect(perf!.roleAware).not.toBeNull();
     expect(utility?.score).not.toBeNull();
     expect(survival?.score).not.toBeNull();
 
@@ -244,11 +261,14 @@ describe("scoreCharacter Performance Phase 2 product boundary", () => {
     ).toBe(PERFORMANCE_V2_ALGORITHM_VERSION);
 
     const details = saved[0]?.dimensionDetails as {
-      performance?: { calculatorVersion?: string };
+      performance?: { calculatorVersion?: string; roleAware?: { role?: string } };
+      performanceAggregate?: { compact?: unknown };
     };
     expect(details?.performance?.calculatorVersion).toBe(
       PERFORMANCE_PHASE2_ALGORITHM_VERSION,
     );
+    expect(details?.performance?.roleAware?.role).toBe("DPS");
+    expect(details?.performanceAggregate?.compact).toBeDefined();
 
     const utilityScore = utility!.score;
     const survivalScore = survival!.score;

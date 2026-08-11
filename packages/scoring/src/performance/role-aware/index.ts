@@ -16,6 +16,16 @@ export {
   computeRoleAwarePerformanceInputFingerprint,
 } from "./compute.js";
 export { throughputChannelsFromPersistedV2 } from "./from-aggregate.js";
+export {
+  extractPersistedRoleAwarePerformanceEvidence,
+  buildRoleAwarePerformanceSummary,
+  projectPerformanceSummaryFromDimensionDetails,
+  mergePublishedSelectedRunsIntoPerformanceSummary,
+} from "./public-summary.js";
+export type {
+  PersistedRoleAwarePerformanceEvidence,
+  PersistedParseChannelEvidence,
+} from "./public-summary.js";
 export type {
   PerformanceThroughputChannelKind,
   PerformanceDungeonThroughputFact,

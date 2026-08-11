@@ -355,9 +355,44 @@ export interface PerformanceHistoricalSummaryDTO {
   seasons: PerformanceHistoricalSeasonSummaryDTO[];
 }
 
+/** Public dungeon row for a single role-aware throughput channel. */
+export interface PerformanceRoleAwareDungeonSummaryDTO {
+  dungeonSlug: string;
+  dungeonName: string;
+  bestParsePercentile: number | null;
+  medianParsePercentile: number | null;
+  loggedRunCount: number;
+}
+
+/** Public summary for one role-aware parse channel (damage or healing). */
+export interface PerformanceRoleAwareChannelSummaryDTO {
+  score: number | null;
+  confidence: number;
+  bestAverage: number | null;
+  medianAverage: number | null;
+  availableCells: number;
+  expectedCells: number;
+  dungeons: PerformanceRoleAwareDungeonSummaryDTO[];
+}
+
+/** Role-aware Performance public breakdown (Agent 04D). */
+export interface PerformanceRoleAwareSummaryDTO {
+  role: "DPS" | "TANK" | "HEALER";
+  performanceScore: number | null;
+  weightsApplied: {
+    damageParse: number;
+    healingParse: number;
+    cooldown: number;
+  };
+  damage: PerformanceRoleAwareChannelSummaryDTO;
+  healing: PerformanceRoleAwareChannelSummaryDTO | null;
+}
+
 export interface PerformanceSummaryDTO {
   currentSeason: PerformanceCurrentSeasonSummaryDTO;
   historical: PerformanceHistoricalSummaryDTO | null;
+  /** Present on operational CharacterScore rows scored with role-aware Performance. */
+  roleAware?: PerformanceRoleAwareSummaryDTO;
 }
 
 /** Public aggregate-only Survival V1.1.1 explanation. */
