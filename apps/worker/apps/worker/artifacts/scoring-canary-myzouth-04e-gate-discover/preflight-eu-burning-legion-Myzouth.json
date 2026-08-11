@@ -1,0 +1,733 @@
+{
+  "schemaVersion": "scoring-canary-preflight-v1",
+  "characterId": "1f291b4f-96c6-4bde-803b-c2e713d1fce7",
+  "characterName": "Myzouth",
+  "region": "eu",
+  "realm": "burning-legion",
+  "zoneId": 47,
+  "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+  "providerCalls": 0,
+  "repositoryMode": "PRODUCTION",
+  "characterResolutionSource": "postgresql.findByIdentity",
+  "characterCanonicalIdentity": {
+    "region": "EU",
+    "realmSlug": "burning-legion",
+    "name": "Myzouth"
+  },
+  "seasonResolution": {
+    "configuredZoneId": 47,
+    "resolutionMode": "AUTO",
+    "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+    "seasonSlug": "blizzard-season-17",
+    "seasonName": "Blizzard Season 17",
+    "blizzardSeasonId": 17,
+    "expansion": "Midnight",
+    "productSeasonSlug": null,
+    "catalogSource": "season_dungeon_bindings",
+    "catalogVersion": "active-mplus-season-authority-v1:zone-47:pool-aeada75a0cda",
+    "dungeonCount": 8,
+    "dungeons": [
+      {
+        "slug": "algethar-academy",
+        "dungeonId": "22959417-e280-4d7a-ba7d-9384ec7bd832",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "112526",
+        "sortOrder": 0
+      },
+      {
+        "slug": "magisters-terrace",
+        "dungeonId": "70b5b953-cfdf-4649-a448-b52f63bf23fc",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "12811",
+        "sortOrder": 1
+      },
+      {
+        "slug": "maisara-caverns",
+        "dungeonId": "3ea48b85-31f1-4219-bf19-5cdf95cc9061",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "12874",
+        "sortOrder": 2
+      },
+      {
+        "slug": "nexus-point-xenas",
+        "dungeonId": "e293018b-d533-4207-9f4a-058438903e85",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "12915",
+        "sortOrder": 3
+      },
+      {
+        "slug": "pit-of-saron",
+        "dungeonId": "12f7d5cd-d659-4cc7-80b4-042f77919880",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "10658",
+        "sortOrder": 4
+      },
+      {
+        "slug": "seat-of-the-triumvirate",
+        "dungeonId": "26dfb064-b779-4585-947d-0202b6587a24",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "361753",
+        "sortOrder": 5
+      },
+      {
+        "slug": "skyreach",
+        "dungeonId": "9ac2ad78-312c-4410-b934-f4b56b096cf2",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "61209",
+        "sortOrder": 6
+      },
+      {
+        "slug": "windrunner-spire",
+        "dungeonId": "5d5e661b-52e0-416b-b547-19a50c1833f8",
+        "journalInstanceId": null,
+        "wclZoneOrEncounterId": "12805",
+        "sortOrder": 7
+      }
+    ],
+    "activeDungeonSlugs": [
+      "algethar-academy",
+      "magisters-terrace",
+      "maisara-caverns",
+      "nexus-point-xenas",
+      "pit-of-saron",
+      "seat-of-the-triumvirate",
+      "skyreach",
+      "windrunner-spire"
+    ],
+    "dungeonPoolHash": "aeada75a0cda10e33f0452568a66dfdabe006d2e9958f1fdfd1facf5c2c010b6",
+    "expectedSlotCount": 16,
+    "validationStatus": "OK",
+    "validationReasons": [],
+    "isCurrent": true,
+    "startsAt": "2026-03-18T04:00:00.000Z",
+    "endsAt": null,
+    "authority": {
+      "authorityVersion": "active-mplus-season-authority-v1",
+      "resolutionMode": "AUTO",
+      "operationalState": "ACTIVE_SEASON_METADATA_STALE",
+      "applicationSeasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+      "seasonSlug": "blizzard-season-17",
+      "seasonDisplayName": "Blizzard Season 17",
+      "expansionIdentity": "Midnight",
+      "blizzardSeasonId": 17,
+      "raiderIoSeasonSlug": null,
+      "wclZoneId": 47,
+      "active": true,
+      "frozen": false,
+      "validFrom": "2026-03-18T04:00:00.000Z",
+      "validUntil": null,
+      "catalogSource": "season_dungeon_bindings",
+      "catalogVersion": "active-mplus-season-authority-v1:zone-47:pool-aeada75a0cda",
+      "sourceMetadataHash": "bb2cb01d37c4b189d223c3c7ee0383c3e583e14fbe48d3edd04601aa59479b40",
+      "dungeonPoolHash": "aeada75a0cda10e33f0452568a66dfdabe006d2e9958f1fdfd1facf5c2c010b6",
+      "dungeons": [
+        {
+          "slug": "algethar-academy",
+          "dungeonId": "22959417-e280-4d7a-ba7d-9384ec7bd832",
+          "sortOrder": 0,
+          "wclEncounterId": 112526
+        },
+        {
+          "slug": "magisters-terrace",
+          "dungeonId": "70b5b953-cfdf-4649-a448-b52f63bf23fc",
+          "sortOrder": 1,
+          "wclEncounterId": 12811
+        },
+        {
+          "slug": "maisara-caverns",
+          "dungeonId": "3ea48b85-31f1-4219-bf19-5cdf95cc9061",
+          "sortOrder": 2,
+          "wclEncounterId": 12874
+        },
+        {
+          "slug": "nexus-point-xenas",
+          "dungeonId": "e293018b-d533-4207-9f4a-058438903e85",
+          "sortOrder": 3,
+          "wclEncounterId": 12915
+        },
+        {
+          "slug": "pit-of-saron",
+          "dungeonId": "12f7d5cd-d659-4cc7-80b4-042f77919880",
+          "sortOrder": 4,
+          "wclEncounterId": 10658
+        },
+        {
+          "slug": "seat-of-the-triumvirate",
+          "dungeonId": "26dfb064-b779-4585-947d-0202b6587a24",
+          "sortOrder": 5,
+          "wclEncounterId": 361753
+        },
+        {
+          "slug": "skyreach",
+          "dungeonId": "9ac2ad78-312c-4410-b934-f4b56b096cf2",
+          "sortOrder": 6,
+          "wclEncounterId": 61209
+        },
+        {
+          "slug": "windrunner-spire",
+          "dungeonId": "5d5e661b-52e0-416b-b547-19a50c1833f8",
+          "sortOrder": 7,
+          "wclEncounterId": 12805
+        }
+      ],
+      "activeDungeonSlugs": [
+        "algethar-academy",
+        "magisters-terrace",
+        "maisara-caverns",
+        "nexus-point-xenas",
+        "pit-of-saron",
+        "seat-of-the-triumvirate",
+        "skyreach",
+        "windrunner-spire"
+      ],
+      "expectedDungeonCount": 8,
+      "runsPerDungeon": 2,
+      "expectedSlotCount": 16,
+      "synchronizedAt": "2026-08-05T18:35:41.492Z",
+      "validatedAt": "2026-08-05T18:35:41.492Z",
+      "lastKnownGood": true,
+      "diagnosticExpectedZoneId": 47,
+      "diagnosticZoneMatch": true,
+      "autoDetectedZoneId": null,
+      "lineage": {
+        "regionCode": "EU",
+        "regionId": "a6f9c97a-215b-4f76-b601-c05bbb666f8d",
+        "seasonRowId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+        "dungeonPoolHash": "aeada75a0cda10e33f0452568a66dfdabe006d2e9958f1fdfd1facf5c2c010b6",
+        "catalogVersion": "active-mplus-season-authority-v1:zone-47:pool-aeada75a0cda",
+        "wclZoneId": 47
+      },
+      "warnings": []
+    },
+    "warnings": []
+  },
+  "manifestStatus": "FOUND",
+  "manifestComplete": true,
+  "expectedSlotCount": 16,
+  "selectedSlotCount": 16,
+  "uniqueFightCount": 16,
+  "slots": [
+    {
+      "slotId": "algethar-academy:0",
+      "dungeonSlug": "algethar-academy",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 2,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "algethar-academy:1",
+      "dungeonSlug": "algethar-academy",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 21,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "magisters-terrace:0",
+      "dungeonSlug": "magisters-terrace",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "2rqmMTaAnDXKPVfW",
+        "fightId": 18,
+        "reportRevision": 19
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "magisters-terrace:1",
+      "dungeonSlug": "magisters-terrace",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "Bg6YaTDf1y2r8tJm",
+        "fightId": 14,
+        "reportRevision": 50
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "maisara-caverns:0",
+      "dungeonSlug": "maisara-caverns",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "7fYhKRZpHDGg6JWB",
+        "fightId": 40,
+        "reportRevision": 10105
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "maisara-caverns:1",
+      "dungeonSlug": "maisara-caverns",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "1mHtCrdz9DMPgFB6",
+        "fightId": 40,
+        "reportRevision": 48
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "nexus-point-xenas:0",
+      "dungeonSlug": "nexus-point-xenas",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 14,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "nexus-point-xenas:1",
+      "dungeonSlug": "nexus-point-xenas",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 27,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "pit-of-saron:0",
+      "dungeonSlug": "pit-of-saron",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "2rqmMTaAnDXKPVfW",
+        "fightId": 16,
+        "reportRevision": 19
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "pit-of-saron:1",
+      "dungeonSlug": "pit-of-saron",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "4yWLwDzfMa7dpZKt",
+        "fightId": 1,
+        "reportRevision": 1
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "seat-of-the-triumvirate:0",
+      "dungeonSlug": "seat-of-the-triumvirate",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 7,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "seat-of-the-triumvirate:1",
+      "dungeonSlug": "seat-of-the-triumvirate",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "4ZgLXaCpzq3mQtwF",
+        "fightId": 3,
+        "reportRevision": 1
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "skyreach:0",
+      "dungeonSlug": "skyreach",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "1mHtCrdz9DMPgFB6",
+        "fightId": 4,
+        "reportRevision": 48
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "skyreach:1",
+      "dungeonSlug": "skyreach",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "37W8yXAGv1fDZzYd",
+        "fightId": 24,
+        "reportRevision": 25
+      },
+      "packageCache": "HIT",
+      "digestCache": "MISS",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": true,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "windrunner-spire:0",
+      "dungeonSlug": "windrunner-spire",
+      "slotIndex": 0,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "AYWqFMjQfNdktXLJ",
+        "fightId": 31,
+        "reportRevision": 44
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    },
+    {
+      "slotId": "windrunner-spire:1",
+      "dungeonSlug": "windrunner-spire",
+      "slotIndex": 1,
+      "state": "SELECTED",
+      "sourceFight": {
+        "reportCode": "4ZgLXaCpzq3mQtwF",
+        "fightId": 4,
+        "reportRevision": 1
+      },
+      "packageCache": "HIT",
+      "digestCache": "HIT",
+      "rankingParse": "ABSENT",
+      "performanceReady": false,
+      "utilityReady": true,
+      "survivalReady": true,
+      "wouldRequireWcl": false,
+      "wouldRebuildDigestWithoutWcl": false,
+      "rankingMissing": true
+    }
+  ],
+  "fightsRequiringWcl": [],
+  "digestsRebuildableWithoutWcl": [
+    "37W8yXAGv1fDZzYd:2:25:actor:1",
+    "37W8yXAGv1fDZzYd:21:25:actor:1",
+    "7fYhKRZpHDGg6JWB:40:10105:actor:1",
+    "37W8yXAGv1fDZzYd:14:25:actor:1",
+    "37W8yXAGv1fDZzYd:27:25:actor:1",
+    "37W8yXAGv1fDZzYd:7:25:actor:1",
+    "37W8yXAGv1fDZzYd:24:25:actor:1"
+  ],
+  "rankingFactsMissing": [
+    "37W8yXAGv1fDZzYd:2:25:actor:1",
+    "37W8yXAGv1fDZzYd:21:25:actor:1",
+    "7fYhKRZpHDGg6JWB:40:10105:actor:1",
+    "37W8yXAGv1fDZzYd:14:25:actor:1",
+    "37W8yXAGv1fDZzYd:27:25:actor:1",
+    "37W8yXAGv1fDZzYd:7:25:actor:1",
+    "37W8yXAGv1fDZzYd:24:25:actor:1"
+  ],
+  "cost": {
+    "uniqueFightCount": 16,
+    "cacheHits": 16,
+    "cacheMisses": 0,
+    "discoveryOverheadRequests": 0,
+    "discoveryOverheadPoints": null,
+    "estimatedProviderCalls": 0,
+    "estimatedPointsTotal": 0,
+    "unknownPointComponents": 0,
+    "fights": [
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:2:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:21:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "2rqmMTaAnDXKPVfW:18:19",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "Bg6YaTDf1y2r8tJm:14:50",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "7fYhKRZpHDGg6JWB:40:10105",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "1mHtCrdz9DMPgFB6:40:48",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:14:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:27:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "2rqmMTaAnDXKPVfW:16:19",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "4yWLwDzfMa7dpZKt:1:1",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:7:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "4ZgLXaCpzq3mQtwF:3:1",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "1mHtCrdz9DMPgFB6:4:48",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "37W8yXAGv1fDZzYd:24:25",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "AYWqFMjQfNdktXLJ:31:44",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      },
+      {
+        "sourceFightKey": "4ZgLXaCpzq3mQtwF:4:1",
+        "cacheStatus": "HIT",
+        "estimatedProviderCalls": 0,
+        "estimatedPoints": 0,
+        "pointsKnown": true
+      }
+    ],
+    "rateLimit": {
+      "snapshot": null,
+      "snapshotIsProviderCall": false,
+      "action": "OK",
+      "utilizationPercent": null,
+      "projectedUtilizationPercent": null,
+      "pointsSpentBefore": null,
+      "pointsSpentAfterProjected": null,
+      "limitPerHour": null,
+      "resetAt": null,
+      "admission": "ALLOW",
+      "reasons": [
+        "rate_limit_snapshot_absent",
+        "provider_free_replay_allowed",
+        "provider_free_replay"
+      ]
+    }
+  },
+  "costAdmissionDefer": null,
+  "analysisStatus": "COMPLETE",
+  "targetRunCount": 16,
+  "representedDungeonCount": 8,
+  "projectedConfidence": {
+    "policyVersion": "scoring-confidence-v1",
+    "confidenceScore": 100,
+    "confidenceBand": "HIGH",
+    "runCoverage": 1,
+    "dungeonCoverage": 1,
+    "usableRunCount": 16,
+    "missingRunCount": 0,
+    "missingDungeons": []
+  },
+  "warnings": [],
+  "publicationEligible": false,
+  "publicationEnabled": false,
+  "publicScorePointerMutated": false,
+  "safetyChecks": {
+    "providerFree": true,
+    "publicationDisabled": true,
+    "publicPointerUntouched": true
+  },
+  "blockers": [
+    "ranking_parse_missing_7"
+  ],
+  "zoneResolution": {
+    "zoneId": 47,
+    "envZoneId": 47,
+    "source": "env",
+    "overrideActive": false
+  },
+  "characterResolution": {
+    "characterResolutionSource": "postgresql.findByIdentity",
+    "characterId": "1f291b4f-96c6-4bde-803b-c2e713d1fce7",
+    "characterCanonicalIdentity": {
+      "region": "EU",
+      "realmSlug": "burning-legion",
+      "name": "Myzouth"
+    },
+    "repositoryMode": "PRODUCTION"
+  }
+}
