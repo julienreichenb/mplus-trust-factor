@@ -15,7 +15,7 @@ import type {
   RaiderIoStaticData,
 } from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
-import type { WclCharacterSummaryDTO, WclDungeonPerformanceAggregateDTO } from "./warcraftlogs.js";
+import type { WclCharacterSummaryDTO } from "./warcraftlogs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
 

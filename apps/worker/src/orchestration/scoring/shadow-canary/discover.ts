@@ -13,11 +13,9 @@ import {
   requireActiveDungeonEncounters,
   resolveMplusZoneConfig,
   slugifyDungeonName,
-  timedEligibleCoverageByDungeon,
   toCandidateMetadataV2,
   type DiscoverySourceRow,
   type RankingParseEvidenceV2,
-  type WclRunCandidate,
 } from "@mplus/provider-warcraftlogs";
 import { resolveActiveSeasonDungeonPool } from "@mplus/scoring";
 import type { WorkerContainer } from "../../../container.js";
@@ -96,10 +94,6 @@ async function countCallsDuring<T>(
         origPermissive;
     }
   }
-}
-
-function asWclCandidates(raw: Array<Record<string, unknown>>): WclRunCandidate[] {
-  return raw as unknown as WclRunCandidate[];
 }
 
 export async function discoverShadowCanaryCandidates(input: {
@@ -248,16 +242,15 @@ export async function discoverShadowCanaryCandidates(input: {
 
   const activeDungeonSet = new Set(activeDungeonSlugs.map((s) => s.trim().toLowerCase()));
 
+  // On binding failure omit wclActiveDungeonEncounters; live provider re-resolves or fail-closes.
   let encounterBindings: Array<{ dungeonSlug: string; encounterId: number }> = [];
-  let encounterBindingsError: string | null = null;
   if (activeDungeonSlugs.length > 0 && authorityEncounters.length > 0) {
     try {
       encounterBindings = requireActiveDungeonEncounters({
         activeDungeonSlugs,
         authoritativeEncounters: authorityEncounters,
       });
-    } catch (err) {
-      encounterBindingsError = err instanceof Error ? err.message : String(err);
+    } catch {
       encounterBindings = [];
     }
   }

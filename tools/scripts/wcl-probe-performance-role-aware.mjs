@@ -492,10 +492,6 @@ async function main() {
   let tankChar = pick("TANK");
   let healerChar = pick("HEALER");
 
-  // Fallback tank/healer search via known public M+ names if discovery missed.
-  const EXTRA = [
-    { region: "EU", realm: "kazzak", name: "Liquid", hint: "maybe" },
-  ];
   if (!tankChar || !healerChar) {
     console.log(
       "WARN: missing tank/healer from fixture list; trying RIO-less WCL search via Moosevoker dual metrics...",
@@ -879,11 +875,6 @@ async function main() {
   const ps = report.encounterRankings.dps_encounter_playerscore;
   const dpsEr = report.encounterRankings.dps_encounter_dps_role_spec;
   if (ps?.summary && dpsEr?.summary) {
-    const psKeys = new Set(
-      (ps.summary.matchedSample ?? [])
-        .filter((r) => r.reportCode && r.fightID != null)
-        .map((r) => `${r.reportCode}:${r.fightID}`),
-    );
     // Re-fetch dps raw and count overlap against all playerscore ranks if available
     report.summary.encounterCoverageCompare = {
       dps: {

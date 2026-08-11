@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1,
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
   assertPersistedCharacterPerformanceAggregateV1,
   dedupeDungeonAggregates,

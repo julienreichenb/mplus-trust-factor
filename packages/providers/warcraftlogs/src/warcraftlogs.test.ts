@@ -15,11 +15,10 @@ import {
   buildActorMap,
 } from "./discovery/run-matching.js";
 import {
-    rankingsToCandidates,
   mythicRunPlaceholders,
   deriveVisibility,
   deriveWclProvenance,
-    mapZoneRankings,
+  mapZoneRankings,
   countParseStyleRankingRows,
 } from "./discovery/run-discovery.js";
 import { MAX_EVENT_PAGES, TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "./discovery/bounds.js";

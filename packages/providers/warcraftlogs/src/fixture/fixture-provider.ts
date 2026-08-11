@@ -22,7 +22,6 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
-  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
 } from "../discovery/points-and-damage-performance.js";

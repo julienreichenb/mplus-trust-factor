@@ -18,27 +18,6 @@ import {
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   type PerformanceCooldownRunEvidence,
 } from "./index.js";
-import type {
-  PerformanceRunParseFactV2,
-  PerformanceV2ComputeInput,
-  SeasonDifficultyPolicyV2,
-} from "../v2/types.js";
-
-const POLICY: SeasonDifficultyPolicyV2 = {
-  id: "policy-manual-s1",
-  seasonId: "season-1",
-  region: "eu",
-  role: "dps",
-  specSlug: "fire",
-  effectiveFrom: "2026-01-01T00:00:00.000Z",
-  k50: 8,
-  k90: 12,
-  k99: 15,
-  source: "MANUAL",
-  sampleSize: 1000,
-  confidence: 0.8,
-  version: "sdp-v1",
-};
 
 const ACTIVE = [
   "dungeon-a",
@@ -50,79 +29,6 @@ const ACTIVE = [
   "dungeon-g",
   "dungeon-h",
 ];
-
-function fact(
-  overrides: Partial<PerformanceRunParseFactV2> &
-    Pick<PerformanceRunParseFactV2, "slotId" | "dungeonSlug" | "keyLevel">,
-): PerformanceRunParseFactV2 {
-  return {
-    parsePercentile: 70,
-    semantic: "BRACKET_PERCENT",
-    partition: 1,
-    rawDps: 500_000,
-    reportCode: "AbCdEfGh",
-    fightId: 1,
-    reportRevision: 1,
-    ...overrides,
-  };
-}
-
-function phase1Input(
-  overrides: Partial<PerformanceV2ComputeInput> = {},
-): PerformanceV2ComputeInput {
-  return {
-    manifest: {
-      contentHash: "manifest-hash-1",
-      schemaVersion: "2.0.0",
-      selectorVersion: "evidence-selector-v2.0.0",
-      characterId: "char-1",
-      seasonId: "season-1",
-      seasonSlug: "season-slug-1",
-      specSlug: "fire",
-      role: "DPS",
-      highKeyPolicyId: "hk-1",
-      activeDungeonSlugs: ACTIVE,
-      expectedSlotCount: 16,
-      selectedSlotCount: 16,
-      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-    },
-    runParseFacts: ACTIVE.flatMap((slug, di) => [
-      fact({
-        slotId: `${slug}:0`,
-        dungeonSlug: slug,
-        keyLevel: 12,
-        parsePercentile: 80,
-        fightId: di * 2 + 1,
-      }),
-      fact({
-        slotId: `${slug}:1`,
-        dungeonSlug: slug,
-        keyLevel: 11,
-        parsePercentile: 75,
-        fightId: di * 2 + 2,
-      }),
-    ]),
-    profileAggregate: {
-      bestDpsPercentileAverage: 72,
-      medianDpsPercentileAverage: 65,
-      perDungeon: ACTIVE.map((slug) => ({
-        dungeonSlug: slug,
-        bestParsePercentile: 72,
-        medianParsePercentile: 65,
-        loggedRunCount: 4,
-      })),
-      partition: 1,
-      zoneId: 42,
-      totalLoggedRuns: 40,
-      latestObservedAt: null,
-    },
-    difficultyPolicy: POLICY,
-    expectedPartition: 1,
-    logFreshness: 0.9,
-    computedAt: "2026-08-01T12:00:00.000Z",
-    ...overrides,
-  };
-}
 
 function cooldownRun(
   overrides: Partial<PerformanceCooldownRunEvidence> &

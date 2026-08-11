@@ -3,8 +3,8 @@ import type { RegionCode } from "@mplus/contracts";
 import {
   buildSeasonPopulationPolicy,
   computeHistoricalStanding,
-  NATIVE_BAND_STANDING_SCORES,
   SEASON_POPULATION_POLICY_VERSION,
+  type NativeCutoffBand,
   type SeasonPopulationPolicy,
 } from "../../index.js";
 
@@ -41,7 +41,7 @@ const EU_TWW3 = completePolicy("season-tww-3", "EU", {
 
 describe("computeHistoricalStanding", () => {
   it("maps exact native-band boundaries (equality → stronger band)", () => {
-    const cases: Array<{ rating: number; band: keyof typeof NATIVE_BAND_STANDING_SCORES; score: number }> = [
+    const cases: Array<{ rating: number; band: NativeCutoffBand; score: number }> = [
       { rating: 3946.97, band: "p999", score: 100 },
       { rating: 3602.13, band: "p990", score: 90 },
       { rating: 3114.82, band: "p900", score: 75 },

@@ -34,12 +34,10 @@ import {
   deriveWclProvenance,
   mapCharacterSummary,
   mapRegionToWcl,
-  mapZoneRankings,
   mythicRunPlaceholders,
-  rankingsToCandidates,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import { TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "../discovery/bounds.js";
+import type { mapZoneRankings, rankingsToCandidates } from "../discovery/run-discovery.js";
 import {
   buildAliasedEncounterRankingsQuery,
   encounterObservationsToZoneRankingsPayload,
@@ -53,7 +51,6 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
-  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
@@ -948,7 +945,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
 
     let rankings: ReturnType<typeof mapZoneRankings> = [];
     let rankingCandidates: ReturnType<typeof rankingsToCandidates> = [];
-    let usedEncounterRankings = false;
     let performance: PointsAndDamagePerformanceRecord = pointsAndDamageErrorRecord(
       "SKIPPED",
       null,

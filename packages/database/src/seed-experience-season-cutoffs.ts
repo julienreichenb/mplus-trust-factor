@@ -12,10 +12,10 @@ import {
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   EXPERIENCE_POPULATION_CATALOG_PROVENANCE_KEY,
-  EXPERIENCE_SEASON_CUTOFF_QUANTILES,
   catalogRegionAsRegionCode,
   loadExperienceSeasonCutoffsCatalog,
   readExperiencePopulationCatalogProvenance,
+  type ExperienceSeasonCutoffQuantile,
   type ExperienceSeasonCutoffsCatalog,
   type ExperienceSeasonCutoffsCatalogEntry,
 } from "./experience-season-cutoffs-catalog.js";
@@ -85,7 +85,7 @@ function hashSeasonPopulationPolicyContent(policy: SeasonPopulationPolicy): stri
 
 function threshold(
   score: number | undefined,
-  quantile: (typeof EXPERIENCE_SEASON_CUTOFF_QUANTILES)[number],
+  quantile: ExperienceSeasonCutoffQuantile,
   label:
     | "top_0_1_percent"
     | "top_1_percent"

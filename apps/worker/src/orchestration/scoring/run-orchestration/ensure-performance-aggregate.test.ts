@@ -9,6 +9,7 @@ import {
   toPerformanceAggregateDbColumnsV2,
 } from "@mplus/contracts";
 import type { CharacterPerformanceAggregateDTO } from "@mplus/database";
+import type * as DatabaseModule from "@mplus/database";
 import { createEnsureCharacterPerformanceAggregate } from "./ensure-performance-aggregate.js";
 
 const findCompatibleLive = vi.fn();
@@ -16,7 +17,7 @@ const findCompatibleForReplay = vi.fn();
 const upsert = vi.fn();
 
 vi.mock("@mplus/database", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@mplus/database")>();
+  const actual = await importOriginal<typeof DatabaseModule>();
   return {
     ...actual,
     CharacterPerformanceAggregateRepository: class {

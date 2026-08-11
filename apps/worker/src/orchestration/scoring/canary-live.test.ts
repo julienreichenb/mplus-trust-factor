@@ -9,7 +9,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EVIDENCE_SELECTOR_VERSION,
   expectedEvidenceSlotCount,
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceCandidateMetadataV2,
 } from "@mplus/contracts";

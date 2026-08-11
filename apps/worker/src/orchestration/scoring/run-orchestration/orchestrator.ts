@@ -43,7 +43,6 @@ import {
 } from "@mplus/provider-warcraftlogs";
 import { absentRankingParseFact } from "./ranking-hydrate.js";
 import {
-  isUsablePerformanceDigest,
   resolveTargetActorIdFromRoster,
   selectTargetCharacterDigest,
   TargetCharacterDigestError,

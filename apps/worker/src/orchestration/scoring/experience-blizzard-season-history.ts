@@ -192,7 +192,7 @@ export async function acquireBlizzardSeasonHistory(
     return emptyResult(input.evidenceStore, input.characterId);
   }
 
-  let profileIndexCalls = 1;
+  const profileIndexCalls = 1;
   let seasonDetailsCalls = 0;
   let persistedCount = 0;
   const skippedCurrentSeasonIds: number[] = [];
