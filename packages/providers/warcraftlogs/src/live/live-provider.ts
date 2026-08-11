@@ -1359,6 +1359,13 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       provenance.dataState,
     );
 
+    // Dungeon-first: never apply the legacy 80-candidate global cap to
+    // encounterRankings rows — that truncates dense early dungeons and drops
+    // later dungeons that already have timed fight identities in rankings.
+    const maxCandidates = scoringDungeonFirstMode
+      ? Math.max(rankingCandidates.length, MAX_DISCOVERY_CANDIDATES)
+      : MAX_DISCOVERY_CANDIDATES;
+
     return buildCharacterDiscovery({
       summary,
       rankings,
@@ -1367,6 +1374,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       rankingCandidates,
       recentCandidates,
       minRecentCandidates,
+      maxCandidates,
       privateReportsSkipped: privateSkippedTotal,
     });
   }

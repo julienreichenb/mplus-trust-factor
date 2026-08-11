@@ -436,21 +436,28 @@ export function buildCharacterDiscovery(input: {
   rankingCandidates: WclRunCandidate[];
   recentCandidates: WclRunCandidate[];
   minRecentCandidates?: number;
+  /**
+   * Override the legacy MAX_DISCOVERY_CANDIDATES=80 cap.
+   * Dungeon-first scoring must retain encounterRankings rows across all active
+   * dungeons; the fixed 80 cap can starve later dungeons when early ones are dense.
+   */
+  maxCandidates?: number;
   privateReportsSkipped?: number;
   dungeonAggregates?: WclDungeonPerformanceAggregate[];
   performance?: WclCharacterDiscoveryResult["performance"];
 }): WclCharacterDiscoveryResult {
+  const maxCandidates = input.maxCandidates ?? MAX_DISCOVERY_CANDIDATES;
   const { candidates, truncated } = capDiscoveryCandidates(
     input.rankingCandidates,
     input.recentCandidates,
-    MAX_DISCOVERY_CANDIDATES,
+    maxCandidates,
     { minRecentCandidates: input.minRecentCandidates },
   );
   const { latest, highest } = selectLatestAndHighest(candidates);
   const warnings = [...input.summary.warnings];
   if (truncated) {
     warnings.push(
-      `Discovery candidates truncated to ${MAX_DISCOVERY_CANDIDATES} (documented cap)`,
+      `Discovery candidates truncated to ${maxCandidates} (documented cap)`,
     );
   }
   return {

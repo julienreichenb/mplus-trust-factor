@@ -638,6 +638,14 @@ describe("Discovery bounds and placeholders", () => {
     const capped = capDiscoveryCandidates(rankings, []);
     expect(capped.candidates).toHaveLength(MAX_DISCOVERY_CANDIDATES);
     expect(capped.truncated).toBe(true);
+
+    // Dungeon-first scoring must be able to raise the cap so dense early
+    // dungeons do not starve later encounterRankings rows.
+    const raised = capDiscoveryCandidates(rankings, [], rankings.length);
+    expect(raised.candidates).toHaveLength(rankings.length);
+    expect(raised.truncated).toBe(false);
+  });
+    expect(capped.truncated).toBe(true);
   });
 });
 
