@@ -3,7 +3,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  isUsablePerformanceDigest,
   resolveTargetActorIdFromRoster,
   selectTargetCharacterDigest,
   TargetCharacterDigestError,
@@ -13,6 +12,7 @@ import {
   replayScoringFromPersistedEvidence,
 } from "./run-orchestration/orchestrator.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
+import { buildTestThroughputChannels } from "./run-orchestration/test-fixtures.js";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
   EVIDENCE_SELECTOR_VERSION,
@@ -264,7 +264,7 @@ describe("stable character identity", () => {
 });
 
 describe("performance partial evidence", () => {
-  it("reports exact blocker when zero compatible ranking facts exist", async () => {
+  it("reports performance_profile_aggregate_missing when throughput channels are absent", async () => {
     const ports = createMemoryOrchestrationPorts({ autoSeedRanking: false });
     const slugs = [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS];
     const candidates: EvidenceCandidateMetadataV2[] = [];
@@ -288,6 +288,7 @@ describe("performance partial evidence", () => {
       liveProviderPermission: "ALLOWED",
       scope: baseScope(),
       candidates,
+      throughputChannels: null,
       ports,
     });
     expect(result.characterDigests.length).toBe(16);
@@ -295,18 +296,15 @@ describe("performance partial evidence", () => {
       result.dimensions.blocked.some(
         (b) =>
           b.dimension === "PERFORMANCE" &&
-          b.reason === "performance_parse_missing",
+          b.reason === "performance_profile_aggregate_missing",
       ),
     ).toBe(true);
     expect(result.dimensions.utility).not.toBeNull();
     expect(result.dimensions.survival).not.toBeNull();
-    expect(
-      result.dimensions.performanceDigestDiagnostics.every((d) => !d.usable),
-    ).toBe(true);
   });
 
-  it("calculates Performance from partial compatible ranking evidence", async () => {
-    const ports = createMemoryOrchestrationPorts({ autoSeedRanking: true });
+  it("calculates Performance from throughput channels independently of digest ranking facts", async () => {
+    const ports = createMemoryOrchestrationPorts({ autoSeedRanking: false });
     const slugs = [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS];
     const candidates: EvidenceCandidateMetadataV2[] = [];
     let n = 0;
@@ -317,7 +315,6 @@ describe("performance partial evidence", () => {
       }
     }
     seedParticipants(ports, candidates);
-    // First orchestrate with ranking.
     const full = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
@@ -328,30 +325,30 @@ describe("performance partial evidence", () => {
       liveProviderPermission: "ALLOWED",
       scope: baseScope(),
       candidates,
+      throughputChannels: buildTestThroughputChannels(slugs),
       ports,
     });
     expect(full.dimensions.performance).not.toBeNull();
     expect(full.dimensions.blocked.find((b) => b.dimension === "PERFORMANCE")).toBeUndefined();
 
-    // Mark one digest ranking absent without blocking Utility/Survival.
-    const poisoned = structuredClone(full.characterDigests[0]!.digest);
-    poisoned.performance.completeness = "UNAVAILABLE";
-    poisoned.performance.parsePercentile = null;
-    poisoned.performance.parseSemantic = "UNAVAILABLE";
-    poisoned.performance.limitations = ["ranking_parse_absent"];
-    expect(isUsablePerformanceDigest(poisoned)).toBe(false);
-
-    const usable = full.characterDigests
-      .slice(1)
-      .filter((d) => isUsablePerformanceDigest(d.digest));
-    expect(usable.length).toBe(15);
-    const conf = computeScoringConfidenceV1({
-      usableRunCount: 15,
-      targetRunCount: 16,
-      representedDungeonCount: 8,
-      activeDungeonCount: 8,
+    const partialSlugs = slugs.slice(0, 7);
+    const partial = await orchestrateScoringRuns({
+      characterId: CHAR_ID,
+      region: "eu",
+      realm: "archimonde",
+      characterName: "Wallidrixe",
+      seasonId: "season-1",
+      scoringModelId: "model-1",
+      liveProviderPermission: "ALLOWED",
+      scope: baseScope(),
+      candidates,
+      throughputChannels: buildTestThroughputChannels(partialSlugs),
+      ports,
     });
-    expect(conf.confidenceScore).toBe(97);
+    expect(partial.dimensions.performance).not.toBeNull();
+    expect(partial.dimensions.performance!.coverage.damageDungeonCount).toBeLessThan(
+      full.dimensions.performance!.coverage.damageDungeonCount,
+    );
   });
 
   it("dimension confidence is calculated independently", () => {
@@ -387,6 +384,7 @@ describe("provider-free replay", () => {
       }
     }
     seedParticipants(ports, candidates);
+    const throughputChannels = buildTestThroughputChannels(slugs);
     const seeded = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
@@ -397,6 +395,7 @@ describe("provider-free replay", () => {
       liveProviderPermission: "ALLOWED",
       scope: baseScope(),
       candidates,
+      throughputChannels,
       ports,
     });
     expect(seeded.characterDigests).toHaveLength(16);
@@ -413,6 +412,7 @@ describe("provider-free replay", () => {
       scope: baseScope(),
       existingManifest: seeded.manifest,
       candidates,
+      throughputChannels,
       ports,
     });
 
@@ -474,6 +474,7 @@ describe("provider-free replay", () => {
       liveProviderPermission: "ALLOWED",
       scope: baseScope(),
       candidates,
+      throughputChannels: buildTestThroughputChannels(MIDNIGHT_SEASON_1_DUNGEON_SLUGS),
       ports,
     });
     expect(result.characterDigests).toHaveLength(16);

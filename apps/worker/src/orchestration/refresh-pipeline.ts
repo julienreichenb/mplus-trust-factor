@@ -162,6 +162,8 @@ import {
   ensureTargetParticipant,
   filterRunsToActiveWindow,
   fuseCrossProviderRuns,
+  mythicRunHasWclSource,
+  sourceRefHasWcl,
 } from "./run-fusion.js";
 import {
   buildSurvivalWclBindPool,
@@ -1941,7 +1943,7 @@ export async function runRefreshPipeline(
     completedAt: run.completedAt.toISOString(),
     durationMs: run.durationMs,
     scoreValue: run.scoreValue,
-    hasWclSource: run.sources.some((s) => s.provider === "WARCRAFT_LOGS"),
+    hasWclSource: mythicRunHasWclSource(run),
   }));
   const candidateFromFusion = fusedRuns
     .filter((run) => persistedByFingerprint.has(run.canonicalFingerprint))
@@ -1955,7 +1957,7 @@ export async function runRefreshPipeline(
         completedAt: persisted.completedAt.toISOString(),
         durationMs: persisted.durationMs,
         scoreValue: persisted.scoreValue,
-        hasWclSource: persisted.sources.some((s) => s.provider === "WARCRAFT_LOGS"),
+        hasWclSource: persisted.sources.some((s) => sourceRefHasWcl(s.provider)),
       };
     });
   const scoringCandidates =
@@ -2077,7 +2079,7 @@ export async function runRefreshPipeline(
           completedAt: run.completedAt.toISOString(),
           durationMs: run.durationMs,
           scoreValue: run.scoreValue,
-          hasWclSource: run.sources.some((s) => s.provider === "WARCRAFT_LOGS"),
+          hasWclSource: mythicRunHasWclSource(run),
         })),
         {
           seasonSlug: season.slug,

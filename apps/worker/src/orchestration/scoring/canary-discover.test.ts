@@ -768,7 +768,7 @@ describe("runScoringCanaryDiscovery", () => {
     expect(report.selectedSlotCount).toBe(18);
   });
 
-  it("surfaces iterative hydration diagnostics and HYDRATION_INCOMPLETE when stubs remain", async () => {
+  it("surfaces missing slots when dungeon-first discovery lacks eligible candidates", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     const all = fullCandidates();
     const windrunner = all.filter((c) => c.dungeonSlug.toLowerCase() === "windrunner-spire");
@@ -778,7 +778,6 @@ describe("runScoringCanaryDiscovery", () => {
     ];
     expect(cands.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(1);
 
-    let admitSeen = false;
     const { report } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
@@ -800,62 +799,31 @@ describe("runScoringCanaryDiscovery", () => {
       specSlug: null,
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
       ensureRateLimitSnapshot: ensureOkBootstrap(),
-      diagnosticReportCode: "7qtb9Wp4ZdYwmKPH",
-      discover: async (ctx) => {
-        const decision = await ctx.evaluateIncrementalAdmission({
-          batchSize: 6,
-          projectedIncrementalPoints: 18,
-          reportsHydratedSoFar: 24,
-          reportsRemaining: 20,
-        });
-        admitSeen = decision.allow === true;
-        return {
-          candidates: cands,
-          rankingEvidence: [],
-          reportsListed: 44,
-          reportsHydrated: 24,
-          fightsExamined: cands.length,
-          graphqlRequestCount: 30,
-          capabilityEventPageRequestCount: 0,
-          measuredPoints: null,
-          estimatedPoints: 30,
-          unhydratedReportCount: 20,
-          omittedReports: [
-            {
-              reportCode: "7qtb9Wp4ZdYwmKPH",
-              reason: "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET",
-              dungeonSlug: null,
-              listedOrderIndex: 24,
-            },
-          ],
-          iterativeHydration: {
-            initialHydrationBudget: 24,
-            reportsHydratedInitial: 24,
-            incrementalBatchCount: 0,
-            reportsHydratedIncrementally: 0,
-            totalReportsHydrated: 24,
-            totalReportsListed: 44,
-            reportsRemaining: 20,
-            incrementalProviderCalls: 0,
-            incrementalEstimatedPoints: 0,
-            terminalHydrationReason: "rate_admission_defer",
-            listedReportOrder: ["x", "7qtb9Wp4ZdYwmKPH"],
-            initialHydrationOrder: ["x"],
-          },
-        };
-      },
+      discover: async () => ({
+        candidates: cands,
+        rankingEvidence: [],
+        reportsListed: 0,
+        reportsHydrated: 0,
+        fightsExamined: cands.length,
+        graphqlRequestCount: 1,
+        capabilityEventPageRequestCount: 0,
+        measuredPoints: null,
+        estimatedPoints: 1,
+        unhydratedReportCount: 0,
+        omittedReports: [],
+        iterativeHydration: null,
+      }),
     });
 
-    expect(admitSeen).toBe(true);
     expect(report.capabilityPackageAcquisitions).toBe(0);
     expect(report.selectedSlotCount).toBe(15);
     expect(report.analysisStatus).toBe("PARTIAL");
-    expect(report.iterativeHydration?.terminalHydrationReason).toBe("rate_admission_defer");
-    expect(report.missingSlots.some((m) => m.reason.includes("HYDRATION_INCOMPLETE"))).toBe(
-      true,
-    );
-    expect(report.targetReportTrace?.reportCode).toBe("7qtb9Wp4ZdYwmKPH");
-    expect(report.targetReportTrace?.listedOrderIndex).toBe(24);
+    expect(report.iterativeHydration).toBeNull();
+    expect(
+      report.missingSlots.some((m) =>
+        m.reason.includes("INSUFFICIENT_CHARACTER_HISTORY"),
+      ),
+    ).toBe(true);
   });
 });
 

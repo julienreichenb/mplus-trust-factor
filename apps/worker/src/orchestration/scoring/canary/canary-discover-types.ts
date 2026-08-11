@@ -68,6 +68,21 @@ export interface CanaryDiscoveryCandidateSource {
     characterDiscovery: number;
     reportHydration: number;
   };
+
+  /**
+   * Post-hydration diagnostics: where hydrated fights survive the
+   * normalization filters before becoming EvidenceCandidateMetadataV2.
+   */
+  hydratedFightCandidates?: {
+    total: number;
+    fightUnknown: number;
+    invalidFightId: number;
+    missingDungeonSlug: number;
+    dungeonSlugNotInActivePool: number;
+    invalidKeyLevel: number;
+    visibilityExcluded: number;
+    byDungeonSlug: Record<string, number>;
+  };
 }
 
 export interface CanaryDiscoveryForbiddenEffects {
@@ -145,6 +160,21 @@ export interface CanaryDiscoveryReport {
     incrementalEstimatedPoints: number;
     terminalHydrationReason: string;
   } | null;
+
+  /**
+   * Post-hydration diagnostics: where hydrated fights survive the
+   * normalization filters before becoming EvidenceCandidateMetadataV2.
+   */
+  hydratedFightCandidates?: {
+    total: number;
+    fightUnknown: number;
+    invalidFightId: number;
+    missingDungeonSlug: number;
+    dungeonSlugNotInActivePool: number;
+    invalidKeyLevel: number;
+    visibilityExcluded: number;
+    byDungeonSlug: Record<string, number>;
+  };
   targetReportTrace: {
     reportCode: string;
     listed: boolean;

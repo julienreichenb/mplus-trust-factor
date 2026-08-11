@@ -4,12 +4,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
   PRESSURE_WINDOW_DERIVATION_VERSION,
   withParticipantDigestContentHash,
   type EvidenceCandidateMetadataV2,
   type ParticipantScoringDigestV1,
-  type PersistedCharacterPerformanceAggregateV1,
 } from "@mplus/contracts";
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
@@ -18,6 +16,7 @@ import {
   UTILITY_V2_ALGORITHM_VERSION,
 } from "@mplus/scoring";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
+import { buildTestEnsurePerformanceAggregateResult } from "./run-orchestration/test-fixtures.js";
 import { fingerprintDimensionResults } from "./run-orchestration/orchestrator.js";
 import { scoreCharacter, SCORING_VERSION } from "./score-character.js";
 
@@ -76,47 +75,6 @@ function fakePrisma(saved: Array<Record<string, unknown>> = []) {
       },
     },
   } as never;
-}
-
-function aggregateCompact(): PersistedCharacterPerformanceAggregateV1 {
-  return {
-    state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
-    zoneId: 47,
-    partition: null,
-    dungeonAggregates: DUNGEONS.map((slug) => ({
-      dungeonSlug: slug,
-      dungeonName: slug,
-      encounterId: 1,
-      bestParsePercentile: 80,
-      medianParsePercentile: 70,
-      loggedRunCount: 4,
-      specialization: "Fire",
-      keystoneLevel: 12,
-      bestDps: 1_000_000,
-    })),
-    global: {
-      totalMythicPlusScore: 3000,
-      totalLoggedRuns: 40,
-      bestDpsPercentileAverage: 80,
-      medianDpsPercentileAverage: 70,
-      partition: null,
-      zoneId: 47,
-    },
-    diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
-      provenance: "AGGREGATE_ZONE_RANKINGS",
-      availableDungeonCount: 8,
-      expectedDungeonCount: 8,
-      unavailableEncounters: [],
-      wclBestPerformanceAverage: 80,
-      wclMedianPerformanceAverage: 70,
-      computedBestAverage: 80,
-      computedMedianAverage: 70,
-    },
-  };
 }
 
 function utilityCaps() {
@@ -435,17 +393,12 @@ function createEnrichedPorts(options?: { utilityUnavailable?: boolean }) {
 }
 
 function ensureAgg() {
-  const compact = aggregateCompact();
-  return async () => ({
-    state: "OK" as const,
-    data: compact,
-    reason: null,
-    cache: "HIT" as const,
-    providerCalls: 0,
-    created: false,
-    updated: false,
-    aggregateRowId: "agg-1",
-    contentHash: "h".repeat(64),
+  return buildTestEnsurePerformanceAggregateResult({
+    characterId: CHARACTER_ID,
+    seasonId: SEASON_ID,
+    dungeonSlugs: DUNGEONS,
+    role: "DPS",
+    targetSpecSlug: "fire",
   });
 }
 

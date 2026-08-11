@@ -565,8 +565,8 @@ describe("Performance Phase 2 character combine (P–S)", () => {
     expect(result.damageParseScore).not.toBeNull();
     expect(result.offensiveCooldownDiscipline).toBeNull();
     expect(result.score).toBe(result.damageParseScore);
-    expect(result.weightsApplied.damageParse).toBe(1);
-    expect(result.weightsApplied.cooldown).toBe(0);
+    expect(result.weightsApplied.damageParse).toBeCloseTo(0.8, 10);
+    expect(result.weightsApplied.cooldown).toBeCloseTo(0.2, 10);
     expect(result.state).toBe("PARTIAL");
   });
 

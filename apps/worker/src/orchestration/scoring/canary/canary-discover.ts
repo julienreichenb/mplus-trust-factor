@@ -840,6 +840,7 @@ export async function runScoringCanaryDiscovery(
     reportsHydrated: discovered.reportsHydrated,
     unhydratedReportCount,
     fightsExamined: discovered.fightsExamined,
+    hydratedFightCandidates: discovered.hydratedFightCandidates,
     discoveredCandidateCount: mergedCandidates.length,
     uniqueEligibleCandidateCount,
     selectedSourceFightCount: documentForPersist.selectedSlotCount,

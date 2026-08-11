@@ -5,15 +5,12 @@
 import { describe, expect, it } from "vitest";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
 import {
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-  type PersistedCharacterPerformanceAggregateV1,
-} from "@mplus/contracts";
-import {
   SURVIVAL_V2_ALGORITHM_VERSION,
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   UTILITY_V2_ALGORITHM_VERSION,
 } from "@mplus/scoring";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
+import { buildTestEnsurePerformanceAggregateResult } from "./run-orchestration/test-fixtures.js";
 import { scoreCharacter, SCORING_VERSION } from "./score-character.js";
 
 const CHARACTER_ID = "11111111-1111-4111-8111-111111111111";
@@ -71,47 +68,6 @@ function fakePrisma(saved: Array<Record<string, unknown>> = []) {
   } as never;
 }
 
-function aggregateCompact(): PersistedCharacterPerformanceAggregateV1 {
-  return {
-    state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
-    zoneId: 47,
-    partition: null,
-    dungeonAggregates: DUNGEONS.map((slug) => ({
-      dungeonSlug: slug,
-      dungeonName: slug,
-      encounterId: 1,
-      bestParsePercentile: 80,
-      medianParsePercentile: 70,
-      loggedRunCount: 4,
-      specialization: "Fire",
-      keystoneLevel: 12,
-      bestDps: 1_000_000,
-    })),
-    global: {
-      totalMythicPlusScore: 3000,
-      totalLoggedRuns: 40,
-      bestDpsPercentileAverage: 80,
-      medianDpsPercentileAverage: 70,
-      partition: null,
-      zoneId: 47,
-    },
-    diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
-      provenance: "AGGREGATE_ZONE_RANKINGS",
-      availableDungeonCount: 8,
-      expectedDungeonCount: 8,
-      unavailableEncounters: [],
-      wclBestPerformanceAverage: 80,
-      wclMedianPerformanceAverage: 70,
-      computedBestAverage: 80,
-      computedMedianAverage: 70,
-    },
-  };
-}
-
 describe("scoreCharacter Survival Phase 2 product boundary", () => {
   it("persists Survival Phase 2; warm/replay match; Performance/Utility unchanged; zero provider calls on replay", async () => {
     const candidates = DUNGEONS.flatMap((slug, i) => [
@@ -119,17 +75,12 @@ describe("scoreCharacter Survival Phase 2 product boundary", () => {
       candidate(slug, `S${i}B`, 2, 1),
     ]);
     const ports = createMemoryOrchestrationPorts();
-    const compact = aggregateCompact();
-    const ensureAgg = async () => ({
-      state: "OK" as const,
-      data: compact,
-      reason: null,
-      cache: "HIT" as const,
-      providerCalls: 0,
-      created: false,
-      updated: false,
-      aggregateRowId: "agg-1",
-      contentHash: "h".repeat(64),
+    const ensureAgg = buildTestEnsurePerformanceAggregateResult({
+      characterId: CHARACTER_ID,
+      seasonId: SEASON_ID,
+      dungeonSlugs: DUNGEONS,
+      role: "DPS",
+      targetSpecSlug: "fire",
     });
 
     const saved: Array<Record<string, unknown>> = [];

@@ -132,13 +132,22 @@ export interface HydrationCoverageDiagnostics {
 }
 
 export function slugifyDungeonName(value: string): string {
-  return value
+  const hasPossessiveS = /['’]s\b/i.test(value);
+  let slug = value
     .normalize("NFKC")
     .trim()
     .toLocaleLowerCase("en-US")
     .replace(/['']/g, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, "")
+    ;
+
+  if (hasPossessiveS) {
+    // "Maisara's Caverns" -> "maisara-caverns" instead of "maisaras-caverns"
+    slug = slug.replace(/^([a-z0-9]+)s-/, "$1-");
+  }
+
+  return slug;
 }
 
 export function resolveDungeonSlug(
@@ -148,11 +157,27 @@ export function resolveDungeonSlug(
   if (fight.encounterID != null && ENCOUNTER_DUNGEON_MAP[fight.encounterID]) {
     return ENCOUNTER_DUNGEON_MAP[fight.encounterID]!;
   }
+  // For recentReports hydration, `fight.name` can be a boss/encounter name,
+  // while `reportZoneName` is the actual dungeon/zone. Prefer the zone name
+  // so we don't emit non-canonical dungeon slugs.
+  const reportZoneTrimmed = reportZoneName?.trim() ?? null;
+  const reportZoneLower = reportZoneTrimmed?.toLowerCase() ?? null;
+  const looksLikeMplusContainerZone =
+    reportZoneLower === "mythic" ||
+    reportZoneLower === "mythic+" ||
+    reportZoneLower?.startsWith("mythic+");
+
   if (fight.name && fight.name.trim()) {
+    // WCL "report.zone.name" is often "Mythic+" even when the dungeon is
+    // not encoded there (unit tests cover this). In that case we must
+    // fall back to `fight.name`.
+    if (reportZoneTrimmed && !looksLikeMplusContainerZone) {
+      return slugifyDungeonName(reportZoneTrimmed);
+    }
     return slugifyDungeonName(fight.name);
   }
-  if (reportZoneName?.trim()) {
-    return slugifyDungeonName(reportZoneName);
+  if (reportZoneTrimmed && !looksLikeMplusContainerZone) {
+    return slugifyDungeonName(reportZoneTrimmed);
   }
   return null;
 }

@@ -919,6 +919,7 @@ export async function runCanaryDiscoverCommand(
             measuredPoints: null,
             estimatedPoints: shadow.diagnostics.providerCalls,
             omittedReports: shadow.diagnostics.omittedReports,
+            hydratedFightCandidates: shadow.diagnostics.hydratedFightCandidates,
             unhydratedReportCount: shadow.diagnostics.unhydratedReportCount,
             discoveryStrategy: shadow.diagnostics.discoveryStrategy,
             hydrationFallbackReason: shadow.diagnostics.hydrationFallbackReason,

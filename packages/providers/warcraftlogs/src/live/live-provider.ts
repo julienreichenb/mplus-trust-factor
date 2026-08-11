@@ -42,7 +42,10 @@ import {
   countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import { TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "../discovery/bounds.js";
+import {
+  MAX_DISCOVERY_CANDIDATES,
+  TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON,
+} from "../discovery/bounds.js";
 import {
   buildAliasedEncounterRankingsQuery,
   encounterObservationsToZoneRankingsPayload,
@@ -274,6 +277,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     // Coverage-aware iterative path (V2 cold production): open reports until each
     // active dungeon has TARGET candidates or stubs/rate budget are exhausted.
     // Legacy fixed budget (MAX_HYDRATION_REPORTS=5) is insufficient for 2×8 slots.
+    const scoringDungeonFirstMode =
+      ctx.wclActiveDungeonEncounters != null && ctx.wclActiveDungeonEncounters.length > 0;
+
     let hydratedCandidates = discovery.candidates;
     let hydratedReportCount = 0;
     let terminalHydrationReason: string | null = null;
@@ -286,7 +292,17 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         : null;
     const fightUnknownRemaining = discovery.candidates.some((c) => c.incompleteness.fightUnknown);
 
-    if (activeDungeonSlugs.length > 0 && preCoverage?.fullCoverage && !fightUnknownRemaining) {
+    if (scoringDungeonFirstMode) {
+      hydratedCandidates = discovery.candidates;
+      hydratedReportCount = 0;
+      terminalHydrationReason = "dungeon_first_no_hydration";
+      totalReportsHydrated = 0;
+      reportsRemaining = 0;
+    } else if (
+      activeDungeonSlugs.length > 0 &&
+      preCoverage?.fullCoverage &&
+      !fightUnknownRemaining
+    ) {
       // encounterRankings already supplied timed fight-known candidates — skip mass hydration.
       hydratedCandidates = discovery.candidates;
       hydratedReportCount = 0;
@@ -1117,6 +1133,11 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       "points_and_damage not queried",
     );
 
+    // Scoring detailed-evidence discovery must be dungeon-scoped and must
+    // never fall back to arbitrary `recentReports` scan/hydration.
+    const scoringDungeonFirstMode =
+      ctx.wclActiveDungeonEncounters != null && ctx.wclActiveDungeonEncounters.length > 0;
+
     const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
       .map((slug) => slug.trim().toLowerCase())
       .filter((slug) => slug.length > 0);
@@ -1253,7 +1274,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         ? timedEligibleCoverageByDungeon(rankingCandidates, activeDungeonSlugs)
         : null;
 
-    if (erCoverage?.fullCoverage) {
+    if (scoringDungeonFirstMode) {
+      warnings.push("recentReports pagination disabled (dungeon-first scoring mode)");
+    } else if (erCoverage?.fullCoverage) {
       warnings.push(
         "recentReports pagination skipped — encounterRankings already provide timed coverage for every active dungeon",
       );
@@ -1311,15 +1334,17 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       warnings.push(
         `recentReports pagination: pagesFetched=${pagination.pagesFetched} stop=${pagination.stopReason} uniqueReports=${recentPublicCount}`,
       );
-
     }
 
-    const minRecentCandidates =
-      erCoverage?.fullCoverage === false && erCoverage.underCovered.length > 0
-        ? Math.min(
-            recentCandidates.length,
-            TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON * erCoverage.underCovered.length,
-          )
+    // When encounter coverage is incomplete, the capped candidate set must
+    // retain enough `fightUnknown` recentReports stubs so hydration can
+    // actually discover the missing dungeons. Using a small minRecent
+    // value can still cluster into only a couple dungeons (leading to a
+    // persistent 2-slot manifest shortfall).
+    const minRecentCandidates = scoringDungeonFirstMode
+      ? 0
+      : erCoverage?.fullCoverage === false && erCoverage.underCovered.length > 0
+        ? Math.min(recentCandidates.length, MAX_DISCOVERY_CANDIDATES)
         : 0;
 
     const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {

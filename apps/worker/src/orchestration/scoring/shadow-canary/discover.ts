@@ -71,6 +71,21 @@ export interface ShadowCanaryDiscoveryResult {
       dungeonSlug: string | null;
       listedOrderIndex?: number | null;
     }>;
+
+    /**
+     * Post-hydration diagnostics: how many hydrated fights survive the
+     * sourceRow normalization filters before becoming EvidenceCandidateMetadataV2.
+     */
+    hydratedFightCandidates: {
+      total: number;
+      fightUnknown: number;
+      invalidFightId: number;
+      missingDungeonSlug: number;
+      dungeonSlugNotInActivePool: number;
+      invalidKeyLevel: number;
+      visibilityExcluded: number;
+      byDungeonSlug: Record<string, number>;
+    };
   };
 }
 
@@ -393,10 +408,9 @@ export async function discoverShadowCanaryCandidates(input: {
     return incompleteness?.fightUnknown === true;
   });
   const usedEncounterRankings = encounterBindings.length > 0;
-  const skipMassHydration =
-    usedEncounterRankings &&
-    preCoverage?.fullCoverage === true &&
-    !fightUnknownRemaining;
+  // Scoring detailed-evidence discovery is dungeon-first and must not
+  // perform mass hydration (no `recentReports` stubs, no iterative report hydration).
+  const skipMassHydration = true;
 
   let hydratedCandidates = discovery.candidates;
   let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
@@ -478,11 +492,27 @@ export async function discoverShadowCanaryCandidates(input: {
   }
 
   const sourceRows: DiscoverySourceRow[] = [];
+  const hydratedFightCandidates = {
+    total: hydratedCandidates.length,
+    fightUnknown: 0,
+    invalidFightId: 0,
+    missingDungeonSlug: 0,
+    dungeonSlugNotInActivePool: 0,
+    invalidKeyLevel: 0,
+    visibilityExcluded: 0,
+    byDungeonSlug: {} as Record<string, number>,
+  };
   for (const raw of hydratedCandidates) {
     const fightId = Number(raw.fightId ?? 0);
-    if (!Number.isFinite(fightId) || fightId <= 0) continue;
+    if (!Number.isFinite(fightId) || fightId <= 0) {
+      hydratedFightCandidates.invalidFightId += 1;
+      continue;
+    }
     const incompleteness = raw.incompleteness as { fightUnknown?: boolean } | undefined;
-    if (incompleteness?.fightUnknown) continue;
+    if (incompleteness?.fightUnknown) {
+      hydratedFightCandidates.fightUnknown += 1;
+      continue;
+    }
 
     const dungeonSlugRaw =
       typeof raw.dungeonSlug === "string"
@@ -494,9 +524,22 @@ export async function discoverShadowCanaryCandidates(input: {
             null
           : null;
     const dungeonSlug = dungeonSlugRaw?.trim().toLowerCase() ?? null;
-    if (!dungeonSlug || !activeDungeonSet.has(dungeonSlug)) continue;
+    if (!dungeonSlug) {
+      hydratedFightCandidates.missingDungeonSlug += 1;
+      continue;
+    }
+    if (!activeDungeonSet.has(dungeonSlug)) {
+      hydratedFightCandidates.dungeonSlugNotInActivePool += 1;
+      continue;
+    }
+
+    hydratedFightCandidates.byDungeonSlug[dungeonSlug] =
+      (hydratedFightCandidates.byDungeonSlug[dungeonSlug] ?? 0) + 1;
     const keyLevel = typeof raw.keyLevel === "number" ? raw.keyLevel : null;
-    if (keyLevel == null || keyLevel <= 0) continue;
+    if (keyLevel == null || keyLevel <= 0) {
+      hydratedFightCandidates.invalidKeyLevel += 1;
+      continue;
+    }
 
     const visibilityRaw =
       typeof raw.visibility === "string" ? raw.visibility.toLowerCase() : "public";
@@ -672,6 +715,8 @@ export async function discoverShadowCanaryCandidates(input: {
             o.listedOrderIndex ?? (fromOrder >= 0 ? fromOrder : null),
         };
       }),
+
+      hydratedFightCandidates,
     },
   };
 }
