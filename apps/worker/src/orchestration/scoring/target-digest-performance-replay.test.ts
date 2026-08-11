@@ -216,6 +216,54 @@ describe("stable character identity", () => {
     expect(hit.participantActorId).toBe(119);
   });
 
+  it("matches Myzouth digests when WCL realm omits hyphens (burninglegion)", () => {
+    const digests = [
+      {
+        participantActorId: 161,
+        characterId: null,
+        characterName: "Titiquemonk",
+        realmSlug: "ysondre",
+        regionCode: "EU",
+        digest: {
+          participantActorId: 161,
+          characterId: null,
+          characterName: "Titiquemonk",
+          realmSlug: "ysondre",
+          regionCode: "EU",
+        } as ParticipantScoringDigestV1,
+        digestArtifactId: "art-other",
+      },
+      {
+        participantActorId: 160,
+        characterId: null,
+        characterName: "Myzouth",
+        realmSlug: "burninglegion",
+        regionCode: "EU",
+        digest: {
+          participantActorId: 160,
+          characterId: null,
+          characterName: "Myzouth",
+          realmSlug: "burninglegion",
+          regionCode: "EU",
+        } as ParticipantScoringDigestV1,
+        digestArtifactId: "art-myzouth",
+      },
+    ];
+    const hit = selectTargetCharacterDigest({
+      slotId: "algethar-academy:0",
+      digests,
+      identity: {
+        characterId: CHAR_ID,
+        characterName: "Myzouth",
+        regionCode: "EU",
+        realmSlug: "burning-legion",
+      },
+      targetActorId: null,
+    });
+    expect(hit.participantActorId).toBe(160);
+    expect(hit.digestArtifactId).toBe("art-myzouth");
+  });
+
   it("requires exactly one target digest per selected fight", () => {
     const digests = [
       {

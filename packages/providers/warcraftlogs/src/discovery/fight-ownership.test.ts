@@ -11,6 +11,7 @@ import {
   nameRealmMatches,
   normalizeWclRealmSlug,
   resolveFightOwnership,
+  wclRealmCompareKey,
 } from "./fight-ownership.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
 import { buildEvidenceDatasetScopeFingerprint } from "@mplus/contracts";
@@ -201,6 +202,25 @@ describe("WCL fight ownership invariant", () => {
     expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "archi")).toBe(false);
     expect(nameRealmMatches("Wallidrixe", "Archi", "Wallidrixe", "archimonde")).toBe(false);
     expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "Archimonde")).toBe(true);
+  });
+
+  it("F2: WCL separator-omitted realms match canonical hyphenated slugs", () => {
+    expect(normalizeWclRealmSlug("burning-legion")).toBe("burning-legion");
+    expect(normalizeWclRealmSlug("burninglegion")).toBe("burninglegion");
+    expect(wclRealmCompareKey("burning-legion")).toBe("burninglegion");
+    expect(wclRealmCompareKey("burninglegion")).toBe("burninglegion");
+    expect(wclRealmCompareKey("Burning-Legion")).toBe("burninglegion");
+    expect(wclRealmCompareKey("Burning Legion")).toBe("burninglegion");
+
+    expect(nameRealmMatches("Myzouth", "burninglegion", "Myzouth", "burning-legion")).toBe(true);
+    expect(nameRealmMatches("Myzouth", "Burning-Legion", "Myzouth", "burninglegion")).toBe(true);
+    expect(nameRealmMatches("Myzouth", "Burning Legion", "Myzouth", "burning-legion")).toBe(true);
+
+    expect(nameRealmMatches("Myzouth", "burninglegion", "Myzouth", "burning-blade")).toBe(false);
+    expect(nameRealmMatches("Myzouth", "burninglegion", "Myzouth", "burninglegion-other")).toBe(
+      false,
+    );
+    expect(nameRealmMatches("Other", "burninglegion", "Myzouth", "burning-legion")).toBe(false);
   });
 
   it("G: missing actor server does not prove ownership", () => {
