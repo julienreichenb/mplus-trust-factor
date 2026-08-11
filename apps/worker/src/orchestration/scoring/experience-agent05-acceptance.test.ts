@@ -19,6 +19,7 @@ import type {
 import type { CharacterExperienceEvidenceDTO } from "@mplus/database";
 import {
   buildSeasonPopulationPolicy,
+  calculateExperiencePhase1,
   estimatePreviousSeasonStanding,
   type NativeCutoffBand,
   type SeasonPopulationPolicy,
@@ -26,6 +27,8 @@ import {
 import {
   EXPERIENCE_EVIDENCE_KIND,
   EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+  buildEliteCutoffHistoryPersistInput,
+  buildPreviousSeasonRatingPersistInput,
   createInMemoryExperienceEvidenceStore,
   ratingEvidenceFromPersistedRow,
 } from "./experience-evidence-persist.js";
@@ -38,6 +41,7 @@ import {
   buildExperiencePhase1Result,
   previousRegionalClassRankFromRioProfile,
 } from "./experience-phase1.js";
+import { acquireBlizzardSeasonHistory } from "./experience-blizzard-season-history.js";
 import {
   isRealMythicPlusRaiderIoSeason,
   resolveRaiderIoCurrentAndPrevious,
@@ -262,9 +266,67 @@ function createPrismaFake(rows: ReturnType<typeof seasonsBeforeRollover>) {
     season: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         rows.find((r) => r.id === where.id) ?? null,
-      findMany: async () => rows,
+      findMany: async ({
+        where,
+      }: {
+        where?:
+          | { id: { in: string[] } }
+          | { regionId: string; blizzardSeasonId: { in: number[] } };
+      } = {}) => {
+        if (where && "id" in where && where.id?.in) {
+          return rows.filter((r) => where.id.in.includes(r.id));
+        }
+        if (where && "blizzardSeasonId" in where && where.blizzardSeasonId?.in) {
+          return rows.filter(
+            (r) =>
+              r.regionId === where.regionId &&
+              where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+          );
+        }
+        return rows;
+      },
     },
   };
+}
+
+async function seedBlizzardHistoricalRating(input: {
+  store: ReturnType<typeof createInMemoryExperienceEvidenceStore>;
+  seasonId: string;
+  blizzardSeasonId: number;
+  rioSlug: string;
+  rating: number;
+}) {
+  await input.store.upsertImmutable(
+    buildPreviousSeasonRatingPersistInput({
+      characterId: invented.charId,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: input.rating,
+        ratingSource: "BLIZZARD",
+        internalSeasonId: input.seasonId,
+        seasonSlug: `blizzard-season-${input.blizzardSeasonId}`,
+        blizzardSeasonId: input.blizzardSeasonId,
+        fetchedAt: ctx.now,
+        providerPayloadId: "p-hist",
+      },
+      raiderIoSeasonSlug: input.rioSlug,
+    })!,
+  );
+}
+
+async function seedEliteAbsent(
+  store: ReturnType<typeof createInMemoryExperienceEvidenceStore>,
+  currentSeasonId: string,
+) {
+  await store.upsertImmutable(
+    buildEliteCutoffHistoryPersistInput({
+      characterId: invented.charId,
+      currentSeasonId,
+      confirmedCount: 0,
+      confirmed: [],
+      fetchedAt: ctx.now,
+    }),
+  );
 }
 
 describe("Agent 05 — productive native-band path (no interpolation)", () => {
@@ -322,6 +384,15 @@ describe("Agent 05 — productive native-band path (no interpolation)", () => {
   it("buildExperiencePhase1Result standingProvenance exposes native band (not interpolated)", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonsBeforeRollover());
+    await seedBlizzardHistoricalRating({
+      store,
+      seasonId: invented.nMinus1Id,
+      blizzardSeasonId: invented.nMinus1Blizzard,
+      rioSlug: invented.nMinus1Rio,
+      rating: 2900,
+    });
+    await seedEliteAbsent(store, invented.nId);
+
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: invented.charId,
@@ -329,16 +400,22 @@ describe("Agent 05 — productive native-band path (no interpolation)", () => {
       currentSeasonId: invented.nId,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
-        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("phase1 must not acquire Season Details");
+        }),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("elite already seeded");
+        }),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
+      allowProviderCalls: false,
       evidenceStore: store,
       boundPreviousRaiderIoSlug: invented.nMinus1Rio,
     });
 
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
     expect(result.experience.available).toBe(true);
     expect(result.experience.score).toBe(75);
     expect(result.experience.previousStandingScore).toBe(75);
@@ -356,8 +433,43 @@ describe("Agent 05 — process-restart durable reuse", () => {
     const durable = new Map<string, CharacterExperienceEvidenceDTO>();
     const storeCold = createInMemoryExperienceEvidenceStore(durable);
     const prisma = createPrismaFake(seasonsBeforeRollover());
+    const getMythicKeystoneProfile = vi.fn(async () =>
+      providerResult(
+        {
+          currentMythicRating: 1,
+          currentSeasonId: invented.nBlizzard,
+          seasons: [
+            { seasonId: invented.nMinus1Blizzard },
+            { seasonId: invented.nBlizzard },
+          ],
+          character: {
+            region: "EU",
+            realmSlug: identity.realmSlug,
+            name: identity.name,
+          },
+        },
+        "fp-index",
+      ),
+    );
     const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(2900));
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
+
+    const coldAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: invented.charId,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: invented.nId,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: storeCold,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(coldAcquire.profileIndexCalls).toBe(1);
+    expect(coldAcquire.seasonDetailsCalls).toBe(1);
+    expect(durable.size).toBeGreaterThan(0);
 
     const cold = await buildExperiencePhase1Result({
       prisma: prisma as never,
@@ -372,12 +484,30 @@ describe("Agent 05 — process-restart durable reuse", () => {
       evidenceStore: storeCold,
       boundPreviousRaiderIoSlug: invented.nMinus1Rio,
     });
-    expect(cold.previousSeasonProfileCalls).toBe(1);
+    expect(cold.previousSeasonProfileCalls).toBe(0);
+    expect(cold.raiderIoHistoricalRatingCalls).toBe(0);
     expect(cold.achievementsCalls).toBe(1);
-    expect(durable.size).toBeGreaterThan(0);
+    expect(cold.experience.available).toBe(true);
+    expect(cold.experience.score).toBe(75);
 
     // Simulate process restart: new container/store facade, same durable Map (DB).
     const storeWarm = createInMemoryExperienceEvidenceStore(durable);
+    const warmAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: invented.charId,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: invented.nId,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: storeWarm,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(warmAcquire.profileIndexCalls).toBe(1);
+    expect(warmAcquire.seasonDetailsCalls).toBe(0);
+
     const warm = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: invented.charId,
@@ -418,10 +548,9 @@ describe("Agent 05 — process-restart durable reuse", () => {
       boundPreviousRaiderIoSlug: invented.nMinus1Rio,
     });
     expect(replay.previousSeasonProfileCalls).toBe(0);
-    expect(replay.achievementsCalls).toBe(0);
     expect(replay.raiderIoHistoricalRatingCalls).toBe(0);
     expect(replay.experience.score).toBe(cold.experience.score);
-    expect(replay.experience.standingProvenance?.ratingSource).toBe("BLIZZARD");
+    expect(replay.previousSeasonRatingFromCache).toBe(true);
   });
 });
 
@@ -561,8 +690,44 @@ describe("Agent 05 — invented N→N+1 rollover + evidence isolation", () => {
       expect(beforeBinding.season.blizzardSeasonId).toBe(invented.nMinus1Blizzard);
     }
 
+    const prismaBefore = createPrismaFake(seasonsBeforeRollover());
+    const coldAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prismaBefore as never,
+      characterId: invented.charId,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: invented.nId,
+      blizzard: {
+        getMythicKeystoneProfile: vi.fn(async () =>
+          providerResult(
+            {
+              currentMythicRating: 1,
+              currentSeasonId: invented.nBlizzard,
+              seasons: [
+                { seasonId: invented.nMinus1Blizzard },
+                { seasonId: invented.nBlizzard },
+              ],
+              character: {
+                region: "EU",
+                realmSlug: identity.realmSlug,
+                name: identity.name,
+              },
+            },
+            "fp-index-before",
+          ),
+        ),
+        getMythicKeystoneSeasonProfile,
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(coldAcquire.seasonDetailsCalls).toBe(1);
+
     const coldN = await buildExperiencePhase1Result({
-      prisma: createPrismaFake(seasonsBeforeRollover()) as never,
+      prisma: prismaBefore as never,
       characterId: invented.charId,
       identity,
       currentSeasonId: invented.nId,
@@ -574,7 +739,8 @@ describe("Agent 05 — invented N→N+1 rollover + evidence isolation", () => {
       evidenceStore: store,
       boundPreviousRaiderIoSlug: invented.nMinus1Rio,
     });
-    expect(coldN.previousSeasonProfileCalls).toBe(1);
+    expect(coldN.previousSeasonProfileCalls).toBe(0);
+    expect(coldN.raiderIoHistoricalRatingCalls).toBe(0);
     expect(coldN.experience.score).toBe(75);
     expect(coldN.diagnostics.matchedNativeBand).toBe("p900");
 
@@ -603,8 +769,52 @@ describe("Agent 05 — invented N→N+1 rollover + evidence isolation", () => {
       expect(afterBinding.season.id).not.toBe(invented.nMinus1Id);
     }
 
+    const prismaAfter = createPrismaFake(seasonsAfterRollover());
+    const afterAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prismaAfter as never,
+      characterId: invented.charId,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: invented.nPlus1Id,
+      blizzard: {
+        getMythicKeystoneProfile: vi.fn(async () =>
+          providerResult(
+            {
+              currentMythicRating: 1,
+              currentSeasonId: invented.nPlus1Blizzard,
+              seasons: [
+                { seasonId: invented.nMinus1Blizzard },
+                { seasonId: invented.nBlizzard },
+                { seasonId: invented.nPlus1Blizzard },
+              ],
+              character: {
+                region: "EU",
+                realmSlug: identity.realmSlug,
+                name: identity.name,
+              },
+            },
+            "fp-index-after",
+          ),
+        ),
+        getMythicKeystoneSeasonProfile,
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      // After N→N+1 flip: N must be closed relative to wall clock.
+      now: new Date("2032-04-01T00:00:00.000Z"),
+    });
+    // Newly closed N must be acquired; N-1 evidence must not substitute for N.
+    expect(afterAcquire.seasonDetailsCalls).toBe(1);
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(
+      identity,
+      invented.nBlizzard,
+      ctx,
+    );
+
     const afterRollover = await buildExperiencePhase1Result({
-      prisma: createPrismaFake(seasonsAfterRollover()) as never,
+      prisma: prismaAfter as never,
       characterId: invented.charId,
       identity,
       currentSeasonId: invented.nPlus1Id,
@@ -616,8 +826,8 @@ describe("Agent 05 — invented N→N+1 rollover + evidence isolation", () => {
       evidenceStore: store,
       boundPreviousRaiderIoSlug: invented.nRio,
     });
-    // Must acquire N evidence — N-1 row must not satisfy N.
-    expect(afterRollover.previousSeasonProfileCalls).toBe(1);
+    expect(afterRollover.previousSeasonProfileCalls).toBe(0);
+    expect(afterRollover.raiderIoHistoricalRatingCalls).toBe(0);
     expect(afterRollover.experience.score).toBe(90); // 3300 → p990 band
     expect(afterRollover.diagnostics.matchedNativeBand).toBe("p990");
 
@@ -650,7 +860,37 @@ describe("Agent 05 — class-rank fail-closed + failure modes", () => {
     expect(rank).toBeNull();
   });
 
-  it("confirmed no activity → E=0; never standing 25", async () => {
+  it("pure calculator: whole-history CONFIRMED_NO_ACTIVITY → E=0; never standing 25", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      previousRegionalClassRank: null,
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result.available).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.previousStandingScore).toBe(0);
+    expect(result.score).not.toBe(25);
+  });
+
+  it("season-level CONFIRMED_NO_ACTIVITY alone does not fabricate global E=0", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: invented.charId,
+        evidence: {
+          state: "CONFIRMED_NO_ACTIVITY",
+          rating: null,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: invented.nMinus1Id,
+          seasonSlug: `blizzard-season-${invented.nMinus1Blizzard}`,
+          blizzardSeasonId: invented.nMinus1Blizzard,
+          fetchedAt: ctx.now,
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: invented.nMinus1Rio,
+      })!,
+    );
+    await seedEliteAbsent(store, invented.nId);
     const result = await buildExperiencePhase1Result({
       prisma: createPrismaFake(seasonsBeforeRollover()) as never,
       characterId: invented.charId,
@@ -658,19 +898,23 @@ describe("Agent 05 — class-rank fail-closed + failure modes", () => {
       currentSeasonId: invented.nId,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(null, [])),
-        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("phase1 must not acquire");
+        }),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("elite seeded");
+        }),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
+      allowProviderCalls: false,
+      evidenceStore: store,
       boundPreviousRaiderIoSlug: invented.nMinus1Rio,
     });
-    expect(result.experience.available).toBe(true);
-    expect(result.experience.score).toBe(0);
-    expect(result.experience.previousStandingScore).toBe(0);
-    expect(result.experience.confidence).toBe(1);
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
+    expect(result.experience.score).not.toBe(0);
+    expect(result.experience.score).not.toBe(25);
   });
 
   it("provider failure without fallback → unavailable (not 0 or 25)", async () => {
@@ -699,7 +943,7 @@ describe("Agent 05 — class-rank fail-closed + failure modes", () => {
     expect(result.experience.score).not.toBe(25);
   });
 
-  it("Blizzard failure + exact RIO proven no activity → CONFIRMED_NO_ACTIVITY", async () => {
+  it("phase1 ignores legacy rioExactSeasonFallback; no RIO historical standing path", async () => {
     const result = await buildExperiencePhase1Result({
       prisma: createPrismaFake(seasonsBeforeRollover()) as never,
       characterId: invented.charId,
@@ -724,9 +968,11 @@ describe("Agent 05 — class-rank fail-closed + failure modes", () => {
         activityProof: "PROVEN_NONE",
       },
     });
-    expect(result.experience.available).toBe(true);
-    expect(result.experience.score).toBe(0);
-    expect(result.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).not.toBe("RAIDERIO_FALLBACK");
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
   });
 
   it("Blizzard failure + RIO ambiguous zero → unavailable", async () => {

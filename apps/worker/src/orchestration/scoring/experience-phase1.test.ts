@@ -14,12 +14,17 @@ import {
   type PersistedExperiencePopulationPolicyMetadata,
 } from "./experience-season-population-policy-metadata.js";
 import {
+  buildPreviousSeasonRatingPersistInput,
+  createInMemoryExperienceEvidenceStore,
+} from "./experience-evidence-persist.js";
+import {
   allowExperienceBlizzardProviderCalls,
   buildExperiencePhase1Result,
   mapPreviousEvidenceToPhase1Input,
   previousRegionalClassRankFromRioProfile,
   rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
+import type { HistoricalSeasonRating } from "./experience-blizzard-season-history.js";
 
 const identity: CharacterIdentityInput = {
   region: "EU",
@@ -80,6 +85,8 @@ function completePolicyDoc(): PersistedExperiencePopulationPolicyMetadata {
   };
 }
 
+const PREV_RIO_SLUG = "season-tww-2";
+
 function seasonRows(opts: {
   currentStartsAt: Date | null;
   prevStartsAt: Date | null;
@@ -93,6 +100,8 @@ function seasonRows(opts: {
       blizzardSeasonId: 15,
       startsAt: opts.currentStartsAt,
       endsAt: null,
+      isCurrent: true,
+      providerSeasonId: "season-tww-3",
       metadata: {},
     },
     {
@@ -102,6 +111,8 @@ function seasonRows(opts: {
       blizzardSeasonId: 14,
       startsAt: opts.prevStartsAt,
       endsAt: new Date("2025-12-01T00:00:00.000Z"),
+      isCurrent: false,
+      providerSeasonId: PREV_RIO_SLUG,
       metadata: opts.prevMetadata ?? {},
     },
   ];
@@ -116,8 +127,32 @@ function createPrismaFake(rows: ReturnType<typeof seasonRows>) {
         const { metadata: _m, ...rest } = row;
         return rest;
       }),
-      findMany: vi.fn(async () => rows),
+      findMany: vi.fn(async ({ where } = {}) => {
+        if (where && "id" in where && where.id?.in) {
+          return rows.filter((r) => where.id.in.includes(r.id));
+        }
+        if (where && "blizzardSeasonId" in where && where.blizzardSeasonId?.in) {
+          return rows.filter(
+            (r) =>
+              (!where.regionId || r.regionId === where.regionId) &&
+              where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+          );
+        }
+        return rows;
+      }),
     },
+  };
+}
+
+function blizzardHistorical(
+  overrides: Partial<HistoricalSeasonRating> & Pick<HistoricalSeasonRating, "rating" | "state">,
+): HistoricalSeasonRating {
+  return {
+    seasonId: PREV_ID,
+    seasonSlug: "blizzard-season-14",
+    blizzardSeasonId: 14,
+    source: "BLIZZARD",
+    ...overrides,
   };
 }
 
@@ -197,7 +232,7 @@ describe("allowExperienceBlizzardProviderCalls", () => {
 });
 
 describe("buildExperiencePhase1Result", () => {
-  it("builds Experience from previous rating + persisted policy", async () => {
+  it("builds Experience from persisted historical rating + policy (no Season Details)", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -207,7 +242,9 @@ describe("buildExperiencePhase1Result", () => {
         },
       }),
     );
-    const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(2900));
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
+      throw new Error("Phase1 must not acquire Season Details");
+    });
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
     const persistProviderResult = vi.fn(async () => "payload");
 
@@ -221,13 +258,16 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult,
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2900, state: "HAS_VALUE" }),
+      ],
     });
 
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(identity, 14, ctx);
+    expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(getCharacterAchievements).toHaveBeenCalledTimes(1);
-    expect(persistProviderResult).toHaveBeenCalledTimes(2);
-    expect(result.previousSeasonProfileCalls).toBe(1);
+    expect(persistProviderResult).toHaveBeenCalledTimes(1);
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
     expect(result.achievementsCalls).toBe(1);
     expect(result.experience.available).toBe(true);
     expect(result.experience.score).toBe(75);
@@ -260,16 +300,7 @@ describe("buildExperiencePhase1Result", () => {
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       historicalRatingsOverride: [
-        {
-          seasonId: PREV_ID,
-          seasonSlug: "blizzard-season-14",
-          blizzardSeasonId: 14,
-          rating: null,
-          state: "CONFIRMED_NO_ACTIVITY",
-          source: "BLIZZARD",
-          fetchedAt: "2026-08-08T00:00:01.000Z",
-          providerPayloadId: null,
-        },
+        blizzardHistorical({ rating: null, state: "CONFIRMED_NO_ACTIVITY" }),
       ],
     });
     // Partial no-activity rows ≠ whole-history absence → standing unavailable, not E0.
@@ -302,16 +333,7 @@ describe("buildExperiencePhase1Result", () => {
       allowProviderCalls: true,
       previousRegionalClassRank: 7,
       historicalRatingsOverride: [
-        {
-          seasonId: PREV_ID,
-          seasonSlug: "blizzard-season-14",
-          blizzardSeasonId: 14,
-          rating: null,
-          state: "CONFIRMED_NO_ACTIVITY",
-          source: "BLIZZARD",
-          fetchedAt: "2026-08-08T00:00:01.000Z",
-          providerPayloadId: null,
-        },
+        blizzardHistorical({ rating: null, state: "CONFIRMED_NO_ACTIVITY" }),
       ],
     });
     expect(result.diagnostics.previousReason).toBe("NO_SCOREABLE_HISTORICAL_STANDING");
@@ -338,7 +360,9 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2350)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () =>
           achievementsDto([
             { achievementId: 20_589, completedAt: "2025-03-01T00:00:00.000Z" },
@@ -348,6 +372,9 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2350, state: "HAS_VALUE" }),
+      ],
     });
     expect(result.experience.score).toBe(90);
     expect(result.experience.eliteFloorApplied).toBe(true);
@@ -359,7 +386,7 @@ describe("buildExperiencePhase1Result", () => {
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
         prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
-        prevMetadata: {}, // missing policy
+        prevMetadata: {}, // missing policy → standing uncontextualized
       }),
     );
     const result = await buildExperiencePhase1Result({
@@ -369,7 +396,9 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () =>
           achievementsDto([
             { achievementId: 40_954, completedAt: "2025-08-01T00:00:00.000Z" },
@@ -379,8 +408,11 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2900, state: "HAS_VALUE" }),
+      ],
     });
-    expect(result.diagnostics.previousReason).toBe("MISSING_POPULATION_POLICY");
+    expect(result.diagnostics.previousReason).toBe("NO_CONTEXTUALIZED_HISTORICAL_STANDING");
     expect(result.experience.score).toBe(90);
     expect(result.experience.previousStandingScore).toBeNull();
   });
@@ -400,22 +432,28 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2900, state: "HAS_VALUE" }),
+      ],
     });
     expect(result.experience.available).toBe(false);
     expect(result.experience.score).toBeNull();
-    expect(result.diagnostics.previousReason).toBe("MISSING_POPULATION_POLICY");
+    expect(result.diagnostics.previousReason).toBe("NO_CONTEXTUALIZED_HISTORICAL_STANDING");
+    expect(result.diagnostics.uncontextualizedHistoricalSeasonCount).toBe(1);
   });
 
-  it("unresolved season binding performs no previous Blizzard call", async () => {
+  it("missing current season performs no Season Details and stays unavailable", async () => {
     const prisma = createPrismaFake(
       seasonRows({
-        currentStartsAt: null, // CURRENT_START_MISSING
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
         prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
         prevMetadata: {
           [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
@@ -428,17 +466,20 @@ describe("buildExperiencePhase1Result", () => {
       prisma: prisma as never,
       identity,
       characterId: "char-test",
-      currentSeasonId: CURRENT_ID,
+      currentSeasonId: "missing-season",
       regionCode: "EU",
       blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2900, state: "HAS_VALUE" }),
+      ],
     });
     expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(result.previousSeasonProfileCalls).toBe(0);
     expect(result.achievementsCalls).toBe(1);
-    expect(result.diagnostics.bindingReason).toBe("CURRENT_START_MISSING");
+    expect(result.diagnostics.bindingReason).toBe("CURRENT_SEASON_NOT_FOUND");
     expect(result.experience.available).toBe(false);
   });
 
@@ -460,7 +501,9 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(3600)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => {
           throw new Error("achievements down");
         }),
@@ -468,6 +511,9 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 3600, state: "HAS_VALUE" }),
+      ],
     });
     expect(result.experience.available).toBe(true);
     expect(result.experience.score).toBe(100);
@@ -492,7 +538,9 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => {
           throw new Error("achievements down");
         }),
@@ -500,6 +548,9 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 2900, state: "HAS_VALUE" }),
+      ],
     });
     expect(result.experience.available).toBe(false);
     expect(result.experience.score).toBeNull();
@@ -524,7 +575,9 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(null, [])),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => {
           throw new Error("achievements down");
         }),
@@ -532,13 +585,17 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: null, state: "CONFIRMED_NO_ACTIVITY" }),
+      ],
     });
     expect(result.experience.available).toBe(false);
     expect(result.experience.score).toBeNull();
-    expect(result.experience.reason).toBe("ELITE_EVIDENCE_UNAVAILABLE");
+    // Season-level absence alone does not resolve previous → historical unavailable.
+    expect(result.experience.reason).toBe("HISTORICAL_EVIDENCE_UNAVAILABLE");
   });
 
-  it("contradictory previous payload remains unavailable", async () => {
+  it("without persisted historical evidence Phase1 stays unavailable (no acquisition)", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -548,6 +605,9 @@ describe("buildExperiencePhase1Result", () => {
         },
       }),
     );
+    const getMythicKeystoneSeasonProfile = vi.fn(async () =>
+      seasonProfile(null, [{ id: "run-1" } as never]),
+    );
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
@@ -555,21 +615,18 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () =>
-          seasonProfile(null, [{ id: "run-1" } as never]),
-        ),
+        getMythicKeystoneSeasonProfile,
         getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
     });
+    expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(result.previousSeasonProfileCalls).toBe(0);
     expect(result.experience.available).toBe(false);
     expect(result.experience.score).toBeNull();
-    expect(result.diagnostics.previousReason).toBe("NULL_RATING_WITH_RUNS");
-    expect(result.experience.standingProvenance?.acquisitionReason).toBe(
-      "NULL_RATING_WITH_RUNS",
-    );
+    expect(result.diagnostics.previousReason).toBe("NO_HISTORICAL_RATING_EVIDENCE");
   });
 
   it("previous-provider failure does not become zero", async () => {
@@ -603,7 +660,7 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.previousStandingScore).toBeNull();
   });
 
-  it("performs at most 2 Blizzard calls and zero Raider.IO / WCL", async () => {
+  it("Phase1: 0 Season Details / 0 RIO historical; at most 1 achievements call", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -613,13 +670,32 @@ describe("buildExperiencePhase1Result", () => {
         },
       }),
     );
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: "char-test",
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 3000,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: PREV_RIO_SLUG,
+      })!,
+    );
     const blizzard = {
-      getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(3000)),
+      getMythicKeystoneSeasonProfile: vi.fn(async () => {
+        throw new Error("Phase1 must not acquire");
+      }),
       getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       getSeasonCutoffs: vi.fn(),
       discoverCharacterRuns: vi.fn(),
     };
-    await buildExperiencePhase1Result({
+    const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
       characterId: "char-test",
@@ -629,14 +705,19 @@ describe("buildExperiencePhase1Result", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      evidenceStore: store,
     });
-    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(blizzard.getCharacterAchievements).toHaveBeenCalledTimes(1);
     expect(blizzard.getSeasonCutoffs).not.toHaveBeenCalled();
     expect(blizzard.discoverCharacterRuns).not.toHaveBeenCalled();
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonRatingFromCache).toBe(true);
+    expect(result.experience.score).toBe(90);
   });
 
-  it("applies caller-supplied previous regional class rank without extra provider calls", async () => {
+  it("applies caller-supplied previous regional class rank without Season Details", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -647,7 +728,9 @@ describe("buildExperiencePhase1Result", () => {
       }),
     );
     const blizzard = {
-      getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(3000)),
+      getMythicKeystoneSeasonProfile: vi.fn(async () => {
+        throw new Error("Phase1 must not acquire");
+      }),
       getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       getSeasonCutoffs: vi.fn(),
     };
@@ -662,12 +745,16 @@ describe("buildExperiencePhase1Result", () => {
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       previousRegionalClassRank: 18,
+      historicalRatingsOverride: [
+        blizzardHistorical({ rating: 3000, state: "HAS_VALUE" }),
+      ],
     });
     // Standing 90 from rating 3000 (= p990) vs fixture policy; class rank #18 → floor 94.
     expect(result.experience.score).toBe(94);
     expect(result.experience.classRankFloor).toBe(94);
     expect(result.experience.classRankFloorApplied).toBe(true);
-    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(result.previousSeasonProfileCalls).toBe(0);
     expect(blizzard.getSeasonCutoffs).not.toHaveBeenCalled();
   });
 
@@ -694,6 +781,63 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.score).toBe(97);
     expect(result.experience.previousStandingScore).toBeNull();
     expect(result.experience.classRankFloorApplied).toBe(true);
+  });
+
+  it("does not accept RAIDERIO_FALLBACK rows as Phase1 historical standing", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+        prevMetadata: {
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
+        },
+      }),
+    );
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: "char-rio",
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "RAIDERIO_FALLBACK",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: PREV_RIO_SLUG,
+      })!,
+    );
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      characterId: "char-rio",
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
+        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+      evidenceStore: store,
+      rioExactSeasonFallback: {
+        profileFetched: true,
+        exactSeasonSlug: PREV_RIO_SLUG,
+        exactSeasonScore: 2900,
+        activityProof: "UNKNOWN",
+      },
+    });
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).not.toBe("RAIDERIO_FALLBACK");
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
   });
 });
 

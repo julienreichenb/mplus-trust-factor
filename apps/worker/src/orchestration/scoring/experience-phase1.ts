@@ -387,7 +387,9 @@ export async function buildExperiencePhase1Result(
     const ratings =
       input.historicalRatingsOverride ??
       (store
-        ? await listHistoricalSeasonRatingsFromStore(store, input.characterId)
+        ? await listHistoricalSeasonRatingsFromStore(store, input.characterId, {
+            prisma: input.prisma,
+          })
         : []);
 
     if (ratings.length > 0) {

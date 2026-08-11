@@ -134,13 +134,22 @@ function createPrismaFake(rows = seasonRows()) {
         async ({
           where,
         }: {
-          where: { regionId: string; blizzardSeasonId: { in: number[] } };
-        }) =>
-          rows.filter(
-            (r) =>
-              r.regionId === where.regionId &&
-              where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
-          ),
+          where:
+            | { id: { in: string[] } }
+            | { regionId: string; blizzardSeasonId: { in: number[] } };
+        }) => {
+          if ("id" in where && where.id?.in) {
+            return rows.filter((r) => where.id.in.includes(r.id));
+          }
+          if ("blizzardSeasonId" in where && where.blizzardSeasonId?.in) {
+            return rows.filter(
+              (r) =>
+                r.regionId === where.regionId &&
+                where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+            );
+          }
+          return rows;
+        },
       ),
     },
   };
@@ -538,6 +547,137 @@ describe("acquireBlizzardSeasonHistory", () => {
       } as const,
     );
     expect(keys.some((k) => /raider|characterProfile/i.test(k))).toBe(false);
+  });
+
+  it("incompatible terminal row is not a cache hit and is not scored after immutable conflict", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    const persist = buildPreviousSeasonRatingPersistInput({
+      characterId: CHAR_ID,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: 2900,
+        internalSeasonId: S15,
+        seasonSlug: "blizzard-season-15",
+        blizzardSeasonId: 15,
+        fetchedAt: ctx.now,
+        providerPayloadId: null,
+        ratingSource: "BLIZZARD",
+      },
+      raiderIoSeasonSlug: "season-tww-3",
+    })!;
+    await store.upsertImmutable({
+      ...persist,
+      blizzardSeasonId: 99,
+    });
+
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfileDto(3542, 15));
+    const result = await acquireBlizzardSeasonHistory({
+      prisma: createPrismaFake([seasonRows()[0]!, seasonRows()[1]!]) as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: {
+        getMythicKeystoneProfile: vi.fn(async () =>
+          providerResult(
+            {
+              currentMythicRating: 1,
+              currentSeasonId: 17,
+              seasons: [{ seasonId: 15 }, { seasonId: 17 }],
+              character: identity,
+            },
+            "fp",
+          ),
+        ),
+        getMythicKeystoneSeasonProfile,
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date("2026-08-10T00:00:00.000Z"),
+    });
+
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(result.failedSeasonIds).toContain(15);
+    expect(result.ratings.some((r) => r.blizzardSeasonId === 15)).toBe(false);
+  });
+
+  it("RAIDERIO_FALLBACK terminal row does not suppress Blizzard Season Details and is not scored", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          internalSeasonId: S15,
+          seasonSlug: "blizzard-season-15",
+          blizzardSeasonId: 15,
+          fetchedAt: ctx.now,
+          providerPayloadId: null,
+          ratingSource: "RAIDERIO_FALLBACK",
+        },
+        raiderIoSeasonSlug: "season-tww-3",
+      })!,
+    );
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfileDto(3542, 15));
+    const result = await acquireBlizzardSeasonHistory({
+      prisma: createPrismaFake([seasonRows()[0]!, seasonRows()[1]!]) as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: {
+        getMythicKeystoneProfile: vi.fn(async () =>
+          providerResult(
+            {
+              currentMythicRating: 1,
+              currentSeasonId: 17,
+              seasons: [{ seasonId: 15 }, { seasonId: 17 }],
+              character: identity,
+            },
+            "fp",
+          ),
+        ),
+        getMythicKeystoneSeasonProfile,
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date("2026-08-10T00:00:00.000Z"),
+    });
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    // Immutable RIO row blocks overwrite; fail closed rather than trust RIO as Blizzard standing.
+    expect(result.ratings.some((r) => r.blizzardSeasonId === 15)).toBe(false);
+    expect(result.failedSeasonIds).toContain(15);
+  });
+
+  it("provider-free listing rejects bad contentHash / season identity mismatch", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    const good = buildPreviousSeasonRatingPersistInput({
+      characterId: CHAR_ID,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: 3542,
+        internalSeasonId: S15,
+        seasonSlug: "blizzard-season-15",
+        blizzardSeasonId: 15,
+        fetchedAt: ctx.now,
+        providerPayloadId: null,
+        ratingSource: "BLIZZARD",
+      },
+      raiderIoSeasonSlug: "season-tww-3",
+    })!;
+    await store.upsertImmutable({
+      ...good,
+      contentHash: "deadbeef".repeat(8),
+    });
+    const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID, {
+      prisma: createPrismaFake([seasonRows()[0]!, seasonRows()[1]!]) as never,
+    });
+    expect(listed).toEqual([]);
   });
 });
 

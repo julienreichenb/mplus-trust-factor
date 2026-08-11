@@ -244,6 +244,22 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
       );
     });
 
+    const getMythicKeystoneProfile = vi.fn(async () =>
+      providerResult(
+        {
+          currentMythicRating: 4000,
+          currentSeasonId: 15,
+          seasons: [{ seasonId: 14 }, { seasonId: 15 }],
+          character: {
+            region: "EU",
+            realmSlug: "archimonde",
+            name: "Wallidrixe",
+          },
+        },
+        "fp-mplus-index",
+      ),
+    );
+
     const getCharacterAchievements = vi.fn(
       async (): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>> =>
         providerResult(
@@ -330,9 +346,35 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
           const row = seasons[where.id];
           if (!row) return null;
           const { metadata: _m, isCurrent: _c, providerSeasonId: _p, ...rest } = row;
-          return rest;
+          return {
+            ...rest,
+            providerSeasonId: row.providerSeasonId,
+            isCurrent: row.isCurrent,
+          };
         }),
-        findMany: vi.fn(async () => Object.values(seasons)),
+        findMany: vi.fn(
+          async (args?: {
+            where?: {
+              regionId?: string;
+              id?: { in?: string[] };
+              blizzardSeasonId?: { in?: number[] };
+            };
+          }) => {
+            let rows = Object.values(seasons);
+            if (args?.where?.id?.in) {
+              const ids = new Set(args.where.id.in);
+              rows = rows.filter((r) => ids.has(r.id));
+            }
+            if (args?.where?.regionId) {
+              rows = rows.filter((r) => r.regionId === args.where!.regionId);
+            }
+            if (args?.where?.blizzardSeasonId?.in) {
+              const ids = new Set(args.where.blizzardSeasonId.in);
+              rows = rows.filter((r) => ids.has(r.blizzardSeasonId));
+            }
+            return rows;
+          },
+        ),
       },
     };
 
@@ -366,7 +408,11 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
           },
         },
         providers: {
-          blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+          blizzard: {
+            getMythicKeystoneProfile,
+            getMythicKeystoneSeasonProfile,
+            getCharacterAchievements,
+          },
           warcraftlogs: {
             fetchCharacterPerformanceAggregate,
           },
@@ -424,7 +470,7 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
     ).experience;
     expect(baselineExp.available).toBe(false);
     expect(baselineExp.score).toBeNull();
-    expect(baselineExp.reason).toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
+    expect(baselineExp.reason).toBe("HISTORICAL_EVIDENCE_UNAVAILABLE");
 
     // Full Experience path (fixture + ALLOW_LIVE_PROVIDER_CALLS).
     const result = await runAuthoritativeScoring({
@@ -432,6 +478,8 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
       container: makeContainer(saved, true),
     });
 
+    // 03B: Profile Index + Season Details for closed season 14; Phase1: achievements.
+    expect(getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(
       { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
@@ -482,6 +530,7 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
     expect(saved[0]!.utility).toBe(baselineSaved[0]!.utility);
 
     // WCL gate stays off; Experience Blizzard calls are counted separately on bridge.
-    expect(result.providerCalls).toBeGreaterThanOrEqual(2);
+    // Index + Season Details + achievements.
+    expect(result.providerCalls).toBeGreaterThanOrEqual(3);
   });
 });

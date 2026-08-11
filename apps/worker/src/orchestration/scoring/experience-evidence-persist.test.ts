@@ -1,5 +1,6 @@
 /**
- * Agent 03 — immutable Experience evidence persistence / warm / replay call counts.
+ * Agent 03 — immutable Experience evidence persistence / warm / replay.
+ * Acquisition via acquireBlizzardSeasonHistory; scoring via Phase1 store reuse.
  */
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -14,8 +15,14 @@ import { buildSeasonPopulationPolicy } from "@mplus/scoring";
 import {
   EXPERIENCE_EVIDENCE_KIND,
   EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+  buildEliteCutoffHistoryPersistInput,
+  buildPreviousSeasonRatingPersistInput,
   createInMemoryExperienceEvidenceStore,
 } from "./experience-evidence-persist.js";
+import {
+  acquireBlizzardSeasonHistory,
+  listHistoricalSeasonRatingsFromStore,
+} from "./experience-blizzard-season-history.js";
 import {
   EXPERIENCE_POPULATION_POLICY_METADATA_KEY,
   hashSeasonPopulationPolicyContent,
@@ -40,8 +47,8 @@ const ctx: ProviderFetchContext = {
 const CHAR_ID = "char-persist-1";
 const CURRENT_ID = "season-current";
 const PREV_ID = "season-prev-n";
-const PREV_NEXT_ID = "season-prev-n-plus-1";
 const REGION_ID = "region-eu";
+const PREV_RIO = "season-tww-3";
 
 function threshold(
   score: number,
@@ -84,8 +91,8 @@ function policyDoc(seasonSlug: string): PersistedExperiencePopulationPolicyMetad
   };
 }
 
-function seasonRows(opts?: { includeNext?: boolean }) {
-  const rows = [
+function seasonRows() {
+  return [
     {
       id: CURRENT_ID,
       regionId: REGION_ID,
@@ -93,6 +100,7 @@ function seasonRows(opts?: { includeNext?: boolean }) {
       blizzardSeasonId: 15,
       startsAt: new Date("2026-01-01T00:00:00.000Z"),
       endsAt: null,
+      isCurrent: true,
       metadata: {},
       providerSeasonId: "season-mn-1",
     },
@@ -103,37 +111,13 @@ function seasonRows(opts?: { includeNext?: boolean }) {
       blizzardSeasonId: 14,
       startsAt: new Date("2025-06-01T00:00:00.000Z"),
       endsAt: new Date("2025-12-01T00:00:00.000Z"),
+      isCurrent: false,
       metadata: {
-        [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc("season-tww-3"),
+        [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc(PREV_RIO),
       },
-      providerSeasonId: "season-tww-3",
+      providerSeasonId: PREV_RIO,
     },
   ];
-  if (opts?.includeNext) {
-    rows.unshift({
-      id: "season-future-current",
-      regionId: REGION_ID,
-      slug: "blizzard-season-16",
-      blizzardSeasonId: 16,
-      startsAt: new Date("2026-08-01T00:00:00.000Z"),
-      endsAt: null,
-      metadata: {},
-      providerSeasonId: "season-mn-2",
-    });
-    rows.push({
-      id: PREV_NEXT_ID,
-      regionId: REGION_ID,
-      slug: "blizzard-season-15-as-prev",
-      blizzardSeasonId: 15,
-      startsAt: new Date("2026-01-01T00:00:00.000Z"),
-      endsAt: new Date("2026-08-01T00:00:00.000Z"),
-      metadata: {
-        [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc("season-mn-1"),
-      },
-      providerSeasonId: "season-mn-1",
-    });
-  }
-  return rows;
 }
 
 function createPrismaFake(rows: ReturnType<typeof seasonRows>) {
@@ -142,10 +126,22 @@ function createPrismaFake(rows: ReturnType<typeof seasonRows>) {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
         const row = rows.find((r) => r.id === where.id);
         if (!row) return null;
-        const { metadata: _m, providerSeasonId: _p, ...rest } = row;
+        const { metadata: _m, ...rest } = row;
         return rest;
       }),
-      findMany: vi.fn(async () => rows),
+      findMany: vi.fn(async ({ where } = {}) => {
+        if (where && "id" in where && where.id?.in) {
+          return rows.filter((r) => where.id.in.includes(r.id));
+        }
+        if (where && "blizzardSeasonId" in where && where.blizzardSeasonId?.in) {
+          return rows.filter(
+            (r) =>
+              (!where.regionId || r.regionId === where.regionId) &&
+              where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+          );
+        }
+        return rows;
+      }),
     },
   };
 }
@@ -197,19 +193,65 @@ function seasonProfile(rating: number | null, runs: unknown[] = []) {
   );
 }
 
+function profileIndex(seasonIds: number[], currentSeasonId = 15) {
+  return providerResult(
+    {
+      currentMythicRating: 4000,
+      currentSeasonId,
+      seasons: seasonIds.map((seasonId) => ({ seasonId })),
+      character: identity,
+    },
+    "fp-index",
+  );
+}
+
 function achievementsDto(
   rows: Array<{ achievementId: number; completedAt: string | null }> = [],
 ): ProviderResult<BlizzardCharacterAchievementsDTO> {
   return providerResult({ achievements: rows }, "fp-achievements");
 }
 
+async function seedEliteAbsent(
+  store: ReturnType<typeof createInMemoryExperienceEvidenceStore>,
+  characterId: string,
+  currentSeasonId: string,
+) {
+  await store.upsertImmutable(
+    buildEliteCutoffHistoryPersistInput({
+      characterId,
+      currentSeasonId,
+      confirmedCount: 0,
+      confirmed: [],
+      fetchedAt: ctx.now,
+    }),
+  );
+}
+
 describe("immutable Experience evidence persistence", () => {
-  it("cold Blizzard rating call = 1; warm/replay = 0 and identical Experience", async () => {
+  it("cold acquire Season Details = 1; warm acquire = 0; Phase1 scores identically", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
+    const getMythicKeystoneProfile = vi.fn(async () => profileIndex([14, 15]));
     const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(2900));
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
     const persistProviderResult = vi.fn(async () => "payload");
+
+    const coldAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult,
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(coldAcquire.profileIndexCalls).toBe(1);
+    expect(coldAcquire.seasonDetailsCalls).toBe(1);
+    expect(coldAcquire.persistedCount).toBe(1);
 
     const cold = await buildExperiencePhase1Result({
       prisma: prisma as never,
@@ -222,15 +264,31 @@ describe("immutable Experience evidence persistence", () => {
       persistProviderResult,
       allowProviderCalls: true,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
     });
 
-    expect(cold.previousSeasonProfileCalls).toBe(1);
+    expect(cold.previousSeasonProfileCalls).toBe(0);
     expect(cold.achievementsCalls).toBe(1);
-    expect(cold.previousSeasonRatingFromCache).toBe(false);
+    expect(cold.previousSeasonRatingFromCache).toBe(true);
     expect(cold.eliteFromCache).toBe(false);
     expect(cold.experience.available).toBe(true);
-    expect(cold.diagnostics.ratingSource).toBe("BLIZZARD");
+    expect(cold.experience.score).toBe(75);
+    expect(cold.diagnostics.ratingSource).toBe("PERSISTED");
+
+    const warmAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult,
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(warmAcquire.seasonDetailsCalls).toBe(0);
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
 
     const warm = await buildExperiencePhase1Result({
       prisma: prisma as never,
@@ -243,7 +301,6 @@ describe("immutable Experience evidence persistence", () => {
       persistProviderResult,
       allowProviderCalls: true,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
     });
 
     expect(warm.previousSeasonProfileCalls).toBe(0);
@@ -252,10 +309,8 @@ describe("immutable Experience evidence persistence", () => {
     expect(warm.previousSeasonRatingFromCache).toBe(true);
     expect(warm.eliteFromCache).toBe(true);
     expect(warm.experience).toEqual(cold.experience);
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(getCharacterAchievements).toHaveBeenCalledTimes(1);
 
-    // Process restart simulation: new store instance is separate; use same durable store.
     const replay = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: CHAR_ID,
@@ -267,7 +322,6 @@ describe("immutable Experience evidence persistence", () => {
       persistProviderResult,
       allowProviderCalls: false,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
     });
 
     expect(replay.previousSeasonProfileCalls).toBe(0);
@@ -277,52 +331,41 @@ describe("immutable Experience evidence persistence", () => {
     expect(replay.diagnostics.ratingSource).toBe("PERSISTED");
   });
 
-  it("persists confirmed-no-activity and reuses it without refetch", async () => {
+  it("persists confirmed-no-activity and reuses it without refetch; Phase1 does not yield E0", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
+    const getMythicKeystoneProfile = vi.fn(async () => profileIndex([14, 15]));
     const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(null, []));
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
 
-    const cold = await buildExperiencePhase1Result({
+    await acquireBlizzardSeasonHistory({
       prisma: prisma as never,
       characterId: CHAR_ID,
       identity,
-      currentSeasonId: CURRENT_ID,
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
       evidenceStore: store,
-    });
-    expect(cold.experience.available).toBe(true);
-    expect(cold.experience.score).toBe(0);
-
-    const warm = await buildExperiencePhase1Result({
-      prisma: prisma as never,
-      characterId: CHAR_ID,
-      identity,
-      currentSeasonId: CURRENT_ID,
-      regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
-      ctx,
-      persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
-      evidenceStore: store,
+      now: new Date(ctx.now),
     });
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
-    expect(warm.previousSeasonProfileCalls).toBe(0);
-    expect(warm.experience).toEqual(cold.experience);
-  });
 
-  it("Blizzard failure + exact RIO fallback persists and warms with 0 provider calls", async () => {
-    const store = createInMemoryExperienceEvidenceStore();
-    const prisma = createPrismaFake(seasonRows());
-    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
-      const err = Object.assign(new Error("not found"), { statusCode: 404, code: "NOT_FOUND" });
-      throw err;
+    const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID, {
+      prisma: prisma as never,
     });
-    const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
+    expect(listed).toEqual([
+      expect.objectContaining({
+        seasonId: PREV_ID,
+        state: "CONFIRMED_NO_ACTIVITY",
+        rating: null,
+        source: "BLIZZARD",
+      }),
+    ]);
+
+    await seedEliteAbsent(store, CHAR_ID, CURRENT_ID);
 
     const cold = await buildExperiencePhase1Result({
       prisma: prisma as never,
@@ -333,21 +376,28 @@ describe("immutable Experience evidence persistence", () => {
       blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
+      allowProviderCalls: false,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      rioExactSeasonFallback: {
-        profileFetched: true,
-        exactSeasonSlug: "season-tww-3",
-        exactSeasonScore: 2900,
-        activityProof: "UNKNOWN",
-      },
     });
+    // Season-level absence alone ≠ whole-history E=0.
+    expect(cold.experience.available).toBe(false);
+    expect(cold.experience.score).toBeNull();
 
-    expect(cold.previousSeasonProfileCalls).toBe(1);
-    expect(cold.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
-    expect(cold.experience.available).toBe(true);
-    expect(cold.experience.score).toBe(75);
+    const warmAcquire = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(warmAcquire.seasonDetailsCalls).toBe(0);
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
 
     const warm = await buildExperiencePhase1Result({
       prisma: prisma as never,
@@ -358,45 +408,93 @@ describe("immutable Experience evidence persistence", () => {
       blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
+      allowProviderCalls: false,
+      evidenceStore: store,
+    });
+    expect(warm.experience).toEqual(cold.experience);
+  });
+
+  it("RAIDERIO_FALLBACK rows are not accepted as 03C Blizzard historical standing", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    const prisma = createPrismaFake(seasonRows());
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "RAIDERIO_FALLBACK",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: ctx.now,
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: PREV_RIO,
+      })!,
+    );
+    await seedEliteAbsent(store, CHAR_ID, CURRENT_ID);
+
+    const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID, {
+      prisma: prisma as never,
+    });
+    expect(listed).toEqual([]);
+
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("elite seeded");
+        }),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: false,
       evidenceStore: store,
       rioExactSeasonFallback: {
         profileFetched: true,
-        exactSeasonSlug: "season-tww-3",
+        exactSeasonSlug: PREV_RIO,
         exactSeasonScore: 2900,
         activityProof: "UNKNOWN",
       },
     });
-
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
-    expect(warm.previousSeasonProfileCalls).toBe(0);
-    expect(warm.achievementsCalls).toBe(0);
-    expect(warm.experience).toEqual(cold.experience);
-    expect(warm.diagnostics.ratingSource).toBe("PERSISTED");
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).not.toBe("RAIDERIO_FALLBACK");
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
   });
 
-  it("transient provider failure is not persisted and remains retryable", async () => {
+  it("transient Season Details failure is not persisted and remains retryable", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
+    const getMythicKeystoneProfile = vi.fn(async () => profileIndex([14, 15]));
     const getMythicKeystoneSeasonProfile = vi
       .fn()
       .mockRejectedValueOnce(Object.assign(new Error("timeout"), { statusCode: 503 }))
       .mockResolvedValueOnce(seasonProfile(2900));
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
 
-    const failed = await buildExperiencePhase1Result({
+    const failed = await acquireBlizzardSeasonHistory({
       prisma: prisma as never,
       characterId: CHAR_ID,
       identity,
-      currentSeasonId: CURRENT_ID,
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
       evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
     });
-    expect(failed.experience.available).toBe(false);
+    expect(failed.failedSeasonIds).toContain(14);
     expect(
       await store.find({
         characterId: CHAR_ID,
@@ -406,7 +504,23 @@ describe("immutable Experience evidence persistence", () => {
       }),
     ).toBeNull();
 
-    const retry = await buildExperiencePhase1Result({
+    const retry = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
+    expect(retry.persistedCount).toBe(1);
+
+    const scored = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: CHAR_ID,
       identity,
@@ -418,35 +532,47 @@ describe("immutable Experience evidence persistence", () => {
       allowProviderCalls: true,
       evidenceStore: store,
     });
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
-    expect(retry.experience.available).toBe(true);
-    expect(retry.diagnostics.ratingSource).toBe("BLIZZARD");
+    expect(scored.experience.available).toBe(true);
+    expect(scored.diagnostics.ratingSource).toBe("PERSISTED");
   });
 
   it("previous season N evidence cannot satisfy N+1; old N remains under its identity", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prismaN = createPrismaFake(seasonRows());
+    const getMythicKeystoneProfile = vi.fn(async () => profileIndex([14, 15]));
     const getMythicKeystoneSeasonProfile = vi.fn(async (_i, seasonId: number) => {
       if (seasonId === 14) return seasonProfile(2900);
-      return seasonProfile(3100);
+      return providerResult(
+        {
+          profile: {
+            currentMythicRating: 3100,
+            currentSeasonId: seasonId,
+            seasons: [{ seasonId }],
+            character: identity,
+          },
+          runs: [] as never[],
+        },
+        `fp-season-${seasonId}`,
+      );
     });
     const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
 
-    const first = await buildExperiencePhase1Result({
+    await acquireBlizzardSeasonHistory({
       prisma: prismaN as never,
       characterId: CHAR_ID,
       identity,
-      currentSeasonId: CURRENT_ID,
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
       evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
     });
-    expect(first.previousSeasonProfileCalls).toBe(1);
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
 
-    // Simulate rollover: current becomes future; previous becomes season 15 row.
+    // Simulate rollover: current becomes season 16; previous becomes season 15.
     const rolledRows = [
       {
         id: "season-future-current",
@@ -455,6 +581,7 @@ describe("immutable Experience evidence persistence", () => {
         blizzardSeasonId: 16,
         startsAt: new Date("2026-08-01T00:00:00.000Z"),
         endsAt: null,
+        isCurrent: true,
         metadata: {},
         providerSeasonId: "season-mn-2",
       },
@@ -465,6 +592,7 @@ describe("immutable Experience evidence persistence", () => {
         blizzardSeasonId: 15,
         startsAt: new Date("2026-01-01T00:00:00.000Z"),
         endsAt: new Date("2026-08-01T00:00:00.000Z"),
+        isCurrent: false,
         metadata: {
           [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc("season-mn-1"),
         },
@@ -477,33 +605,36 @@ describe("immutable Experience evidence persistence", () => {
         blizzardSeasonId: 14,
         startsAt: new Date("2025-06-01T00:00:00.000Z"),
         endsAt: new Date("2025-12-01T00:00:00.000Z"),
+        isCurrent: false,
         metadata: {
-          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc("season-tww-3"),
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: policyDoc(PREV_RIO),
         },
-        providerSeasonId: "season-tww-3",
+        providerSeasonId: PREV_RIO,
       },
     ];
     const prismaRolled = createPrismaFake(rolledRows);
+    getMythicKeystoneProfile.mockImplementation(async () =>
+      profileIndex([14, 15, 16], 16),
+    );
 
-    const afterRollover = await buildExperiencePhase1Result({
+    const afterRollover = await acquireBlizzardSeasonHistory({
       prisma: prismaRolled as never,
       characterId: CHAR_ID,
       identity,
-      currentSeasonId: "season-future-current",
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      currentSeasonId: "season-future-current",
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
       evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date("2026-08-09T00:00:00.000Z"),
     });
 
-    // New previous (CURRENT_ID / blizzard 15) is a miss → one rating call.
-    expect(afterRollover.previousSeasonProfileCalls).toBe(1);
-    expect(afterRollover.previousSeasonRatingFromCache).toBe(false);
+    // New previous (CURRENT_ID / blizzard 15) is a miss → one Season Details call.
+    expect(afterRollover.seasonDetailsCalls).toBe(1);
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
 
-    // Old season N evidence still addressable under PREV_ID.
     const old = await store.find({
       characterId: CHAR_ID,
       seasonId: PREV_ID,
@@ -521,11 +652,29 @@ describe("immutable Experience evidence persistence", () => {
     });
     expect(neu).not.toBeNull();
     expect(neu?.blizzardSeasonId).toBe(15);
+
+    void getCharacterAchievements;
   });
 
   it("does not apply ambiguous class-rank floor", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: ctx.now,
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: PREV_RIO,
+      })!,
+    );
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: CHAR_ID,
@@ -533,68 +682,22 @@ describe("immutable Experience evidence persistence", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       evidenceStore: store,
-      // Caller incorrectly supplies a rank without exactSeasonProven — still null here.
       previousRegionalClassRank: null,
     });
     expect(result.experience.classRankFloorApplied).toBe(false);
     expect(result.experience.classRankFloor).toBeNull();
   });
 
-  it("no preloaded profile: Blizzard fails → dedicated exact-season RIO fallback", async () => {
-    const store = createInMemoryExperienceEvidenceStore();
-    const prisma = createPrismaFake(seasonRows());
-    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
-      throw Object.assign(new Error("not found"), { statusCode: 404, code: "NOT_FOUND" });
-    });
-    const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
-    const getCharacterExactSeasonHistoricalRating = vi.fn(async () =>
-      providerResult(
-        {
-          requestedSeasonSlug: "season-tww-3",
-          seasonFound: true,
-          scoreAll: 2900,
-          activityProof: "PROVEN_NONE" as const,
-          totalSeasonRuns: 0,
-        },
-        "fp-rio-exact",
-      ),
-    );
-
-    const cold = await buildExperiencePhase1Result({
-      prisma: prisma as never,
-      characterId: CHAR_ID,
-      identity,
-      currentSeasonId: CURRENT_ID,
-      regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
-      ctx,
-      persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      // No rioExactSeasonFallback / no preloaded corroboration.
-      raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
-    });
-
-    expect(getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
-    expect(getCharacterExactSeasonHistoricalRating).toHaveBeenCalledWith(
-      identity,
-      "season-tww-3",
-      ctx,
-    );
-    expect(cold.raiderIoHistoricalRatingCalls).toBe(1);
-    expect(cold.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
-    expect(cold.experience.available).toBe(true);
-  });
-
-  it("Blizzard succeeds → dedicated RIO fallback calls = 0", async () => {
+  it("Phase1 never calls dedicated RIO historical endpoint", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
     const getCharacterExactSeasonHistoricalRating = vi.fn(async () => {
@@ -608,55 +711,102 @@ describe("immutable Experience evidence persistence", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(2900)),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
+      boundPreviousRaiderIoSlug: PREV_RIO,
       raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
+      rioExactSeasonFallback: {
+        profileFetched: true,
+        exactSeasonSlug: PREV_RIO,
+        exactSeasonScore: 2900,
+        activityProof: "UNKNOWN",
+      },
     });
 
     expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(result.raiderIoHistoricalRatingCalls).toBe(0);
-    expect(result.diagnostics.ratingSource).toBe("BLIZZARD");
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).not.toBe("RAIDERIO_FALLBACK");
+    expect(result.experience.available).toBe(false);
   });
 
-  it("persisted RIO fallback: second recalc RIO calls = 0", async () => {
+  it("Blizzard acquire succeeds → Phase1 scores without RIO historical", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
-    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
-      throw Object.assign(new Error("not found"), { statusCode: 404, code: "NOT_FOUND" });
+    const getCharacterExactSeasonHistoricalRating = vi.fn(async () => {
+      throw new Error("should not be called");
     });
-    const getCharacterExactSeasonHistoricalRating = vi.fn(async () =>
-      providerResult(
-        {
-          requestedSeasonSlug: "season-tww-3",
-          seasonFound: true,
-          scoreAll: 2900,
-          activityProof: "PROVEN_NONE" as const,
-          totalSeasonRuns: 0,
-        },
-        "fp-rio-exact",
-      ),
-    );
-    const getCharacterAchievements = vi.fn(async () => achievementsDto([]));
+    const getMythicKeystoneProfile = vi.fn(async () => profileIndex([14, 15]));
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(2900));
 
-    await buildExperiencePhase1Result({
+    await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+
+    const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: CHAR_ID,
       identity,
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      blizzard: {
+        getMythicKeystoneSeasonProfile,
+        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+      },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
+      boundPreviousRaiderIoSlug: PREV_RIO,
       raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
+    });
+
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).toBe("PERSISTED");
+    expect(result.experience.available).toBe(true);
+    expect(result.experience.score).toBe(75);
+  });
+
+  it("persisted Blizzard evidence: second Phase1 RIO calls = 0", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    const prisma = createPrismaFake(seasonRows());
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: ctx.now,
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: PREV_RIO,
+      })!,
+    );
+    await seedEliteAbsent(store, CHAR_ID, CURRENT_ID);
+    const getCharacterExactSeasonHistoricalRating = vi.fn(async () => {
+      throw new Error("should not be called");
     });
 
     const warm = await buildExperiencePhase1Result({
@@ -665,21 +815,31 @@ describe("immutable Experience evidence persistence", () => {
       identity,
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("Phase1 must not acquire");
+        }),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("elite seeded");
+        }),
+      },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
+      allowProviderCalls: false,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
+      boundPreviousRaiderIoSlug: PREV_RIO,
       raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
     });
 
-    expect(getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(warm.raiderIoHistoricalRatingCalls).toBe(0);
     expect(warm.previousSeasonProfileCalls).toBe(0);
+    expect(warm.achievementsCalls).toBe(0);
+    expect(warm.experience.available).toBe(true);
+    expect(warm.experience.score).toBe(75);
   });
 
-  it("RIO zero + proven none → CONFIRMED_NO_ACTIVITY; zero + activity → unavailable; zero + unknown → unavailable", async () => {
+  it("legacy rioExactSeasonFallback is ignored by Phase1 (including zero-score cases)", async () => {
     const prisma = createPrismaFake(seasonRows());
     const blizzardFail = {
       getMythicKeystoneSeasonProfile: vi.fn(async () => {
@@ -688,75 +848,49 @@ describe("immutable Experience evidence persistence", () => {
       getCharacterAchievements: vi.fn(async () => achievementsDto([])),
     };
 
-    const none = await buildExperiencePhase1Result({
-      prisma: prisma as never,
-      characterId: "c-none",
-      identity,
-      currentSeasonId: CURRENT_ID,
-      regionCode: "EU",
-      blizzard: blizzardFail,
-      ctx,
-      persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      rioExactSeasonFallback: {
-        profileFetched: true,
-        exactSeasonSlug: "season-tww-3",
-        exactSeasonScore: 0,
-        activityProof: "PROVEN_NONE",
-      },
-    });
-    expect(none.experience.available).toBe(true);
-    expect(none.experience.score).toBe(0);
-
-    const activity = await buildExperiencePhase1Result({
-      prisma: prisma as never,
-      characterId: "c-act",
-      identity,
-      currentSeasonId: CURRENT_ID,
-      regionCode: "EU",
-      blizzard: blizzardFail,
-      ctx,
-      persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      rioExactSeasonFallback: {
-        profileFetched: true,
-        exactSeasonSlug: "season-tww-3",
-        exactSeasonScore: 0,
-        activityProof: "PROVEN_ACTIVITY",
-      },
-    });
-    expect(activity.experience.available).toBe(false);
-
-    const unknown = await buildExperiencePhase1Result({
-      prisma: prisma as never,
-      characterId: "c-unk",
-      identity,
-      currentSeasonId: CURRENT_ID,
-      regionCode: "EU",
-      blizzard: blizzardFail,
-      ctx,
-      persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      rioExactSeasonFallback: {
-        profileFetched: true,
-        exactSeasonSlug: "season-tww-3",
-        exactSeasonScore: 0,
-        activityProof: "UNKNOWN",
-      },
-    });
-    expect(unknown.experience.available).toBe(false);
-    expect(unknown.experience.score).not.toBe(0);
+    for (const activityProof of ["PROVEN_NONE", "PROVEN_ACTIVITY", "UNKNOWN"] as const) {
+      const result = await buildExperiencePhase1Result({
+        prisma: prisma as never,
+        characterId: `c-${activityProof}`,
+        identity,
+        currentSeasonId: CURRENT_ID,
+        regionCode: "EU",
+        blizzard: blizzardFail,
+        ctx,
+        persistProviderResult: vi.fn(async () => "p"),
+        allowProviderCalls: true,
+        evidenceStore: createInMemoryExperienceEvidenceStore(),
+        boundPreviousRaiderIoSlug: PREV_RIO,
+        rioExactSeasonFallback: {
+          profileFetched: true,
+          exactSeasonSlug: PREV_RIO,
+          exactSeasonScore: 0,
+          activityProof,
+        },
+      });
+      expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+      expect(result.previousSeasonProfileCalls).toBe(0);
+      expect(result.experience.available).toBe(false);
+      expect(result.experience.score).toBeNull();
+      expect(result.experience.score).not.toBe(0);
+    }
   });
 
-  it("wrong-season RIO response is rejected", async () => {
+  it("Phase1 ignores RIO exact-season port even when seasonFound is false", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const prisma = createPrismaFake(seasonRows());
+    const getCharacterExactSeasonHistoricalRating = vi.fn(async () =>
+      providerResult(
+        {
+          requestedSeasonSlug: PREV_RIO,
+          seasonFound: false,
+          scoreAll: null,
+          activityProof: "UNKNOWN",
+          totalSeasonRuns: null,
+        },
+        "fp-wrong",
+      ),
+    );
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       characterId: CHAR_ID,
@@ -773,23 +907,11 @@ describe("immutable Experience evidence persistence", () => {
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
       evidenceStore: store,
-      boundPreviousRaiderIoSlug: "season-tww-3",
-      raiderIoExactSeason: {
-        getCharacterExactSeasonHistoricalRating: vi.fn(async () =>
-          providerResult(
-            {
-              requestedSeasonSlug: "season-tww-3",
-              seasonFound: false,
-              scoreAll: null,
-              activityProof: "UNKNOWN",
-              totalSeasonRuns: null,
-            },
-            "fp-wrong",
-          ),
-        ),
-      },
+      boundPreviousRaiderIoSlug: PREV_RIO,
+      raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
     });
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
     expect(result.experience.available).toBe(false);
-    expect(result.raiderIoHistoricalRatingCalls).toBe(1);
   });
 });

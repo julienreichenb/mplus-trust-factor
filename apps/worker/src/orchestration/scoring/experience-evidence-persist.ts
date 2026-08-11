@@ -175,6 +175,48 @@ export function parsePersistedPreviousClassRankPayload(
   };
 }
 
+/**
+ * Row↔payload provenance coherence that must hold even without a catalog binding.
+ * Rejects mismatched blizzard ids, source/ratingSource, RIO slug drift, and bad hashes.
+ */
+export function isPersistedRatingEvidenceInternallyConsistent(
+  row: CharacterExperienceEvidenceDTO,
+  payload: PersistedPreviousSeasonRatingPayloadV1,
+): boolean {
+  if (payload.internalSeasonId !== row.seasonId) return false;
+  if (
+    row.blizzardSeasonId != null &&
+    row.blizzardSeasonId !== payload.blizzardSeasonId
+  ) {
+    return false;
+  }
+  if (
+    row.raiderIoSeasonSlug != null &&
+    payload.raiderIoSeasonSlug != null &&
+    row.raiderIoSeasonSlug.trim() !== payload.raiderIoSeasonSlug.trim()
+  ) {
+    return false;
+  }
+  if (payload.ratingSource === "BLIZZARD") {
+    if (
+      row.source !== EXPERIENCE_EVIDENCE_SOURCE.BLIZZARD &&
+      row.source !== EXPERIENCE_EVIDENCE_SOURCE.NONE
+    ) {
+      return false;
+    }
+  } else if (payload.ratingSource === "RAIDERIO_FALLBACK") {
+    if (row.source !== EXPERIENCE_EVIDENCE_SOURCE.RAIDERIO_FALLBACK) {
+      return false;
+    }
+  }
+  if (row.contentHash != null && row.contentHash.length > 0) {
+    if (row.contentHash !== hashExperienceEvidencePayload(payload)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function ratingEvidenceFromPersistedRow(
   row: CharacterExperienceEvidenceDTO,
   expected?: PreviousSeasonRatingEvidenceBindingExpectation,
@@ -183,7 +225,7 @@ export function ratingEvidenceFromPersistedRow(
   if (row.compatibilityVersion !== EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION) return null;
   const payload = parsePersistedPreviousSeasonRatingPayload(row.payload);
   if (!payload) return null;
-  if (payload.internalSeasonId !== row.seasonId) return null;
+  if (!isPersistedRatingEvidenceInternallyConsistent(row, payload)) return null;
 
   if (expected) {
     if (!isPersistedRatingEvidenceCompatible(row, payload, expected)) {

@@ -32,6 +32,7 @@ import {
   buildPreviousSeasonRatingPersistInput,
   ratingEvidenceFromPersistedRow,
   type ExperienceEvidenceStore,
+  type PreviousSeasonRatingEvidenceBindingExpectation,
 } from "./experience-evidence-persist.js";
 import {
   mapSeasonProfileToPreviousSeasonRatingEvidence,
@@ -104,6 +105,18 @@ function isTerminalRatingRow(row: CharacterExperienceEvidenceDTO): boolean {
   );
 }
 
+function bindingExpectationForSeason(
+  characterId: string,
+  season: Pick<SeasonHistoryRow, "id" | "blizzardSeasonId" | "providerSeasonId">,
+): PreviousSeasonRatingEvidenceBindingExpectation {
+  return {
+    characterId,
+    seasonId: season.id,
+    blizzardSeasonId: season.blizzardSeasonId,
+    raiderIoSeasonSlug: season.providerSeasonId?.trim() || null,
+  };
+}
+
 export function isClosedSeasonForHistory(
   season: Pick<SeasonHistoryRow, "isCurrent" | "endsAt" | "blizzardSeasonId" | "id">,
   input: { currentSeasonId: string; authoritativeBlizzardSeasonId: number | null; nowMs: number },
@@ -120,10 +133,16 @@ export function isClosedSeasonForHistory(
   return true;
 }
 
+/**
+ * Map a persisted PREVIOUS_SEASON_RATING row into Blizzard historical standing input.
+ * RAIDERIO_FALLBACK rows are never admitted. When `expected` is provided, full
+ * catalog binding compatibility is required (not merely terminal shape).
+ */
 export function historicalSeasonRatingFromEvidenceRow(
   row: CharacterExperienceEvidenceDTO,
+  expected?: PreviousSeasonRatingEvidenceBindingExpectation,
 ): HistoricalSeasonRating | null {
-  const evidence = ratingEvidenceFromPersistedRow(row);
+  const evidence = ratingEvidenceFromPersistedRow(row, expected);
   if (!evidence) return null;
   if (evidence.state !== "HAS_VALUE" && evidence.state !== "CONFIRMED_NO_ACTIVITY") {
     return null;
@@ -139,17 +158,55 @@ export function historicalSeasonRatingFromEvidenceRow(
   };
 }
 
+async function loadBindingsBySeasonId(
+  prisma: Pick<PrismaClient, "season">,
+  characterId: string,
+  seasonIds: readonly string[],
+): Promise<Map<string, PreviousSeasonRatingEvidenceBindingExpectation>> {
+  const out = new Map<string, PreviousSeasonRatingEvidenceBindingExpectation>();
+  if (seasonIds.length === 0) return out;
+  const seasons = await prisma.season.findMany({
+    where: { id: { in: [...seasonIds] } },
+    select: { id: true, blizzardSeasonId: true, providerSeasonId: true },
+  });
+  for (const season of seasons) {
+    if (season.blizzardSeasonId == null || !Number.isFinite(season.blizzardSeasonId)) {
+      continue;
+    }
+    out.set(
+      season.id,
+      bindingExpectationForSeason(characterId, {
+        id: season.id,
+        blizzardSeasonId: season.blizzardSeasonId,
+        providerSeasonId: season.providerSeasonId,
+      }),
+    );
+  }
+  return out;
+}
+
 export async function listHistoricalSeasonRatingsFromStore(
   store: ExperienceEvidenceStore,
   characterId: string,
+  options?: { prisma?: Pick<PrismaClient, "season"> },
 ): Promise<HistoricalSeasonRating[]> {
   const rows = store.listPreviousSeasonRatings
     ? await store.listPreviousSeasonRatings(characterId)
     : [];
+  const bindings = options?.prisma
+    ? await loadBindingsBySeasonId(
+        options.prisma,
+        characterId,
+        rows.map((r) => r.seasonId),
+      )
+    : null;
   const out: HistoricalSeasonRating[] = [];
   for (const row of rows) {
     if (!isTerminalRatingRow(row)) continue;
-    const mapped = historicalSeasonRatingFromEvidenceRow(row);
+    const expected = bindings?.get(row.seasonId);
+    // When season catalog is available, require a coherent binding; skip orphans.
+    if (bindings && !expected) continue;
+    const mapped = historicalSeasonRatingFromEvidenceRow(row, expected);
     if (mapped) out.push(mapped);
   }
   return out.sort((a, b) => a.blizzardSeasonId - b.blizzardSeasonId);
@@ -159,9 +216,12 @@ async function emptyResult(
   store: ExperienceEvidenceStore,
   characterId: string,
   partial: Partial<AcquireBlizzardSeasonHistoryResult> = {},
+  prisma?: Pick<PrismaClient, "season">,
 ): Promise<AcquireBlizzardSeasonHistoryResult> {
   return {
-    ratings: await listHistoricalSeasonRatingsFromStore(store, characterId),
+    ratings: await listHistoricalSeasonRatingsFromStore(store, characterId, {
+      prisma,
+    }),
     profileIndexCalls: 0,
     seasonDetailsCalls: 0,
     persistedCount: 0,
@@ -181,7 +241,7 @@ export async function acquireBlizzardSeasonHistory(
   const nowMs = (input.now ?? new Date()).getTime();
 
   if (!input.allowProviderCalls) {
-    return emptyResult(input.evidenceStore, input.characterId);
+    return emptyResult(input.evidenceStore, input.characterId, {}, input.prisma);
   }
 
   const currentRow = await input.prisma.season.findUnique({
@@ -189,7 +249,7 @@ export async function acquireBlizzardSeasonHistory(
     select: { regionId: true, blizzardSeasonId: true },
   });
   if (!currentRow?.regionId) {
-    return emptyResult(input.evidenceStore, input.characterId);
+    return emptyResult(input.evidenceStore, input.characterId, {}, input.prisma);
   }
 
   const profileIndexCalls = 1;
@@ -216,7 +276,7 @@ export async function acquireBlizzardSeasonHistory(
     return emptyResult(input.evidenceStore, input.characterId, {
       profileIndexCalls,
       failedSeasonIds: [],
-    });
+    }, input.prisma);
   }
 
   if (authoritativeBlizzardSeasonId != null) {
@@ -275,7 +335,13 @@ export async function acquireBlizzardSeasonHistory(
     ) {
       continue;
     }
-    if (evidenceBySeasonId.has(season.id)) continue;
+
+    const expected = bindingExpectationForSeason(input.characterId, season);
+    const existing = evidenceBySeasonId.get(season.id);
+    // Cache hit only when persisted evidence is usable Blizzard history for this binding.
+    if (existing && historicalSeasonRatingFromEvidenceRow(existing, expected)) {
+      continue;
+    }
 
     const binding: ExperienceSeasonBindingCandidate = {
       id: season.id,
@@ -319,8 +385,14 @@ export async function acquireBlizzardSeasonHistory(
         failedSeasonIds.push(blizzardSeasonId);
         continue;
       }
-      const { created } = await input.evidenceStore.upsertImmutable(persistInput);
-      if (created) persistedCount += 1;
+      const { row, created } = await input.evidenceStore.upsertImmutable(persistInput);
+      if (created) {
+        persistedCount += 1;
+        evidenceBySeasonId.set(season.id, row);
+      } else if (!historicalSeasonRatingFromEvidenceRow(row, expected)) {
+        // Immutable conflict: do not trust the incompatible existing row.
+        failedSeasonIds.push(blizzardSeasonId);
+      }
     } catch {
       failedSeasonIds.push(blizzardSeasonId);
     }
@@ -330,6 +402,7 @@ export async function acquireBlizzardSeasonHistory(
     ratings: await listHistoricalSeasonRatingsFromStore(
       input.evidenceStore,
       input.characterId,
+      { prisma: input.prisma },
     ),
     profileIndexCalls,
     seasonDetailsCalls,
