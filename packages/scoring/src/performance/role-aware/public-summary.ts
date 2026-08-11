@@ -207,28 +207,35 @@ export function buildRoleAwarePerformanceSummary(input: {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 export function projectPerformanceSummaryFromDimensionDetails(
   details: Record<string, unknown> | null,
   performanceScore: number | null,
   performanceConfidence: number | null,
 ): PerformanceSummaryDTO | null {
   if (!details) return null;
-  const perfBlock = details.performance;
-  const aggBlock = details.performanceAggregate;
-  if (!isPersistedRoleAwareEvidence(perfBlock?.roleAware)) return null;
-  if (!aggBlock || typeof aggBlock !== "object") return null;
-  const compact = (aggBlock as { compact?: unknown }).compact;
+  const perfBlock = asRecord(details.performance);
+  if (!perfBlock) return null;
+  const roleAwareEvidence = perfBlock.roleAware;
+  if (!isPersistedRoleAwareEvidence(roleAwareEvidence)) return null;
+
+  const aggBlock = asRecord(details.performanceAggregate);
+  if (!aggBlock) return null;
+  const compact = aggBlock.compact;
   if (!isPersistedV2Compact(compact)) return null;
 
-  const perfConfidenceBlock = perfBlock as { confidence?: unknown };
   const confidence =
-    typeof perfConfidenceBlock.confidence === "number" &&
-    Number.isFinite(perfConfidenceBlock.confidence)
-      ? perfConfidenceBlock.confidence
+    typeof perfBlock.confidence === "number" && Number.isFinite(perfBlock.confidence)
+      ? perfBlock.confidence
       : (performanceConfidence ?? 0);
 
   return buildRoleAwarePerformanceSummary({
-    evidence: perfBlock.roleAware,
+    evidence: roleAwareEvidence,
     compact,
     performanceScore,
     confidence,

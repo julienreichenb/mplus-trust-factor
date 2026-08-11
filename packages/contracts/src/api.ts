@@ -275,7 +275,8 @@ export interface PerformanceDungeonSummaryDTO {
   encounterId?: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
-  loggedRunCount: number;
+  /** Null when log count is absent from evidence — never fabricated as zero. */
+  loggedRunCount: number | null;
   keystoneLevel?: number | null;
   throughputBracket?: number | null;
   ratingPoints?: number | null;
@@ -361,7 +362,8 @@ export interface PerformanceRoleAwareDungeonSummaryDTO {
   dungeonName: string;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
-  loggedRunCount: number;
+  /** Null when log count is absent from aggregate evidence — never fabricated as zero. */
+  loggedRunCount: number | null;
 }
 
 /** Public summary for one role-aware parse channel (damage or healing). */
