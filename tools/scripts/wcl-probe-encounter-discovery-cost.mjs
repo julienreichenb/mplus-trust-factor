@@ -87,14 +87,12 @@ async function main() {
         graphqlPosts,
         opNames,
         candidateCount: discovery.candidates?.length ?? 0,
-        fightKnown: (discovery.candidates ?? []).filter((c) => !c.incompleteness.fightUnknown)
-          .length,
-        fightUnknown: (discovery.candidates ?? []).filter((c) => c.incompleteness.fightUnknown)
-          .length,
+        fightKnown: (discovery.candidates ?? []).filter((c) => (c.fightId ?? 0) > 0).length,
+        invalidFightId: (discovery.candidates ?? []).filter((c) => !(c.fightId > 0)).length,
         runCount: runs.length,
         timedRuns: runs.filter((r) => r.timed === true).length,
         timedByDungeon,
-        warnings: warnings.filter((w) => /encounterRankings|recentReports|hydration/i.test(w)),
+        warnings: warnings.filter((w) => /encounterRankings/i.test(w)),
       },
       null,
       2,

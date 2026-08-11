@@ -32,49 +32,69 @@ export function adaptPerformanceExplainability(
   }
 
   const drivers: ScoreDriverV1[] = [];
-  const phase1Weight = result.weightsApplied.phase1;
+
   if (
-    result.phase1Score != null &&
-    Number.isFinite(result.phase1Score) &&
-    phase1Weight > 0
+    result.healingParseScore != null &&
+    Number.isFinite(result.healingParseScore) &&
+    result.weightsApplied.healingParse > 0
   ) {
-    const contribution = signedContributionFromNeutral(
-      result.phase1Score,
-      phase1Weight,
-    );
     drivers.push(
       buildScoreDriver({
-        code: "performance.phase1_score",
-        value: result.phase1Score,
-        weight: phase1Weight,
-        contribution,
-        params: { phase: 1 },
+        code: "performance.healing_parse",
+        value: result.healingParseScore,
+        weight: result.weightsApplied.healingParse,
+        contribution: signedContributionFromNeutral(
+          result.healingParseScore,
+          result.weightsApplied.healingParse,
+        ),
+        params: {
+          dungeonCount: result.coverage.healingDungeonCount,
+        },
         evidence: {
-          // Supporting Phase-1 detail — not a second primary contribution.
-          detailedDungeonCount: result.coverage.detailedDungeonCount,
-          profileDungeonCount: result.coverage.profileDungeonCount,
           activeDungeonCount: result.coverage.activeDungeonCount,
         },
       }),
     );
   }
 
-  const cooldownWeight = result.weightsApplied.cooldown;
+  if (
+    result.damageParseScore != null &&
+    Number.isFinite(result.damageParseScore) &&
+    result.weightsApplied.damageParse > 0
+  ) {
+    drivers.push(
+      buildScoreDriver({
+        code: "performance.damage_parse",
+        value: result.damageParseScore,
+        weight: result.weightsApplied.damageParse,
+        contribution: signedContributionFromNeutral(
+          result.damageParseScore,
+          result.weightsApplied.damageParse,
+        ),
+        params: {
+          dungeonCount: result.coverage.damageDungeonCount,
+        },
+        evidence: {
+          activeDungeonCount: result.coverage.activeDungeonCount,
+        },
+      }),
+    );
+  }
+
   if (
     result.offensiveCooldownDiscipline != null &&
     Number.isFinite(result.offensiveCooldownDiscipline) &&
-    cooldownWeight > 0
+    result.weightsApplied.cooldown > 0
   ) {
-    const contribution = signedContributionFromNeutral(
-      result.offensiveCooldownDiscipline,
-      cooldownWeight,
-    );
     drivers.push(
       buildScoreDriver({
         code: "performance.offensive_cooldown_discipline",
         value: result.offensiveCooldownDiscipline,
-        weight: cooldownWeight,
-        contribution,
+        weight: result.weightsApplied.cooldown,
+        contribution: signedContributionFromNeutral(
+          result.offensiveCooldownDiscipline,
+          result.weightsApplied.cooldown,
+        ),
         params: {
           evaluatedAbilityCount: result.coverage.evaluatedAbilityCount,
           cooldownUsableRunCount: result.coverage.cooldownUsableRunCount,

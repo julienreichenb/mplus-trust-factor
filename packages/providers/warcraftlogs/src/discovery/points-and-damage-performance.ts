@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
   assertPersistedCharacterPerformanceAggregateV1,
   dedupeDungeonAggregates,
   toPerformanceAggregatePartitionKey,
@@ -16,7 +16,7 @@ import type { WclDungeonPerformanceAggregate } from "../types.js";
 /** Re-export for callers that already import adapter helpers from this module. */
 export {
   toPerformanceAggregatePartitionKey,
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1 as CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
 };
 
 /**
@@ -196,7 +196,7 @@ export function toPersistedPerformanceAggregate(input: {
       `cannot_persist_performance_aggregate: state=${input.record.state}`,
     );
   }
-  if (input.record.adapterVersion !== CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION) {
+  if (input.record.adapterVersion !== POINTS_AND_DAMAGE_ADAPTER_VERSION) {
     throw new Error(
       `cannot_persist_performance_aggregate: adapterVersion=${input.record.adapterVersion}`,
     );
@@ -221,7 +221,7 @@ export function toPersistedPerformanceAggregate(input: {
 
   return assertPersistedCharacterPerformanceAggregateV1({
     state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
     metric: POINTS_AND_DAMAGE_METRIC,
     zoneId: input.zoneId,
     partition: input.partition,
@@ -238,7 +238,7 @@ export function toPersistedPerformanceAggregate(input: {
         }
       : null,
     diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
       metric: POINTS_AND_DAMAGE_METRIC,
       provenance: "AGGREGATE_ZONE_RANKINGS",
       availableDungeonCount: input.record.diagnostics.availableDungeonCount,

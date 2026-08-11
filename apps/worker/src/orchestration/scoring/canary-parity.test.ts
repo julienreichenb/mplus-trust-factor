@@ -7,10 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
-  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
   EVIDENCE_SELECTOR_VERSION,
-  assertPersistedCharacterPerformanceAggregateV1,
-  hashPerformanceAggregateContent,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceCandidateMetadataV2,
 } from "@mplus/contracts";
@@ -26,6 +23,7 @@ import { runScoringCanaryLive } from "./canary/canary-live.js";
 import { runScoringCanaryReplay } from "./canary/canary-replay.js";
 import type { CanarySeasonResolution } from "./canary/canary-season.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/index.js";
+import { buildTestPerformanceAggregateDbRow } from "./run-orchestration/test-fixtures.js";
 import { runAuthoritativeScoring } from "./refresh-bridge.js";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
@@ -204,56 +202,13 @@ function okBootstrap(spent = 100) {
 }
 
 function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
-  const compact = assertPersistedCharacterPerformanceAggregateV1({
-    state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
-    zoneId: 47,
-    partition: null,
-    dungeonAggregates: [
-      {
-        dungeonSlug: "skyreach",
-        dungeonName: "Skyreach",
-        encounterId: 1,
-        bestParsePercentile: 90,
-        medianParsePercentile: 80,
-        loggedRunCount: 10,
-        specialization: "Fire",
-        keystoneLevel: 12,
-        bestDps: 1000,
-      },
-    ],
-    global: {
-      totalMythicPlusScore: 4000,
-      totalLoggedRuns: 10,
-      bestDpsPercentileAverage: 90,
-      medianDpsPercentileAverage: 80,
-      partition: null,
-      zoneId: 47,
-    },
-    diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
-      provenance: "AGGREGATE_ZONE_RANKINGS",
-      availableDungeonCount: 1,
-      expectedDungeonCount: 8,
-      unavailableEncounters: [],
-      wclBestPerformanceAverage: 90,
-      wclMedianPerformanceAverage: 80,
-      computedBestAverage: 90,
-      computedMedianAverage: 80,
-    },
-  });
-  const sourceRequestFingerprint = "canary-parity-aggregate";
-  const contentHash = hashPerformanceAggregateContent({
-    rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
-    zoneId: 47,
-    partitionKey: "current",
-    dungeonAggregates: compact.dungeonAggregates,
-    global: compact.global,
-    diagnostics: compact.diagnostics,
-    sourceRequestFingerprint,
+  const aggregateRow = buildTestPerformanceAggregateDbRow({
+    characterId: CHAR_ID,
+    characterName: "Target",
+    seasonId: "season-row-1",
+    dungeonSlugs: MIDNIGHT_SEASON_1_DUNGEON_SLUGS,
+    role: "DPS",
+    targetSpecSlug: "fire",
   });
   const characterScoreUpsert = vi.fn(async () => {
     throw new Error("character_score_write_forbidden");
@@ -286,24 +241,7 @@ function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
         upsert: vi.fn(async () => ({ id: "exp-1" })),
       },
       characterPerformanceAggregate: {
-        findUnique: vi.fn(async () => ({
-          id: "agg-canary-parity",
-          characterId: CHAR_ID,
-          seasonId: "season-row-1",
-          zoneId: 47,
-          partitionKey: "current",
-          rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-          metric: "points_and_damage",
-          state: "OK",
-          rawPayload: {},
-          dungeonAggregates: compact.dungeonAggregates,
-          globalSummary: compact.global,
-          diagnostics: compact.diagnostics,
-          contentHash,
-          sourceRequestFingerprint,
-          fetchedAt: new Date("2026-01-01T00:00:00.000Z"),
-          expiresAt: new Date("2099-01-01T00:00:00.000Z"),
-        })),
+        findUnique: vi.fn(async () => aggregateRow),
       },
       $disconnect: vi.fn(async () => undefined),
     },

@@ -172,7 +172,7 @@ describe("Experience Phase 1 confidence", () => {
     expect(result.available).toBe(false);
     expect(result.score).toBeNull();
     expect(result.confidence).toBeNull();
-    expect(result.confidenceCauses).toContain("previous_evidence_unavailable");
+    expect(result.confidenceCauses).toContain("historical_evidence_unavailable");
   });
 });
 

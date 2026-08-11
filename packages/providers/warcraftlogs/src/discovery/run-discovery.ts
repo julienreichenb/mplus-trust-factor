@@ -9,7 +9,6 @@ import type {
   WclRunCandidateIncompleteness,
   WclVisibilityState,
 } from "../types.js";
-import { MAX_DISCOVERY_CANDIDATES } from "./bounds.js";
 import { FIXTURE_MPLUS_ZONE_ID } from "./mplus-zone.js";
 import { dedupeCandidates, selectLatestAndHighest } from "./run-matching.js";
 
@@ -97,19 +96,6 @@ export function countParseStyleRankingRows(payload: ZoneRankingsPayload | null |
   };
 }
 
-export interface RecentReportsPayload {
-  data?: Array<{
-    code: string;
-    title?: string | null;
-    startTime: number;
-    endTime?: number | null;
-    visibility?: string | null;
-    zone?: { id: number; name?: string | null } | null;
-  }>;
-  total?: number | null;
-  has_more_pages?: boolean | null;
-}
-
 export interface CharacterResolvePayload {
   id: number;
   canonicalID: number;
@@ -130,7 +116,6 @@ function emptyIncompleteness(
     timedUnknown: true,
     keyLevelUnknown: true,
     rosterIncomplete: true,
-    fightUnknown: false,
     ...overrides,
   };
 }
@@ -166,7 +151,7 @@ export function mapCharacterSummary(
 export function deriveWclProvenance(
   character: CharacterResolvePayload | null,
   rankings: WclRankingObservation[],
-  recentPublicCount: number,
+  logBackedCandidateCount: number,
   options: {
     privateSkipped?: number;
     rateLimited?: boolean;
@@ -185,7 +170,7 @@ export function deriveWclProvenance(
   if (character.hidden) {
     return { visibility: "HIDDEN", dataState: "NO_PUBLIC_LOGS" };
   }
-  if (rankings.length === 0 && recentPublicCount === 0) {
+  if (rankings.length === 0 && logBackedCandidateCount === 0) {
     return { visibility: "PUBLIC", dataState: "NO_PUBLIC_LOGS" };
   }
   // Public profile with discoverable logs/rankings — matching refined after analyze.
@@ -285,7 +270,6 @@ export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunC
         timedUnknown: r.timed == null,
         keyLevelUnknown: r.keyLevel == null,
         rosterIncomplete: true,
-        fightUnknown: false,
       }),
       warnings,
     };
@@ -305,115 +289,27 @@ export function classifyReportVisibility(visibility: string | null | undefined):
   };
 }
 
-export function recentReportsToCandidates(
-  payload: RecentReportsPayload | null | undefined,
-): { candidates: WclRunCandidate[]; privateSkipped: number; unlistedSkipped: number } {
-  if (!payload?.data) {
-    return { candidates: [], privateSkipped: 0, unlistedSkipped: 0 };
-  }
-
-  let privateSkipped = 0;
-  let unlistedSkipped = 0;
-  const candidates: WclRunCandidate[] = [];
-
-  for (const r of payload.data) {
-    const vis = classifyReportVisibility(r.visibility);
-    if (vis.isPrivate) {
-      privateSkipped += 1;
-      continue;
-    }
-    if (vis.isUnlisted) {
-      unlistedSkipped += 1;
-      continue;
-    }
-    if (!vis.isPublic) {
-      privateSkipped += 1;
-      continue;
-    }
-
-    candidates.push({
-      reportCode: r.code,
-      // Fight unknown until report metadata is fetched — never invent fightId=1 as fact
-      fightId: 0,
-      encounterId: 0,
-      zoneId: r.zone?.id ?? null,
-      dungeonSlug: null,
-      seasonSlug: null,
-      keyLevel: null,
-      score: null,
-      startTimeMs: r.startTime,
-      completedAt: new Date(r.startTime).toISOString(),
-      durationMs: r.endTime != null ? r.endTime - r.startTime : null,
-      timed: null,
-      selectionTags: [],
-      source: "recentReports" as const,
-      matchConfidence: null,
-      incompleteness: emptyIncompleteness({
-        fightUnknown: true,
-        dungeonUnknown: true,
-        seasonUnknown: true,
-        timedUnknown: true,
-        keyLevelUnknown: true,
-        rosterIncomplete: true,
-      }),
-      warnings: ["recentReports stub — fight/dungeon/key unknown until report metadata"],
-    });
-  }
-
-  return { candidates, privateSkipped, unlistedSkipped };
-}
-
-/**
- * Prefer ranking candidates (have fight IDs) over recentReports stubs when capping.
- */
-export function capDiscoveryCandidates(
-  rankingCandidates: WclRunCandidate[],
-  recentCandidates: WclRunCandidate[],
-  max = MAX_DISCOVERY_CANDIDATES,
-): { candidates: WclRunCandidate[]; truncated: boolean } {
-  const merged = dedupeCandidates([...rankingCandidates, ...recentCandidates]);
-  // Prefer zoneRankings rows; demote fightUnknown stubs
-  merged.sort((a, b) => {
-    const aScore = a.incompleteness.fightUnknown ? 1 : 0;
-    const bScore = b.incompleteness.fightUnknown ? 1 : 0;
-    if (aScore !== bScore) return aScore - bScore;
-    return 0;
-  });
-  if (merged.length <= max) {
-    return { candidates: merged, truncated: false };
-  }
-  return { candidates: merged.slice(0, max), truncated: true };
-}
-
 export function buildCharacterDiscovery(input: {
   summary: WclCharacterSummary;
   rankings: WclRankingObservation[];
   rankingCandidates: WclRunCandidate[];
-  recentCandidates: WclRunCandidate[];
   privateReportsSkipped?: number;
   dungeonAggregates?: WclDungeonPerformanceAggregate[];
   performance?: WclCharacterDiscoveryResult["performance"];
 }): WclCharacterDiscoveryResult {
-  const { candidates, truncated } = capDiscoveryCandidates(
-    input.rankingCandidates,
-    input.recentCandidates,
-  );
+  // No global candidate cap — encounterRankings rows across all active dungeons
+  // must survive until the downstream selector reduces to ≤2 per dungeon.
+  const candidates = dedupeCandidates(input.rankingCandidates);
   const { latest, highest } = selectLatestAndHighest(candidates);
-  const warnings = [...input.summary.warnings];
-  if (truncated) {
-    warnings.push(
-      `Discovery candidates truncated to ${MAX_DISCOVERY_CANDIDATES} (documented cap)`,
-    );
-  }
   return {
-    summary: { ...input.summary, warnings },
+    summary: { ...input.summary },
     rankings: input.rankings,
     dungeonAggregates: input.dungeonAggregates ?? [],
     performance: input.performance,
     candidates,
     latest,
     highest,
-    candidatesTruncated: truncated,
+    candidatesTruncated: false,
     privateReportsSkipped: input.privateReportsSkipped ?? 0,
   };
 }

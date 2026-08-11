@@ -62,7 +62,6 @@ import {
 import {
   createDiscoveryForbiddenAcquireHook,
   runScoringCanaryDiscovery,
-  type CanaryDiscoverContext,
 } from "./canary-discover.js";
 import type {
   CanaryDiscoveryCandidateSource,
@@ -772,9 +771,7 @@ export async function runCanaryDiscoverCommand(
   args: CanaryCliArgs,
   options?: {
     env?: NodeJS.ProcessEnv;
-    discoverOverride?: (
-      ctx: CanaryDiscoverContext,
-    ) => Promise<CanaryDiscoveryCandidateSource>;
+    discoverOverride?: () => Promise<CanaryDiscoveryCandidateSource>;
     ensureRateLimitSnapshotOverride?: () => Promise<CanaryRateSnapshotBootstrapReport>;
     log?: (message: string) => void;
   },
@@ -876,7 +873,7 @@ export async function runCanaryDiscoverCommand(
       },
       discover:
         options?.discoverOverride ??
-        (async (ctx) => {
+        (async () => {
           const shadow = await discoverShadowCanaryCandidates({
             container: deps.container,
             region: args.region.toUpperCase() as "EU" | "US" | "KR" | "TW",
@@ -892,7 +889,6 @@ export async function runCanaryDiscoverCommand(
                   : null,
             })),
             dungeonPoolSource: seasonResolution.catalogSource,
-            evaluateIncrementalAdmission: ctx.evaluateIncrementalAdmission,
           });
           const allowed = new Set(
             seasonResolution.activeDungeonSlugs.map((s) => s.toLowerCase()),
@@ -910,49 +906,17 @@ export async function runCanaryDiscoverCommand(
             rankingEvidence: shadow.rankingEvidence.filter((r) =>
               allowedFights.has(`${r.reportCode}:${r.fightId}`),
             ),
-            reportsListed: shadow.diagnostics.reportsListed,
-            reportsHydrated: shadow.diagnostics.reportsHydrated,
             fightsExamined: shadow.diagnostics.discoveredCandidateCount,
             graphqlRequestCount: shadow.diagnostics.providerCalls,
             // Capability/detail combat event pages stay unreachable on this path.
             capabilityEventPageRequestCount: 0,
             measuredPoints: null,
             estimatedPoints: shadow.diagnostics.providerCalls,
-            omittedReports: shadow.diagnostics.omittedReports,
-            unhydratedReportCount: shadow.diagnostics.unhydratedReportCount,
             discoveryStrategy: shadow.diagnostics.discoveryStrategy,
-            hydrationFallbackReason: shadow.diagnostics.hydrationFallbackReason,
             providerCallBreakdown: shadow.diagnostics.providerCallBreakdown,
-            iterativeHydration: shadow.diagnostics.iterativeHydration
-              ? {
-                  initialHydrationBudget:
-                    shadow.diagnostics.iterativeHydration.initialHydrationBudget,
-                  reportsHydratedInitial:
-                    shadow.diagnostics.iterativeHydration.reportsHydratedInitial,
-                  incrementalBatchCount:
-                    shadow.diagnostics.iterativeHydration.incrementalBatchCount,
-                  reportsHydratedIncrementally:
-                    shadow.diagnostics.iterativeHydration.reportsHydratedIncrementally,
-                  totalReportsHydrated:
-                    shadow.diagnostics.iterativeHydration.totalReportsHydrated,
-                  totalReportsListed:
-                    shadow.diagnostics.iterativeHydration.totalReportsListed,
-                  reportsRemaining: shadow.diagnostics.iterativeHydration.reportsRemaining,
-                  incrementalProviderCalls:
-                    shadow.diagnostics.iterativeHydration.incrementalProviderCalls,
-                  incrementalEstimatedPoints:
-                    shadow.diagnostics.iterativeHydration.incrementalEstimatedPoints,
-                  terminalHydrationReason:
-                    shadow.diagnostics.iterativeHydration.terminalHydrationReason,
-                  listedReportOrder:
-                    shadow.diagnostics.iterativeHydration.listedReportOrder,
-                  initialHydrationOrder:
-                    shadow.diagnostics.iterativeHydration.initialHydrationOrder,
-                }
-              : null,
+            candidateNormalization: shadow.diagnostics.candidateNormalization,
           };
         }),
-      diagnosticReportCode: "7qtb9Wp4ZdYwmKPH",
     });
 
     await mkdir(outDir, { recursive: true });
@@ -964,10 +928,11 @@ export async function runCanaryDiscoverCommand(
       JSON.stringify(
         {
           summary: "scoring-canary-discovery",
-          reportsListed: report.reportsListed,
-          reportsHydrated: report.reportsHydrated,
-          reportsRemaining: report.unhydratedReportCount,
-          omittedReportCount: report.omittedReports.length,
+          discoveryStrategy: "encounter_rankings",
+          candidateNormalization: report.candidateNormalization ?? null,
+          fightsExamined: report.fightsExamined,
+          candidateCount: report.candidateCount,
+          eligibleCandidateCount: report.eligibleCandidateCount,
           selectedSlotCount: report.selectedSlotCount,
           expectedSlotCount: report.expectedSlotCount,
           selectedRunsPerDungeon: report.selectedRunsPerDungeon,
@@ -976,9 +941,8 @@ export async function runCanaryDiscoverCommand(
           manifestId: report.manifestId,
           manifestStatus: report.manifestStatus,
           analysisStatus: report.analysisStatus,
-          terminalHydrationReason: report.iterativeHydration?.terminalHydrationReason ?? null,
-          incrementalBatchCount: report.iterativeHydration?.incrementalBatchCount ?? 0,
-          targetReportTrace: report.targetReportTrace,
+          graphqlRequestCount: report.graphqlRequestCount,
+          rateAdmission: report.rateAdmission,
         },
         null,
         2,
@@ -1510,9 +1474,10 @@ async function main(): Promise<void> {
             bootstrapProviderCalls: report.bootstrapProviderCalls,
             graphqlRequestCount: report.graphqlRequestCount,
             eventPageRequestCount: report.eventPageRequestCount,
-            capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
-            participantDigestsCreated: report.participantDigestsCreated,
-            scoreCalculations: report.scoreCalculations,
+            capabilityPackageAcquisitions:
+              report.forbiddenEffects.capabilityPackageAcquisitions,
+            participantDigestsCreated: report.forbiddenEffects.participantDigestsCreated,
+            scoreCalculations: report.forbiddenEffects.scoreCalculations,
             publicationEnabled: report.publicationEnabled,
             publicScorePointerMutated: report.publicScorePointerMutated,
             rateAdmission: report.rateAdmission,

@@ -32,12 +32,9 @@ import type { CanarySeasonResolution } from "./canary-season.js";
 import {
   assertDiscoveryAdmissionAllows,
   evaluateDiscoveryAdmissionAfterBootstrap,
-  evaluateIncrementalHydrationAdmission,
   resolveBootstrapPointCost,
-  DISCOVERY_COST_ASSUMPTIONS,
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
-import { traceReportThroughDiscovery } from "@mplus/provider-warcraftlogs";
 import {
   assertNoDuplicateSelectedIdentities,
   mergeDiscoveryCandidates,
@@ -58,27 +55,6 @@ export type {
 } from "./canary-discover-types.js";
 export { CANARY_DISCOVERY_REPORT_SCHEMA } from "./canary-discover-types.js";
 
-export interface CanaryDiscoverContext {
-  evaluateIncrementalAdmission: (input: {
-    batchSize: number;
-    projectedIncrementalPoints: number;
-    reportsHydratedSoFar: number;
-    reportsRemaining: number;
-  }) =>
-    | Promise<{
-        allow: boolean;
-        action: "OK" | "WARN" | "DEFER" | "STOP";
-        reasons: string[];
-        projectedIncrementalPoints: number;
-      }>
-    | {
-        allow: boolean;
-        action: "OK" | "WARN" | "DEFER" | "STOP";
-        reasons: string[];
-        projectedIncrementalPoints: number;
-      };
-}
-
 export interface RunCanaryDiscoveryInput {
   prisma: PrismaClient;
   artifacts: ArtifactRepository;
@@ -90,7 +66,7 @@ export interface RunCanaryDiscoveryInput {
   classSlug: string | null;
   specSlug: string | null;
   rateBudgetConfig: RateBudgetConfig;
-  discover: (ctx: CanaryDiscoverContext) => Promise<CanaryDiscoveryCandidateSource>;
+  discover: () => Promise<CanaryDiscoveryCandidateSource>;
   /**
    * Resolve authoritative report.revision for a discovery identity when candidate
    * metadata lacks it (encounterRankings path). Never fabricates a default.
@@ -104,8 +80,6 @@ export interface RunCanaryDiscoveryInput {
    * Must not call character/report discovery.
    */
   ensureRateLimitSnapshot: () => Promise<CanaryRateSnapshotBootstrapReport>;
-  /** Optional report code to trace in the operator summary (e.g. Windrunner second report). */
-  diagnosticReportCode?: string | null;
   now?: Date;
 }
 
@@ -323,11 +297,10 @@ export async function runScoringCanaryDiscovery(
       catalogVersion: season.catalogVersion,
       dungeonPoolHash,
       dungeonSlugs,
-      reportsListed: 0,
-      reportsHydrated: 0,
-      unhydratedReportCount: 0,
       fightsExamined: 0,
       discoveredCandidateCount: existing.document.selectedSlotCount,
+      candidateCount: existing.document.selectedSlotCount,
+      eligibleCandidateCount: existing.document.selectedSlotCount,
       uniqueEligibleCandidateCount: existing.document.selectedSlotCount,
       selectedSourceFightCount: existing.document.selectedSlotCount,
       rejectedCandidateCount: 0,
@@ -342,15 +315,11 @@ export async function runScoringCanaryDiscovery(
         uniqueEligibleCandidateCount: "unique_eligible_plan_identities",
         selectedSourceFightCount: "selected_distinct_source_fights",
         rejectedCandidateCount: "rejected_candidates",
-        unhydratedReportCount: "listed_not_hydrated_reports",
         candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon",
         eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon",
       },
-      omittedReports: [],
       analysisStatus: "COMPLETE",
       supersedesManifestId: null,
-      iterativeHydration: null,
-      targetReportTrace: null,
       rankingEvidenceFound: 0,
       rankingEvidenceFetched: 0,
       rankingEvidencePersisted: 0,
@@ -372,14 +341,9 @@ export async function runScoringCanaryDiscovery(
       rateAdmissionReasons: ["complete_manifest_reuse_skip_provider"],
       bootstrap: null,
       discoveryAdmission: null,
-      capabilityPackageAcquisitions: 0,
-      capabilityPackagesCreated: 0,
-      participantDigestsCreated: 0,
-      scoreCalculations: 0,
+      forbiddenEffects: { ...effects },
       publicationEnabled: false,
       publicScorePointerMutated: false,
-      reusedExistingManifest: true,
-      providerCallsBeforeDiscovery: 0,
     };
     return { report, manifest: existing.document, effects };
   }
@@ -427,28 +391,13 @@ export async function runScoringCanaryDiscovery(
 
   const rateAdmission: CanaryDiscoveryReport["rateAdmission"] =
     discoveryAdmission.action === "WARN"
-      ? "WARN_ALLOW"
+      ? "WARN"
       : discoveryAdmission.action === "OK"
         ? "ALLOW"
         : discoveryAdmission.action;
   const rateAdmissionReasons = discoveryAdmission.reasons;
 
-  const discovered = await input.discover({
-    evaluateIncrementalAdmission: (args) => {
-      // Points already projected: bootstrap + initial discovery flat + hydrations so far.
-      const pointsAlreadyProjected =
-        bootstrapCost +
-        DISCOVERY_COST_ASSUMPTIONS.characterDiscoveryFlatPoints +
-        DISCOVERY_COST_ASSUMPTIONS.zoneEncounterPoints +
-        args.reportsHydratedSoFar * DISCOVERY_COST_ASSUMPTIONS.pointsPerHydrationReport;
-      return evaluateIncrementalHydrationAdmission({
-        snapshot: bootstrap.snapshot!,
-        rateBudgetConfig: input.rateBudgetConfig,
-        pointsAlreadyProjected,
-        incrementalBatchPoints: args.projectedIncrementalPoints,
-      });
-    },
-  });
+  const discovered = await input.discover();
   if (discovered.capabilityEventPageRequestCount !== 0) {
     throw Object.assign(
       new Error(
@@ -647,13 +596,7 @@ export async function runScoringCanaryDiscovery(
       selectedForDungeon === 1 &&
       eligibleForDungeon <= 1
     ) {
-      const unhydrated =
-        discovered.unhydratedReportCount ??
-        Math.max(0, discovered.reportsListed - discovered.reportsHydrated);
-      reason =
-        unhydrated > 0
-          ? "HYDRATION_INCOMPLETE:unhydrated_reports_remain"
-          : "INSUFFICIENT_CHARACTER_HISTORY:only_one_distinct_run_for_dungeon";
+      reason = "INSUFFICIENT_CHARACTER_HISTORY:only_one_distinct_run_for_dungeon";
     } else if (slot.fallbackReason) {
       reason = `fallback:${slot.fallbackReason}`;
     } else {
@@ -749,80 +692,7 @@ export async function runScoringCanaryDiscovery(
     selectedSlotCount: documentForPersist.selectedSlotCount,
     targetRunCount: expectedSlotCount,
   });
-  const omittedReports = discovered.omittedReports ?? [];
-  const unhydratedReportCount =
-    discovered.unhydratedReportCount ??
-    Math.max(0, discovered.reportsListed - discovered.reportsHydrated);
-  const iterativeHydration = discovered.iterativeHydration
-    ? {
-        initialHydrationBudget: discovered.iterativeHydration.initialHydrationBudget,
-        reportsHydratedInitial: discovered.iterativeHydration.reportsHydratedInitial,
-        incrementalBatchCount: discovered.iterativeHydration.incrementalBatchCount,
-        reportsHydratedIncrementally:
-          discovered.iterativeHydration.reportsHydratedIncrementally,
-        totalReportsHydrated: discovered.iterativeHydration.totalReportsHydrated,
-        totalReportsListed: discovered.iterativeHydration.totalReportsListed,
-        reportsRemaining: discovered.iterativeHydration.reportsRemaining,
-        incrementalProviderCalls: discovered.iterativeHydration.incrementalProviderCalls,
-        incrementalEstimatedPoints:
-          discovered.iterativeHydration.incrementalEstimatedPoints,
-        terminalHydrationReason: discovered.iterativeHydration.terminalHydrationReason,
-      }
-    : null;
-
-  const diagnosticCode =
-    input.diagnosticReportCode?.trim() ||
-    omittedReports.find((o) => o.reason.includes("HYDRATION"))?.reportCode ||
-    null;
-  let targetReportTrace: CanaryDiscoveryReport["targetReportTrace"] = null;
-  if (diagnosticCode) {
-    const listedOrder = discovered.iterativeHydration?.listedReportOrder ?? [];
-    const initialOrder = discovered.iterativeHydration?.initialHydrationOrder ?? [];
-    const listed =
-      listedOrder.includes(diagnosticCode) ||
-      omittedReports.some((o) => o.reportCode === diagnosticCode) ||
-      initialOrder.includes(diagnosticCode);
-    const omission = omittedReports.find((o) => o.reportCode === diagnosticCode);
-    const trace = traceReportThroughDiscovery({
-      reportCode: diagnosticCode,
-      listedReportCodes: listedOrder.length > 0 ? listedOrder : [diagnosticCode],
-      hydratedReportCodes: initialOrder.length
-        ? [
-            ...initialOrder,
-            // Approximate: anything listed and not omitted was hydrated.
-            ...listedOrder.filter(
-              (c) => !omittedReports.some((o) => o.reportCode === c),
-            ),
-          ]
-        : listedOrder.filter((c) => !omittedReports.some((o) => o.reportCode === c)),
-      hydrationDiagnostics: {
-        omittedReports: omittedReports.map((o) => ({
-          reportCode: o.reportCode,
-          reason: o.reason as never,
-          dungeonSlug: o.dungeonSlug,
-          startTimeMs: null,
-        })),
-        stopReason:
-          iterativeHydration?.terminalHydrationReason === "full_coverage"
-            ? "full_coverage"
-            : "budget_exhausted",
-        reportFetchAttempts: discovered.reportsHydrated,
-      },
-    });
-    targetReportTrace = {
-      reportCode: diagnosticCode,
-      listed,
-      listedOrderIndex:
-        omission?.listedOrderIndex ??
-        (listedOrder.indexOf(diagnosticCode) >= 0
-          ? listedOrder.indexOf(diagnosticCode)
-          : null),
-      inInitialHydrationSet: initialOrder.includes(diagnosticCode),
-      omitted: Boolean(omission),
-      omissionReason: omission?.reason ?? null,
-      terminalState: trace.terminalState,
-    };
-  }
+  const candidateCountPerDungeon = countByDungeon(mergedCandidates);
 
   const report: CanaryDiscoveryReport = {
     schemaVersion: CANARY_DISCOVERY_REPORT_SCHEMA,
@@ -836,15 +706,15 @@ export async function runScoringCanaryDiscovery(
     catalogVersion: season.catalogVersion,
     dungeonPoolHash,
     dungeonSlugs,
-    reportsListed: discovered.reportsListed,
-    reportsHydrated: discovered.reportsHydrated,
-    unhydratedReportCount,
     fightsExamined: discovered.fightsExamined,
+    candidateNormalization: discovered.candidateNormalization,
     discoveredCandidateCount: mergedCandidates.length,
+    candidateCount: mergedCandidates.length,
+    eligibleCandidateCount: uniqueEligibleCandidateCount,
     uniqueEligibleCandidateCount,
     selectedSourceFightCount: documentForPersist.selectedSlotCount,
     rejectedCandidateCount: documentForPersist.rejectedCandidates?.length ?? 0,
-    candidateCountPerDungeon: countByDungeon(mergedCandidates),
+    candidateCountPerDungeon,
     eligibleCandidateCountPerDungeon,
     selectedRunsPerDungeon,
     selectedSlotCount: documentForPersist.selectedSlotCount,
@@ -855,15 +725,11 @@ export async function runScoringCanaryDiscovery(
       uniqueEligibleCandidateCount: "unique_eligible_plan_identities",
       selectedSourceFightCount: "selected_distinct_source_fights",
       rejectedCandidateCount: "rejected_candidates",
-      unhydratedReportCount: "listed_not_hydrated_reports",
       candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon",
       eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon",
     },
-    omittedReports,
     analysisStatus,
     supersedesManifestId: incompletePrior?.rowId ?? null,
-    iterativeHydration,
-    targetReportTrace,
     rankingEvidenceFound: discovered.rankingEvidence.length,
     rankingEvidenceFetched: discovered.rankingEvidence.length,
     rankingEvidencePersisted: rankingPersisted,
@@ -891,14 +757,9 @@ export async function runScoringCanaryDiscovery(
     rateAdmissionReasons,
     bootstrap,
     discoveryAdmission,
-    capabilityPackageAcquisitions: 0,
-    capabilityPackagesCreated: 0,
-    participantDigestsCreated: 0,
-    scoreCalculations: 0,
+    forbiddenEffects: { ...effects },
     publicationEnabled: false,
     publicScorePointerMutated: false,
-    reusedExistingManifest: !created && !incomplete,
-    providerCallsBeforeDiscovery: bootstrap.providerCalls,
   };
 
   return { report, manifest: documentForPersist, effects };

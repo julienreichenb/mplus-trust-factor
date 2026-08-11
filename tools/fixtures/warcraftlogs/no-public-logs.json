@@ -11,14 +11,35 @@
           "classID": 1,
           "faction": 0,
           "hidden": false,
-          "server": { "slug": "silvermoon", "region": { "name": "EU" } }
+          "server": {
+            "slug": "silvermoon",
+            "region": {
+              "name": "EU"
+            }
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
-  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": {
+            "rankings": []
+          }
+        }
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 30, "pointsRemaining": 3570, "resetInSeconds": 3200 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 30,
+        "pointsRemaining": 3570,
+        "resetInSeconds": 3200
+      }
+    }
   }
 }

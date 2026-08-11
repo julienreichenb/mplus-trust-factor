@@ -1,6 +1,6 @@
 /**
- * Partial evidence, missing-report discovery, and scoring-confidence-v1.
- * Provider-free only.
+ * Partial evidence, manifest reconcile, and scoring-confidence-v1.
+ * Provider-free only — no recentReports / report-hydration discovery paths.
  */
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -14,21 +14,12 @@ import {
   finalizeEvidenceManifestV2,
   overallConfidenceFromDimensions,
 } from "@mplus/scoring";
-import {
-  hydrateFightUnknownCandidates,
-  prioritizeReportsForHydration,
-  roundRobinUnknownStubs,
-  traceReportThroughDiscovery,
-  collectBoundedRecentReportCodes,
-  type HydrationReportPayload,
-} from "@mplus/provider-warcraftlogs";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
   assertNoDuplicateSelectedIdentities,
   mergeDiscoveryCandidates,
   selectedSlotsAsCandidates,
 } from "./canary/canary-manifest-reconcile.js";
-import type { WclRunCandidate } from "@mplus/provider-warcraftlogs";
 
 const WINDRUNNER_A = "fWJTbkMCP3a4A1Rd";
 const WINDRUNNER_B = "7qtb9Wp4ZdYwmKPH";
@@ -58,89 +49,7 @@ function candidate(
   };
 }
 
-function stub(reportCode: string, startTimeMs: number, dungeonSlug: string | null = null): WclRunCandidate {
-  return {
-    reportCode,
-    fightId: 0,
-    encounterId: 0,
-    zoneId: null,
-    dungeonSlug,
-    seasonSlug: null,
-    keyLevel: null,
-    score: null,
-    startTimeMs,
-    completedAt: new Date(startTimeMs + 1_800_000).toISOString(),
-    durationMs: null,
-    timed: null,
-    selectionTags: [],
-    source: "recentReports",
-    matchConfidence: null,
-    targetActorId: null,
-    incompleteness: {
-      dungeonUnknown: dungeonSlug == null,
-      seasonUnknown: true,
-      timedUnknown: true,
-      keyLevelUnknown: true,
-      rosterIncomplete: true,
-      fightUnknown: true,
-    },
-    warnings: ["stub"],
-  };
-}
-
-function reportPayload(
-  code: string,
-  encounterID: number,
-  fightId: number,
-): HydrationReportPayload {
-  return {
-    code,
-    startTime: 1_750_000_000_000,
-    visibility: "public",
-    zone: { id: 47, name: "Mythic+" },
-    fights: [
-      {
-        id: fightId,
-        encounterID,
-        name: "Windrunner Spire",
-        keystoneLevel: 18,
-        keystoneBonus: 1,
-        startTime: 0,
-        endTime: 1_800_000,
-        friendlyPlayers: [1],
-      },
-    ],
-    masterData: {
-      actors: [{ id: 1, name: "Wallidrixe", type: "Player", server: "Archimonde" }],
-    },
-  };
-}
-
 describe("missing Windrunner report discovery (provider-free)", () => {
-  it("represents report 7qtb9Wp4ZdYwmKPH in a regression fixture", () => {
-    const listed = [WINDRUNNER_A, ...Array.from({ length: 23 }, (_, i) => `OTHER${i}`), WINDRUNNER_B];
-    const hydrated = listed.slice(0, 24);
-    const trace = traceReportThroughDiscovery({
-      reportCode: WINDRUNNER_B,
-      listedReportCodes: listed,
-      hydratedReportCodes: hydrated,
-      hydrationDiagnostics: {
-        omittedReports: [
-          {
-            reportCode: WINDRUNNER_B,
-            reason: "REPORT_EXCLUDED_BY_HYDRATION_CAP",
-            dungeonSlug: null,
-            startTimeMs: 1,
-          },
-        ],
-        stopReason: "budget_exhausted",
-        reportFetchAttempts: 24,
-      },
-    });
-    expect(trace.terminalState).toBe("REPORT_EXCLUDED_BY_HYDRATION_CAP");
-    expect(trace.providerCalls).toBe(0);
-  });
-
   it("two distinct Windrunner report codes fill both slots", () => {
     const scope = {
       characterId: "11111111-1111-4111-8111-111111111111",
@@ -215,87 +124,6 @@ describe("missing Windrunner report discovery (provider-free)", () => {
     const ids = ws.map((s) => `${s.identity!.reportCode}:${s.identity!.fightId}`);
     expect(new Set(ids).size).toBe(2);
     assertNoDuplicateSelectedIdentities(manifest);
-  });
-
-  it("a report beyond the first 24 is still considered when its dungeon needs a second candidate", async () => {
-    const ACTIVE = ["windrunner-spire", "skyreach"] as const;
-    const stubs: WclRunCandidate[] = [];
-    // 24 stubs that fill skyreach only (already complete after a few).
-    for (let i = 0; i < 24; i += 1) {
-      stubs.push(stub(`SKY${i}`, 2_000_000 - i, "skyreach"));
-    }
-    // Older Windrunner-hinted report beyond the newest-24 prefix.
-    stubs.push(stub(WINDRUNNER_B, 1_000, "windrunner-spire"));
-    stubs.push(stub(WINDRUNNER_A, 1_100, "windrunner-spire"));
-
-    const fetched: string[] = [];
-    const result = await hydrateFightUnknownCandidates({
-      candidates: stubs,
-      characterName: "Wallidrixe",
-      realmSlug: "Archimonde",
-      activeDungeonSlugs: [...ACTIVE],
-      maxReports: 24,
-      fetchReport: async (code) => {
-        fetched.push(code);
-        if (code.startsWith("SKY")) {
-          return reportPayload(code, 61209, 1);
-        }
-        return reportPayload(code, 12805, code === WINDRUNNER_A ? 3 : 5);
-      },
-    });
-
-    expect(fetched).toContain(WINDRUNNER_B);
-    expect(result.diagnostics.distinctCandidatesPerDungeon["windrunner-spire"]).toBeGreaterThanOrEqual(
-      2,
-    );
-  });
-
-  it("hydration prioritizes zero/one-candidate dungeons", () => {
-    const coverage = new Map<string, Set<string>>([
-      ["windrunner-spire", new Set()],
-      ["skyreach", new Set(["a:1", "b:2"])],
-      ["pit-of-saron", new Set(["c:1"])],
-    ]);
-    const ordered = prioritizeReportsForHydration(
-      [
-        stub("COMPLETE1", 3000, "skyreach"),
-        stub("ONE1", 2000, "pit-of-saron"),
-        stub("ZERO1", 1000, "windrunner-spire"),
-        stub("UNK1", 4000, null),
-      ],
-      [],
-      10,
-      { coverage, targetCandidatesPerDungeon: 2 },
-    );
-    expect(ordered[0]?.reportCode).toBe("ZERO1");
-    expect(ordered[1]?.reportCode).toBe("ONE1");
-  });
-
-  it("report pagination cannot silently truncate valid reports under page cap", async () => {
-    const pages = [
-      { reportCodes: Array.from({ length: 20 }, (_, i) => `P1-${i}`), hasMorePages: true, privateSkipped: 0, unlistedSkipped: 0 },
-      { reportCodes: Array.from({ length: 20 }, (_, i) => `P2-${i}`), hasMorePages: true, privateSkipped: 0, unlistedSkipped: 0 },
-      { reportCodes: [WINDRUNNER_B], hasMorePages: false, privateSkipped: 0, unlistedSkipped: 0 },
-    ];
-    let page = 0;
-    const result = await collectBoundedRecentReportCodes({
-      fetchPage: async () => pages[page++]!,
-      maxPages: 5,
-      pageLimit: 20,
-      maxUniqueReports: 80,
-    });
-    expect(result.reportCodes).toContain(WINDRUNNER_B);
-    expect(result.stopReason).toBe("has_more_false");
-    expect(result.pagesFetched).toBe(3);
-  });
-
-  it("round-robin spreads unknown stubs instead of newest-only prefix", () => {
-    const stubs = Array.from({ length: 40 }, (_, i) => stub(`R${i}`, 10_000 - i));
-    const rr = roundRobinUnknownStubs(stubs);
-    expect(rr).toHaveLength(40);
-    // Newest-only would be R0..R23; alternating newest/oldest surfaces a late index early.
-    const early = new Set(rr.slice(0, 8).map((s) => s.reportCode));
-    expect([...early].some((c) => Number(c.slice(1)) >= 20)).toBe(true);
   });
 });
 
@@ -586,18 +414,13 @@ describe("scoring-confidence-v1 + partial analysis", () => {
     expect(publicationEnabled).toBe(false);
   });
 
-  it("provider-free confidence and tracing perform zero WCL calls", () => {
+  it("provider-free confidence calculations perform zero WCL calls", () => {
     const fetch = vi.fn();
     void computeScoringConfidenceV1({
       usableRunCount: 15,
       targetRunCount: 16,
       representedDungeonCount: 8,
       activeDungeonCount: 8,
-    });
-    void traceReportThroughDiscovery({
-      reportCode: WINDRUNNER_B,
-      listedReportCodes: [WINDRUNNER_B],
-      hydratedReportCodes: [],
     });
     expect(fetch).not.toHaveBeenCalled();
   });

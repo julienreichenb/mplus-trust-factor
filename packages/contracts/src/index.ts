@@ -25,4 +25,38 @@ export * from "./utility-action-timeline-v1.js";
 export * from "./survival-action-timeline-v1.js";
 export * from "./participant-scoring-digest-v1.js";
 export * from "./canonical-json.js";
-export * from "./character-performance-aggregate-v1.js";
+export {
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1,
+  toPerformanceAggregatePartitionKey,
+  dedupeDungeonAggregates,
+  assertPersistedCharacterPerformanceAggregateV1,
+  performanceAggregateContentHashMaterial,
+  hashPerformanceAggregateContent,
+} from "./character-performance-aggregate-v1.js";
+export type {
+  PersistedDungeonPerformanceAggregateV1,
+  PersistedPerformanceAggregateGlobalV1,
+  PersistedPerformanceAggregateDiagnosticsV1,
+  PersistedCharacterPerformanceAggregateV1,
+} from "./character-performance-aggregate-v1.js";
+export {
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+  PERFORMANCE_THROUGHPUT_METRIC_DAMAGE,
+  PERFORMANCE_THROUGHPUT_METRIC_HEALING,
+  assertPersistedCharacterPerformanceAggregateV2,
+  toPerformanceAggregateDbColumnsV2,
+  compactFromPerformanceAggregateDbColumnsV2,
+  performanceAggregateContentHashMaterialV2,
+  hashPerformanceAggregateContentV2,
+  normalizePerformanceSpecToken,
+  performanceAggregateV2MatchesScoringIdentity,
+} from "./character-performance-aggregate-v2.js";
+export type {
+  PerformanceAggregateRoleV2,
+  PersistedDungeonPerformanceAggregateV2,
+  PersistedThroughputChannelV2,
+  PersistedPerformanceAggregateDiagnosticsV2,
+  PersistedCharacterPerformanceAggregateV2,
+} from "./character-performance-aggregate-v2.js";

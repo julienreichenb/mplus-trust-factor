@@ -7,7 +7,7 @@
 | Candidate discovery | `reportCode` + `fightId` |
 | Final frozen | `reportCode` + `fightId` + `reportRevision` |
 
-**WS03 owns:** discovery/hydration grouping, factual candidate metadata, incompleteness/access diagnostics, dataset/cost plans, provider probes.
+**WS03 owns:** discovery / report-code grouping, factual candidate metadata, incompleteness/access diagnostics, dataset/cost plans, provider probes.
 
 **WS03 must not** select final slots or finalize `EvidenceManifestV2`.
 
@@ -19,7 +19,7 @@ Canonical types/helpers are imported from `@mplus/contracts` (`evidence-v2`). WS
 
 ## API
 
-- `planCandidateDiscovery` — bounded merge of zone rankings / parse rows / recent reports / persisted sources; hydration groups by report code; no slot selection
+- `planCandidateDiscovery` — bounded merge of zone rankings / parse rows / persisted sources; groups by report code for post-selection batching; no slot selection
 - `planDetailedEvidence` — dataset union + `WclDatasetCostPlanV2` from **frozen** WS02 slots
 - `buildPlannerCompatibilityKey` — includes hostility + `includeResources`
 - Cost kinds: `KNOWN` | `UNKNOWN` | `ZERO_CACHE_HIT` (unknown ≠ zero)

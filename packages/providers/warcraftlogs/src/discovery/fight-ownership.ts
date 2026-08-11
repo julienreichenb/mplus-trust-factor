@@ -63,6 +63,10 @@ export type FightOwnershipResult =
  * Deterministic WCL realm / server identity key.
  * NFKC + lower-case; whitespace and underscores collapse to a single hyphen.
  * Never used for substring / prefix ownership proofs.
+ *
+ * Stored / stamped realm values keep this form. Comparison may use
+ * {@link wclRealmCompareKey} so WCL's separator-omitted servers
+ * (`burninglegion`) still match canonical slugs (`burning-legion`).
  */
 export function normalizeWclRealmSlug(value: string): string {
   return value
@@ -75,9 +79,18 @@ export function normalizeWclRealmSlug(value: string): string {
 }
 
 /**
+ * Comparison-only realm key: ignore hyphen separators after
+ * {@link normalizeWclRealmSlug}. Does not rewrite stored slugs.
+ * Exact equality of compare keys — never substring / prefix.
+ */
+export function wclRealmCompareKey(value: string): string {
+  return normalizeWclRealmSlug(value).replace(/-/g, "");
+}
+
+/**
  * Fail-closed name+realm identity match.
  * - exact normalized name equality
- * - exact normalized realm equality (never substring)
+ * - exact realm compare-key equality (hyphen-insensitive; never substring)
  * - missing actor.server does not prove ownership
  */
 export function nameRealmMatches(
@@ -93,8 +106,8 @@ export function nameRealmMatches(
   const serverRaw = typeof server === "string" ? server.trim() : "";
   if (!serverRaw) return false;
 
-  const targetRealm = normalizeWclRealmSlug(realmSlug);
-  const normalizedServer = normalizeWclRealmSlug(serverRaw);
+  const targetRealm = wclRealmCompareKey(realmSlug);
+  const normalizedServer = wclRealmCompareKey(serverRaw);
   if (!targetRealm || !normalizedServer) return false;
   return normalizedServer === targetRealm;
 }

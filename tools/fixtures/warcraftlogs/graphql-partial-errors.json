@@ -1,7 +1,11 @@
 {
   "scenario": "graphql-partial-errors",
   "resolveCharacter": {
-    "errors": [{ "message": "Partial failure: rankings unavailable for partition 2" }],
+    "errors": [
+      {
+        "message": "Partial failure: rankings unavailable for partition 2"
+      }
+    ],
     "data": {
       "characterData": {
         "character": {
@@ -11,14 +15,33 @@
           "level": 80,
           "classID": 9,
           "hidden": false,
-          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+          "server": {
+            "slug": "tarren-mill",
+            "region": {
+              "name": "EU"
+            }
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": null } } } },
-  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": null
+        }
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 90, "pointsRemaining": 3510, "resetInSeconds": 2500 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 90,
+        "pointsRemaining": 3510,
+        "resetInSeconds": 2500
+      }
+    }
   }
 }

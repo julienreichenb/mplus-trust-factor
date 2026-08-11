@@ -368,8 +368,6 @@ describe("runScoringCanaryDiscovery", () => {
     const discover = vi.fn(async () => ({
       candidates: fullCandidates(),
       rankingEvidence: [],
-      reportsListed: 0,
-      reportsHydrated: 0,
       fightsExamined: 0,
       graphqlRequestCount: 0,
       capabilityEventPageRequestCount: 0,
@@ -432,8 +430,6 @@ describe("runScoringCanaryDiscovery", () => {
         amount: 1000,
         partition: 1,
       })),
-      reportsListed: 8,
-      reportsHydrated: 8,
       fightsExamined: 16,
       graphqlRequestCount: 9,
       capabilityEventPageRequestCount: 0,
@@ -477,10 +473,10 @@ describe("runScoringCanaryDiscovery", () => {
     expect(report.manifestStatus).toBe("CREATED");
     expect(report.manifestId).toBeTruthy();
     expect(report.rankingEvidencePersisted).toBeGreaterThan(0);
-    expect(report.capabilityPackageAcquisitions).toBe(0);
-    expect(report.capabilityPackagesCreated).toBe(0);
-    expect(report.participantDigestsCreated).toBe(0);
-    expect(report.scoreCalculations).toBe(0);
+    expect(report.forbiddenEffects.capabilityPackageAcquisitions).toBe(0);
+    expect(report.forbiddenEffects.capabilityPackagesCreated).toBe(0);
+    expect(report.forbiddenEffects.participantDigestsCreated).toBe(0);
+    expect(report.forbiddenEffects.scoreCalculations).toBe(0);
     expect(report.publicScorePointerMutated).toBe(false);
     expect(report.publicationEnabled).toBe(false);
     expect(report.eventPageRequestCount).toBe(0);
@@ -511,11 +507,9 @@ describe("runScoringCanaryDiscovery", () => {
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
         ensureRateLimitSnapshot: ensureOkBootstrap(),
-        discover: async (_ctx) => ({
+        discover: async () => ({
           candidates: [],
           rankingEvidence: [],
-          reportsListed: 0,
-          reportsHydrated: 0,
           fightsExamined: 0,
           graphqlRequestCount: 0,
           capabilityEventPageRequestCount: 0,
@@ -547,11 +541,9 @@ describe("runScoringCanaryDiscovery", () => {
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
         ensureRateLimitSnapshot: ensureOkBootstrap(),
-        discover: async (_ctx) => ({
+        discover: async () => ({
           candidates: fullCandidates(),
           rankingEvidence: [],
-          reportsListed: 0,
-          reportsHydrated: 0,
           fightsExamined: 0,
           graphqlRequestCount: 0,
           capabilityEventPageRequestCount: 0,
@@ -567,8 +559,6 @@ describe("runScoringCanaryDiscovery", () => {
     const discover = vi.fn(async () => ({
       candidates: fullCandidates(),
       rankingEvidence: [],
-      reportsListed: 8,
-      reportsHydrated: 8,
       fightsExamined: 16,
       graphqlRequestCount: 9,
       capabilityEventPageRequestCount: 0,
@@ -615,7 +605,7 @@ describe("runScoringCanaryDiscovery", () => {
 
     const second = await runScoringCanaryDiscovery(input);
     expect(second.report.manifestStatus).toBe("REUSED");
-    expect(second.report.reusedExistingManifest).toBe(true);
+    expect(second.report.manifestStatus).toBe("REUSED");
     expect(second.report.graphqlRequestCount).toBe(0);
     expect(discover).toHaveBeenCalledTimes(1);
   });
@@ -679,8 +669,6 @@ describe("runScoringCanaryDiscovery", () => {
     const discover = vi.fn(async () => ({
       candidates: fullCandidates(),
       rankingEvidence: [],
-      reportsListed: 1,
-      reportsHydrated: 1,
       fightsExamined: 2,
       graphqlRequestCount: 2,
       capabilityEventPageRequestCount: 0,
@@ -752,11 +740,9 @@ describe("runScoringCanaryDiscovery", () => {
       specSlug: null,
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
       ensureRateLimitSnapshot: ensureOkBootstrap(),
-      discover: async (_ctx) => ({
+      discover: async () => ({
         candidates: cands,
         rankingEvidence: [],
-        reportsListed: 9,
-        reportsHydrated: 9,
         fightsExamined: 18,
         graphqlRequestCount: 10,
         capabilityEventPageRequestCount: 0,
@@ -768,7 +754,7 @@ describe("runScoringCanaryDiscovery", () => {
     expect(report.selectedSlotCount).toBe(18);
   });
 
-  it("surfaces iterative hydration diagnostics and HYDRATION_INCOMPLETE when stubs remain", async () => {
+  it("surfaces missing slots when dungeon-first discovery lacks eligible candidates", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     const all = fullCandidates();
     const windrunner = all.filter((c) => c.dungeonSlug.toLowerCase() === "windrunner-spire");
@@ -778,7 +764,6 @@ describe("runScoringCanaryDiscovery", () => {
     ];
     expect(cands.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(1);
 
-    let admitSeen = false;
     const { report } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
@@ -800,62 +785,25 @@ describe("runScoringCanaryDiscovery", () => {
       specSlug: null,
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
       ensureRateLimitSnapshot: ensureOkBootstrap(),
-      diagnosticReportCode: "7qtb9Wp4ZdYwmKPH",
-      discover: async (ctx) => {
-        const decision = await ctx.evaluateIncrementalAdmission({
-          batchSize: 6,
-          projectedIncrementalPoints: 18,
-          reportsHydratedSoFar: 24,
-          reportsRemaining: 20,
-        });
-        admitSeen = decision.allow === true;
-        return {
-          candidates: cands,
-          rankingEvidence: [],
-          reportsListed: 44,
-          reportsHydrated: 24,
-          fightsExamined: cands.length,
-          graphqlRequestCount: 30,
-          capabilityEventPageRequestCount: 0,
-          measuredPoints: null,
-          estimatedPoints: 30,
-          unhydratedReportCount: 20,
-          omittedReports: [
-            {
-              reportCode: "7qtb9Wp4ZdYwmKPH",
-              reason: "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET",
-              dungeonSlug: null,
-              listedOrderIndex: 24,
-            },
-          ],
-          iterativeHydration: {
-            initialHydrationBudget: 24,
-            reportsHydratedInitial: 24,
-            incrementalBatchCount: 0,
-            reportsHydratedIncrementally: 0,
-            totalReportsHydrated: 24,
-            totalReportsListed: 44,
-            reportsRemaining: 20,
-            incrementalProviderCalls: 0,
-            incrementalEstimatedPoints: 0,
-            terminalHydrationReason: "rate_admission_defer",
-            listedReportOrder: ["x", "7qtb9Wp4ZdYwmKPH"],
-            initialHydrationOrder: ["x"],
-          },
-        };
-      },
+      discover: async () => ({
+        candidates: cands,
+        rankingEvidence: [],
+        fightsExamined: cands.length,
+        graphqlRequestCount: 1,
+        capabilityEventPageRequestCount: 0,
+        measuredPoints: null,
+        estimatedPoints: 1,
+      }),
     });
 
-    expect(admitSeen).toBe(true);
-    expect(report.capabilityPackageAcquisitions).toBe(0);
+    expect(report.forbiddenEffects.capabilityPackageAcquisitions).toBe(0);
     expect(report.selectedSlotCount).toBe(15);
     expect(report.analysisStatus).toBe("PARTIAL");
-    expect(report.iterativeHydration?.terminalHydrationReason).toBe("rate_admission_defer");
-    expect(report.missingSlots.some((m) => m.reason.includes("HYDRATION_INCOMPLETE"))).toBe(
-      true,
-    );
-    expect(report.targetReportTrace?.reportCode).toBe("7qtb9Wp4ZdYwmKPH");
-    expect(report.targetReportTrace?.listedOrderIndex).toBe(24);
+        expect(
+      report.missingSlots.some((m) =>
+        m.reason.includes("INSUFFICIENT_CHARACTER_HISTORY"),
+      ),
+    ).toBe(true);
   });
 });
 

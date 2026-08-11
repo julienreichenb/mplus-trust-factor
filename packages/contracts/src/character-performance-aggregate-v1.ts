@@ -5,11 +5,15 @@
  */
 import { hashCanonicalJson } from "./canonical-json.js";
 
-/** Must match POINTS_AND_DAMAGE_ADAPTER_VERSION in the WCL provider package. */
-export const CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION =
+/**
+ * Forensic V1 pad-only aggregate identity.
+ * Live scoring uses `character-performance-aggregate-v2` ranking version.
+ * Must match legacy POINTS_AND_DAMAGE_ADAPTER_VERSION in the WCL provider package.
+ */
+export const CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1 =
   "points-and-damage-v1" as const;
 
-export const CHARACTER_PERFORMANCE_AGGREGATE_METRIC =
+export const CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1 =
   "points_and_damage" as const;
 
 /** Stable partition identity for unique keys (never null). */
@@ -41,8 +45,8 @@ export interface PersistedPerformanceAggregateGlobalV1 {
 }
 
 export interface PersistedPerformanceAggregateDiagnosticsV1 {
-  adapterVersion: typeof CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION;
-  metric: typeof CHARACTER_PERFORMANCE_AGGREGATE_METRIC;
+  adapterVersion: typeof CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1;
+  metric: typeof CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1;
   provenance: "AGGREGATE_ZONE_RANKINGS";
   availableDungeonCount: number;
   expectedDungeonCount: number | null;
@@ -65,8 +69,8 @@ export interface PersistedPerformanceAggregateDiagnosticsV1 {
  */
 export interface PersistedCharacterPerformanceAggregateV1 {
   state: "OK";
-  adapterVersion: typeof CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION;
-  metric: typeof CHARACTER_PERFORMANCE_AGGREGATE_METRIC;
+  adapterVersion: typeof CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1;
+  metric: typeof CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1;
   zoneId: number;
   partition: number | null;
   dungeonAggregates: PersistedDungeonPerformanceAggregateV1[];
@@ -214,12 +218,12 @@ export function assertPersistedCharacterPerformanceAggregateV1(
       `performance_aggregate_incompatible: state must be OK, got ${String(value.state)}`,
     );
   }
-  if (value.adapterVersion !== CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION) {
+  if (value.adapterVersion !== CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1) {
     throw new Error(
       `performance_aggregate_incompatible: adapterVersion ${String(value.adapterVersion)}`,
     );
   }
-  if (value.metric !== CHARACTER_PERFORMANCE_AGGREGATE_METRIC) {
+  if (value.metric !== CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1) {
     throw new Error(
       `performance_aggregate_incompatible: metric ${String(value.metric)}`,
     );
@@ -294,8 +298,8 @@ export function assertPersistedCharacterPerformanceAggregateV1(
     throw new Error("performance_aggregate_incompatible: diagnostics");
   }
   const diagnostics: PersistedPerformanceAggregateDiagnosticsV1 = {
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1,
     provenance: "AGGREGATE_ZONE_RANKINGS",
     availableDungeonCount:
       typeof value.diagnostics.availableDungeonCount === "number"
@@ -334,8 +338,8 @@ export function assertPersistedCharacterPerformanceAggregateV1(
 
   return {
     state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1,
     zoneId: value.zoneId,
     partition,
     dungeonAggregates,

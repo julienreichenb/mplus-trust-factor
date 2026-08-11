@@ -7,7 +7,7 @@ import {
   buildPlannerCompatibilityKey,
   estimateDatasetCost,
   estimatePaginationCost,
-  groupCandidatesForHydration,
+  groupCandidatesByReportCode,
   planCandidateDiscovery,
   planDetailedEvidence,
   previewRateBudgetForPlan,
@@ -58,8 +58,8 @@ describe("buildDiscoveryPlan", () => {
       (c) => c.discoveryIdentity.reportCode === "AbcDefGh" && c.discoveryIdentity.fightId === 1,
     );
     expect(abc).toBeDefined();
-    // recent_reports duplicate carried revision+actor — wins merge for factual richness.
-    expect(abc!.source).toBe("recent_reports");
+    // persisted_wcl duplicate carried revision+actor — wins merge for factual richness.
+    expect(abc!.source).toBe("persisted_wcl");
     expect(abc!.reportRevision).toBe(2);
     expect(abc!.factual.actorId).toBe(7);
     expect(plan.totals.privateOrHiddenSkipped).toBe(1);
@@ -125,12 +125,12 @@ describe("buildDiscoveryPlan", () => {
     expect(plan.totals.truncatedTotal).toBe(true);
   });
 
-  it("groups hydration lazily by report code with batched fight IDs", () => {
+  it("groups candidates by report code with batched fight IDs", () => {
     const plan = planCandidateDiscovery({
       ...fixtureDiscoveryRows(),
       activeDungeonSlugs: FIXTURE_ACTIVE_DUNGEONS,
     });
-    const groups = groupCandidatesForHydration(plan.candidates);
+    const groups = groupCandidatesByReportCode(plan.candidates);
     const abc = groups.find((g) => g.reportCode === "AbcDefGh");
     expect(abc?.fightIds).toEqual([1, 2]);
     expect(groups.map((g) => g.reportCode)).toEqual(

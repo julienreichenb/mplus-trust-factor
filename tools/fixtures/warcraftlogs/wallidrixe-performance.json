@@ -458,31 +458,6 @@
       }
     }
   },
-  "recentReports": {
-    "data": {
-      "characterData": {
-        "character": {
-          "recentReports": {
-            "data": [
-              {
-                "code": "AbCdEf12XyZ3",
-                "title": "M+ Ara-Kara +12",
-                "startTime": 1751000000000,
-                "endTime": 1751003600000,
-                "visibility": "public",
-                "zone": {
-                  "id": 45,
-                  "name": "Mythic Season 15"
-                }
-              }
-            ],
-            "total": 1,
-            "has_more_pages": false
-          }
-        }
-      }
-    }
-  },
   "rateLimitData": {
     "data": {
       "rateLimitData": {

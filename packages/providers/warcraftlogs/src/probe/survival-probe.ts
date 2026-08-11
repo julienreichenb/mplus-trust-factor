@@ -8,8 +8,7 @@ import {
   mapRegionToWcl,
   mapZoneRankings,
   classifyReportVisibility,
-  recentReportsToCandidates,
-  countParseStyleRankingRows,
+    countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
 import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
@@ -17,12 +16,6 @@ import {
   resolveActorSourceIdStrict,
   resolveOwnedPetActorIds,
 } from "../discovery/run-matching.js";
-import {
-  candidatesFromHydratedReport,
-  prioritizeReportsForHydration,
-  type HydrationReportPayload,
-} from "../discovery/report-hydration.js";
-import { MAX_RECENT_REPORTS_LIMIT } from "../discovery/bounds.js";
 import { OPERATIONS, type EventDataType } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
@@ -38,11 +31,9 @@ import type {
 } from "./types.js";
 import {
   activeSeasonDungeonPool,
-  buildSurvivalCandidateQueuesFromHydrated,
   classSlugFromWclClassId,
   describePetOwnership,
   emptyRejection,
-  extractAggregateDungeonHints,
   flattenCandidateInspectionOrder,
   normalizeSpecSlug,
   normalizeSurvivalDataset,
@@ -58,9 +49,6 @@ import type {
   SurvivalRunCandidate,
 } from "./survival-probe-types.js";
 import { SURVIVAL_EVENT_TYPES } from "./survival-probe-types.js";
-
-/** Probe hydrates more recent reports than production discovery (bounded). */
-const PROBE_MAX_HYDRATION_REPORTS = 20;
 
 async function cleanProbeOutputDir(outputDir: string): Promise<void> {
   await mkdir(outputDir, { recursive: true });
@@ -645,184 +633,17 @@ export async function runSurvivalProbe(
   );
   if (parseCounts.totalRows > 0 && parseCounts.parseRows === 0) {
     schemaWarnings.push(
-      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — falling back to recentReports hydration`,
+      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — skipping (recentReports discovery removed; encounterRankings-only)`,
     );
   }
 
-  let byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
-  const aggregateHints = extractAggregateDungeonHints(rawZoneRankings);
+  const byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
 
-  // Fallback: recentReports → hydrate fights/masterData when Parses rows are absent.
+  // Rankings-only discovery: no recentReports / fightUnknown mass-hydration fallback.
   if ([...byDungeon.values()].every((bucket) => bucket.length === 0)) {
-    const recentOp = OPERATIONS.CharacterRecentReports;
-    const recentResult = await options.client.requestPermissive<{
-      characterData?: {
-        character?: {
-          recentReports?: {
-            data?: Array<{
-              code: string;
-              title?: string | null;
-              startTime: number;
-              endTime?: number | null;
-              visibility?: string | null;
-              zone?: { id: number; name?: string | null } | null;
-            }>;
-            total?: number | null;
-            has_more_pages?: boolean | null;
-          } | null;
-        } | null;
-      };
-    }>({
-      operationName: recentOp.operationName,
-      query: recentOp.query,
-      variables: {
-        name: options.identity.name,
-        serverSlug: options.identity.realmSlug,
-        serverRegion: mapRegionToWcl(options.identity.region),
-        limit: MAX_RECENT_REPORTS_LIMIT,
-        page: 1,
-      },
-      region: options.identity.region,
-    });
-    const recentMessages = collectGraphQlErrors(
-      graphqlErrors,
-      recentOp.operationName,
-      recentResult.response.errors,
+    schemaWarnings.push(
+      "No zoneRankings parse-linked candidates; recentReports fallback removed — empty queues skipped",
     );
-    perOperation.push({
-      operationName: recentOp.operationName,
-      costUnits: recentResult.costUnits,
-      durationMs: recentResult.durationMs,
-      snapshot: rateLimitFromExtensions(recentResult.response.extensions),
-    });
-
-    if (recentMessages.length > 0) {
-      schemaWarnings.push(`CharacterRecentReports GraphQL errors: ${recentMessages.join("; ")}`);
-    } else {
-      const recentMapped = recentReportsToCandidates(
-        recentResult.response.data?.characterData?.character?.recentReports,
-      );
-      if (recentMapped.privateSkipped + recentMapped.unlistedSkipped > 0) {
-        schemaWarnings.push(
-          `Skipped ${recentMapped.privateSkipped} private / ${recentMapped.unlistedSkipped} unlisted recent report(s)`,
-        );
-      }
-
-      const prioritized = prioritizeReportsForHydration(
-        recentMapped.candidates,
-        [],
-        PROBE_MAX_HYDRATION_REPORTS,
-      );
-
-      const hydratedCandidates: Array<{
-        reportCode: string;
-        fightId: number;
-        encounterId: number;
-        dungeonSlug: string | null;
-        keyLevel: number | null;
-        score: number | null;
-        durationMs: number | null;
-        startTimeMs: number | null;
-        completedAt: string | null;
-        specSlug?: string | null;
-        roleSlug?: string | null;
-      }> = [];
-
-      for (const stub of prioritized) {
-        reportsInspected.add(stub.reportCode);
-        const reportResult = await options.client.requestPermissive<{
-          reportData?: {
-            report?: {
-              code: string;
-              startTime: number;
-              endTime?: number | null;
-              visibility?: string | null;
-              zone?: { id: number; name?: string | null } | null;
-              fights?: HydrationReportPayload["fights"];
-              masterData?: HydrationReportPayload["masterData"];
-            } | null;
-          };
-        }>({
-          operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
-          query: OPERATIONS.ReportWithFightAndMasterData.query,
-          variables: { code: stub.reportCode },
-          region: options.identity.region,
-        });
-        const hydrateMessages = collectGraphQlErrors(
-          graphqlErrors,
-          `${OPERATIONS.ReportWithFightAndMasterData.operationName}:hydrate`,
-          reportResult.response.errors,
-        );
-        perOperation.push({
-          operationName: `${OPERATIONS.ReportWithFightAndMasterData.operationName}:hydrate`,
-          costUnits: reportResult.costUnits,
-          durationMs: reportResult.durationMs,
-          snapshot: rateLimitFromExtensions(reportResult.response.extensions),
-        });
-        if (hydrateMessages.length > 0) {
-          candidateRunsRejected.push({
-            reportCode: stub.reportCode,
-            fightId: 0,
-            dungeonSlug: null,
-            reason: `hydrate_graphql_error: ${hydrateMessages.join("; ")}`,
-          });
-          continue;
-        }
-
-        const report = reportResult.response.data?.reportData?.report;
-        if (!report) {
-          candidateRunsRejected.push({
-            reportCode: stub.reportCode,
-            fightId: 0,
-            dungeonSlug: null,
-            reason: "hydrate_report_not_found",
-          });
-          continue;
-        }
-
-        const mapped = candidatesFromHydratedReport(
-          {
-            code: report.code,
-            startTime: report.startTime,
-            endTime: report.endTime ?? null,
-            visibility: report.visibility ?? null,
-            zone: report.zone ?? null,
-            fights: report.fights ?? [],
-            masterData: report.masterData ?? null,
-          },
-          options.identity.name,
-          options.identity.realmSlug,
-        );
-        for (const reason of mapped.rejected) {
-          candidateRunsRejected.push({
-            reportCode: stub.reportCode,
-            fightId: 0,
-            dungeonSlug: null,
-            reason: `hydrate_${reason}`,
-          });
-        }
-        for (const c of mapped.candidates) {
-          fightsInspected.push({ reportCode: c.reportCode, fightId: c.fightId });
-          hydratedCandidates.push({
-            reportCode: c.reportCode,
-            fightId: c.fightId,
-            encounterId: c.encounterId,
-            dungeonSlug: c.dungeonSlug,
-            keyLevel: c.keyLevel,
-            score: c.score,
-            durationMs: c.durationMs,
-            startTimeMs: c.startTimeMs,
-            completedAt: c.completedAt,
-          });
-        }
-      }
-
-      byDungeon = buildSurvivalCandidateQueuesFromHydrated(
-        hydratedCandidates,
-        aggregateHints,
-        dungeonPool,
-      );
-    }
   }
 
   const inspectionOrder = flattenCandidateInspectionOrder(

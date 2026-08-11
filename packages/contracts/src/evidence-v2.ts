@@ -1,9 +1,9 @@
 /**
  * Evidence Contract V2 — shared boundary between Workstream 02 (selector) and
- * Workstream 03 (discovery / hydration / acquisition execution).
+ * Workstream 03 (discovery / selection / acquisition execution).
  *
  * Lifecycle:
- * 1. WS03 supplies discovered/hydrated candidate metadata.
+ * 1. WS03 supplies discovered candidate metadata (fight-known).
  * 2. WS02 builds immutable EvidenceAcquisitionPlanV2 (discovery identity,
  *    ordered candidates/fallbacks per slot, technical rejections).
  * 3. WS03 executes provider-aware acquisition from that plan (no policy).
@@ -104,7 +104,7 @@ export type EvidenceCandidateDiagnosticsOnly = z.infer<
 >;
 
 /**
- * Factual candidate metadata after WS03 discovery (± hydration).
+ * Factual candidate metadata after WS03 encounterRankings discovery.
  * Plan stage uses discovery identity; reportRevision may still be null.
  */
 export const evidenceCandidateMetadataV2Schema = z.object({
@@ -117,7 +117,7 @@ export const evidenceCandidateMetadataV2Schema = z.object({
    * Timer outcome for eligibility:
    * - true → eligible (successfully timed)
    * - false → ineligible (UNTIMED_RUN)
-   * - null → unresolved (TIMED_STATE_UNKNOWN); hydrate before accepting
+   * - null → unresolved (TIMED_STATE_UNKNOWN); reject until timed is known
    */
   timed: z.boolean().nullable(),
   /** Comparable canonical run score when available; null sorts last. */

@@ -14,30 +14,10 @@ import {
   combinePerformancePhase2Scores,
   resolveEligibleOffensiveCooldowns,
   scoreRunCooldownDiscipline,
+  computePerformancePhase2Confidence,
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   type PerformanceCooldownRunEvidence,
 } from "./index.js";
-import type {
-  PerformanceRunParseFactV2,
-  PerformanceV2ComputeInput,
-  SeasonDifficultyPolicyV2,
-} from "../v2/types.js";
-
-const POLICY: SeasonDifficultyPolicyV2 = {
-  id: "policy-manual-s1",
-  seasonId: "season-1",
-  region: "eu",
-  role: "dps",
-  specSlug: "fire",
-  effectiveFrom: "2026-01-01T00:00:00.000Z",
-  k50: 8,
-  k90: 12,
-  k99: 15,
-  source: "MANUAL",
-  sampleSize: 1000,
-  confidence: 0.8,
-  version: "sdp-v1",
-};
 
 const ACTIVE = [
   "dungeon-a",
@@ -49,79 +29,6 @@ const ACTIVE = [
   "dungeon-g",
   "dungeon-h",
 ];
-
-function fact(
-  overrides: Partial<PerformanceRunParseFactV2> &
-    Pick<PerformanceRunParseFactV2, "slotId" | "dungeonSlug" | "keyLevel">,
-): PerformanceRunParseFactV2 {
-  return {
-    parsePercentile: 70,
-    semantic: "BRACKET_PERCENT",
-    partition: 1,
-    rawDps: 500_000,
-    reportCode: "AbCdEfGh",
-    fightId: 1,
-    reportRevision: 1,
-    ...overrides,
-  };
-}
-
-function phase1Input(
-  overrides: Partial<PerformanceV2ComputeInput> = {},
-): PerformanceV2ComputeInput {
-  return {
-    manifest: {
-      contentHash: "manifest-hash-1",
-      schemaVersion: "2.0.0",
-      selectorVersion: "evidence-selector-v2.0.0",
-      characterId: "char-1",
-      seasonId: "season-1",
-      seasonSlug: "season-slug-1",
-      specSlug: "fire",
-      role: "DPS",
-      highKeyPolicyId: "hk-1",
-      activeDungeonSlugs: ACTIVE,
-      expectedSlotCount: 16,
-      selectedSlotCount: 16,
-      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-    },
-    runParseFacts: ACTIVE.flatMap((slug, di) => [
-      fact({
-        slotId: `${slug}:0`,
-        dungeonSlug: slug,
-        keyLevel: 12,
-        parsePercentile: 80,
-        fightId: di * 2 + 1,
-      }),
-      fact({
-        slotId: `${slug}:1`,
-        dungeonSlug: slug,
-        keyLevel: 11,
-        parsePercentile: 75,
-        fightId: di * 2 + 2,
-      }),
-    ]),
-    profileAggregate: {
-      bestDpsPercentileAverage: 72,
-      medianDpsPercentileAverage: 65,
-      perDungeon: ACTIVE.map((slug) => ({
-        dungeonSlug: slug,
-        bestParsePercentile: 72,
-        medianParsePercentile: 65,
-        loggedRunCount: 4,
-      })),
-      partition: 1,
-      zoneId: 42,
-      totalLoggedRuns: 40,
-      latestObservedAt: null,
-    },
-    difficultyPolicy: POLICY,
-    expectedPartition: 1,
-    logFreshness: 0.9,
-    computedAt: "2026-08-01T12:00:00.000Z",
-    ...overrides,
-  };
-}
 
 function cooldownRun(
   overrides: Partial<PerformanceCooldownRunEvidence> &
@@ -532,9 +439,28 @@ describe("Performance Phase 2 character combine (P–S)", () => {
     expect(both.score).toBeCloseTo((a.score! + b.score!) / 2, 10);
   });
 
-  it("Q — no cooldown evidence → Phase 1 score with PARTIAL", () => {
+  it("Q — no cooldown evidence → damage parse with PARTIAL (DPS)", () => {
     const result = computePerformancePhase2({
-      phase1: phase1Input(),
+      role: "DPS",
+      specSlug: "fire",
+      activeDungeonSlugs: ACTIVE,
+      damage: {
+        kind: "damage",
+        metric: "points_and_damage",
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 80,
+        partition: 1,
+        zoneId: 47,
+        totalLoggedRuns: 16,
+        observedSpecs: ["Fire"],
+        specBinding: "EXACT_MATCH",
+        perDungeon: ACTIVE.map((slug) => ({
+          dungeonSlug: slug,
+          bestParsePercentile: 80,
+          medianParsePercentile: 80,
+        })),
+      },
+      healing: null,
       cooldownRuns: [
         cooldownRun({
           slotId: "s0",
@@ -542,31 +468,54 @@ describe("Performance Phase 2 character combine (P–S)", () => {
         }),
       ],
     });
-    expect(result.phase1Score).not.toBeNull();
+    expect(result.damageParseScore).not.toBeNull();
     expect(result.offensiveCooldownDiscipline).toBeNull();
-    expect(result.score).toBe(result.phase1Score);
-    expect(result.weightsApplied).toEqual({ phase1: 1, cooldown: 0 });
+    expect(result.score).toBe(result.damageParseScore);
+    expect(result.weightsApplied.damageParse).toBeCloseTo(0.8, 10);
+    expect(result.weightsApplied.cooldown).toBeCloseTo(0.2, 10);
     expect(result.state).toBe("PARTIAL");
   });
 
-  it("R — Phase1 80 + cooldown 50 → Performance Phase 2 score 74", () => {
+  it("R — damage 80 + cooldown 50 → Performance score 74 (DPS)", () => {
     const combined = combinePerformancePhase2Scores({
       phase1Score: 80,
       cooldownScore: 50,
     });
     expect(combined.score).toBe(74);
-    expect(combined.weightsApplied).toEqual({ phase1: 0.8, cooldown: 0.2 });
+    expect(combined.weightsApplied.phase1).toBe(0.8);
+    expect(combined.weightsApplied.damageParse).toBe(0.8);
+    expect(combined.weightsApplied.cooldown).toBe(0.2);
     expect(combined.state).toBe("AVAILABLE");
 
     const live = computePerformancePhase2({
-      phase1: phase1Input(),
+      role: "DPS",
+      specSlug: "fire",
+      activeDungeonSlugs: ACTIVE,
+      damage: {
+        kind: "damage",
+        metric: "points_and_damage",
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 80,
+        partition: 1,
+        zoneId: 47,
+        totalLoggedRuns: 16,
+        observedSpecs: ["Fire"],
+        specBinding: "EXACT_MATCH",
+        perDungeon: ACTIVE.map((slug) => ({
+          dungeonSlug: slug,
+          bestParsePercentile: 80,
+          medianParsePercentile: 80,
+        })),
+      },
+      healing: null,
       cooldownRuns: [cooldownRun({ slotId: "s0" })],
     });
-    expect(live.phase1Score).not.toBeNull();
+    expect(live.damageParseScore).not.toBeNull();
     expect(live.offensiveCooldownDiscipline).not.toBeNull();
-    expect(live.weightsApplied).toEqual({ phase1: 0.8, cooldown: 0.2 });
+    expect(live.weightsApplied.damageParse).toBe(0.8);
+    expect(live.weightsApplied.cooldown).toBe(0.2);
     expect(live.score).toBeCloseTo(
-      live.phase1Score! * 0.8 + live.offensiveCooldownDiscipline! * 0.2,
+      live.damageParseScore! * 0.8 + live.offensiveCooldownDiscipline! * 0.2,
       10,
     );
     expect(live.calculatorVersion).toBe(PERFORMANCE_PHASE2_ALGORITHM_VERSION);
@@ -575,16 +524,140 @@ describe("Performance Phase 2 character combine (P–S)", () => {
 
   it("S — cooldown alone cannot produce available Performance", () => {
     const result = computePerformancePhase2({
-      phase1: phase1Input({
-        runParseFacts: [],
-        profileAggregate: null,
-      }),
+      role: "DPS",
+      specSlug: "fire",
+      activeDungeonSlugs: ACTIVE,
+      damage: null,
+      healing: null,
       cooldownRuns: [cooldownRun({ slotId: "s0" })],
     });
-    expect(result.phase1Score).toBeNull();
-    expect(result.offensiveCooldownDiscipline).not.toBeNull();
+    expect(result.damageParseScore).toBeNull();
     expect(result.score).toBeNull();
     expect(result.state).toBe("UNAVAILABLE");
-    expect(result.limitations).toContain("phase1_unavailable");
+    // Cooldown is not evaluated when damage parse is unavailable (fail closed).
+    expect(result.offensiveCooldownDiscipline).toBeNull();
+  });
+});
+
+/**
+ * Agent 01 diagnostic freeze — Warlock vs Warrior/Shaman cooldown eligibility asymmetry.
+ * Documents current catalog/eligibility behavior that can drive Performance confidence gaps.
+ */
+describe("scoring-stabilization: offensive cooldown eligibility class asymmetry", () => {
+  const absentLoadout = {
+    loadoutEvidenceState: "ABSENT" as const,
+    loadoutTalentSpellIds: null,
+    observedCanonicalKeys: new Set<string>(),
+    observedSpellIds: new Set<number>(),
+    ownedPetActorIds: [] as number[],
+  };
+
+  it("Demonology Warlock keeps BASELINE Demonic Tyrant eligible without loadout", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warlock",
+      specSlug: "demonology",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warlock.offensive.demonic-tyrant"),
+    ).toBe(true);
+    expect(
+      eligible.find((e) => e.rule.canonicalKey === "warlock.offensive.demonic-tyrant")
+        ?.availabilityReason,
+    ).toBe("baseline");
+    // Talent CDs remain skipped without loadout/observed use — Tyrant alone keeps run usable.
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "warlock.offensive.grimoire-felguard" &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("Arms Warrior with null spec loses Colossus Smash and may have zero eligible CDs", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warrior",
+      specSlug: null,
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warrior.offensive.colossus-smash"),
+    ).toBe(false);
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "warrior.offensive.colossus-smash" &&
+          s.reason === "spec_mismatch",
+      ),
+    ).toBe(true);
+    // Class-wide talents also unresolved without loadout → no evaluable abilities.
+    expect(eligible.length).toBe(0);
+  });
+
+  it("Arms Warrior with known spec keeps Colossus Smash BASELINE without loadout", () => {
+    const { eligible } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warrior",
+      specSlug: "arms",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warrior.offensive.colossus-smash"),
+    ).toBe(true);
+  });
+
+  it("Elemental Shaman keeps Fire Elemental BASELINE; talents skip without loadout", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "shaman",
+      specSlug: "elemental",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "shaman.offensive.fire-elemental"),
+    ).toBe(true);
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "shaman.offensive.stormkeeper" &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("null-spec Elemental path skips Fire Elemental → zero eligible without loadout", () => {
+    const { eligible } = resolveEligibleOffensiveCooldowns({
+      classSlug: "shaman",
+      specSlug: null,
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(eligible.length).toBe(0);
+  });
+
+  it("partial cooldownRunCoverage pulls confidence below Phase 1 (0.8/0.2 blend)", () => {
+    const confidence = computePerformancePhase2Confidence({
+      phase1Confidence: 1,
+      phase1Limits: [],
+      weightsApplied: { phase1: 0.8, damageParse: 0.8, healingParse: 0, cooldown: 0.2 },
+      combinedScore: 80,
+      cooldown: {
+        score: 70,
+        selectedRunCount: 16,
+        cooldownUsableRunCount: 8,
+        eligibleAbilityCount: 8,
+        evaluatedAbilityCount: 8,
+        unsupportedAbilityIds: [],
+        catalogueIncompatibleRuns: [],
+        runsWithoutValidDuration: [],
+        runScores: [],
+      },
+    });
+    expect(confidence.components.cooldownRunCoverage).toBe(0.5);
+    expect(confidence.confidence).toBeCloseTo(0.8 * 1 + 0.2 * 0.5, 10);
+    expect(confidence.causes).toContain("incomplete_cooldown_run_coverage");
   });
 });

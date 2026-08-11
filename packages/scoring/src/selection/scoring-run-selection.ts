@@ -1,7 +1,8 @@
 export type ScoringRunSelectionReason =
   | "HIGHEST_KEY"
   | "HIGHEST_SCORE_TIEBREAK"
-  | "LATEST_TIEBREAK";
+  | "LATEST_TIEBREAK"
+  | "WCL_PREFERRED_OVER_HIGHER_UNLOGGED";
 
 export interface ScoringRunSelectionEntry {
   dungeonSlug: string;
@@ -44,7 +45,9 @@ function compareRuns(a: ScoringRunCandidateInput, b: ScoringRunCandidateInput): 
 function selectionReasonFor(
   winner: ScoringRunCandidateInput,
   challengers: ScoringRunCandidateInput[],
+  replacedHigherUnlogged: boolean,
 ): ScoringRunSelectionReason {
+  if (replacedHigherUnlogged) return "WCL_PREFERRED_OVER_HIGHER_UNLOGGED";
   const sameKey = challengers.filter((c) => c.keyLevel === winner.keyLevel);
   if (sameKey.length <= 1) return "HIGHEST_KEY";
   const scores = new Set(sameKey.map((c) => c.scoreValue ?? null));
@@ -54,7 +57,7 @@ function selectionReasonFor(
 
 /**
  * Select exactly one canonical run per dungeon: highest key, then score, then latest.
- * Never demotes a higher unlogged run — WCL detail is tracked separately via hasWclSource.
+ * Prefers hasWclSource: if the nominal winner lacks WCL, use the next-best candidate that has WCL.
  */
 export function selectScoringRuns(
   runs: ScoringRunCandidateInput[],
@@ -94,7 +97,15 @@ export function selectScoringRuns(
     const bucket = byDungeon.get(dungeonSlug);
     if (!bucket || bucket.length === 0) continue;
     const sorted = [...bucket].sort(compareRuns);
-    const winner = sorted[0]!;
+    let winner = sorted[0]!;
+    let replacedHigherUnlogged = false;
+    if (!winner.hasWclSource) {
+      const alt = sorted.find((r) => !replacedHigherUnlogged && r.hasWclSource);
+      if (alt) {
+        winner = alt;
+        replacedHigherUnlogged = true;
+      }
+    }
     selectedRuns.push({
       dungeonSlug,
       canonicalRunId: winner.canonicalRunId,
@@ -105,7 +116,7 @@ export function selectScoringRuns(
       raiderIoScore: winner.scoreValue,
       wclReportMatched: winner.hasWclSource,
       wclCoverageRatio: null,
-      selectionReason: selectionReasonFor(winner, bucket),
+      selectionReason: selectionReasonFor(winner, bucket, replacedHigherUnlogged),
     });
   }
 

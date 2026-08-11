@@ -11,43 +11,35 @@
           "classID": 2,
           "faction": 0,
           "hidden": false,
-          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+          "server": {
+            "slug": "tarren-mill",
+            "region": {
+              "name": "EU"
+            }
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
-  "recentReports": {
+  "zoneRankings": {
     "data": {
       "characterData": {
         "character": {
-          "recentReports": {
-            "data": [
-              {
-                "code": "PrivSkip001",
-                "title": "Private M+",
-                "startTime": 1751000000000,
-                "endTime": 1751003600000,
-                "visibility": "private",
-                "zone": { "id": 45, "name": "Mythic Season 15" }
-              },
-              {
-                "code": "Unlist002",
-                "title": "Unlisted M+",
-                "startTime": 1750900000000,
-                "endTime": 1750903300000,
-                "visibility": "unlisted",
-                "zone": { "id": 45, "name": "Mythic Season 15" }
-              }
-            ],
-            "total": 2,
-            "has_more_pages": false
+          "zoneRankings": {
+            "rankings": []
           }
         }
       }
     }
   },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 20, "pointsRemaining": 3580, "resetInSeconds": 3100 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 20,
+        "pointsRemaining": 3580,
+        "resetInSeconds": 3100
+      }
+    }
   }
 }

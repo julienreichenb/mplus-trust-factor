@@ -29,6 +29,7 @@ export {
   normalizeCharacterAchievements,
   pickPreferredAchievementCompletion,
   normalizeMythicProfileIndex,
+  pickSeasonProfileMythicRating,
   normalizePeriod,
   sanitizeHttpsUrl,
   attachEquipmentIconUrls,

@@ -80,14 +80,33 @@ function mockBlizzard(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockPrisma() {
+function mockPrisma(opts: { hasSeasonScore?: boolean } = {}) {
+  const hasSeasonScore = opts.hasSeasonScore === true;
   return {
     character: {
       update: vi.fn(async () => ({})),
-      findUnique: vi.fn(async () => null),
+      findUnique: vi.fn(async () =>
+        hasSeasonScore
+          ? { id: "char-1", level: 90, regionId: "reg-eu" }
+          : null,
+      ),
+    },
+    verifiedCharacterOwnership: {
+      findFirst: vi.fn(async () =>
+        hasSeasonScore
+          ? {
+              currentSeasonMythicRating: 2500,
+              currentSeasonMythicSeasonId: authority.seasonRowId,
+            }
+          : null,
+      ),
+    },
+    metricObservation: {
+      findFirst: vi.fn(async () => null),
     },
     characterSnapshot: {
       create: vi.fn(async () => ({})),
+      findMany: vi.fn(async () => []),
     },
     characterRunDigest: {
       findMany: vi.fn(async () => []),
@@ -245,14 +264,14 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     expect(result.providerCalls).toBe(2);
   });
 
-  it("DB hit complete → no Blizzard discovery", async () => {
+  it("DB hit complete + season score present → no Blizzard Mythic+ fetch", async () => {
     const characterRepository = mockRepo({
       findByIdentity: vi.fn(async () => completeCharacter),
     });
     const blizzard = mockBlizzard();
 
     const result = await resolveOrDiscoverPublicCharacter({
-      prisma: mockPrisma() as never,
+      prisma: mockPrisma({ hasSeasonScore: true }) as never,
       characterRepository: characterRepository as never,
       blizzard: blizzard as never,
       identity,
@@ -265,6 +284,30 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     expect(result.bootstrapPerformed).toBe(false);
     expect(result.providerCalls).toBe(0);
     expect(result.character.id).toBe("char-1");
+  });
+
+  it("DB hit complete + season score null → Blizzard called once and rating persisted", async () => {
+    const characterRepository = mockRepo({
+      findByIdentity: vi.fn(async () => completeCharacter),
+      applyProviderProfile: vi.fn(async () => ({ ...completeCharacter })),
+    });
+    const blizzard = mockBlizzard();
+    const prisma = mockPrisma({ hasSeasonScore: false });
+
+    const result = await resolveOrDiscoverPublicCharacter({
+      prisma: prisma as never,
+      characterRepository: characterRepository as never,
+      blizzard: blizzard as never,
+      identity,
+      authority,
+    });
+
+    expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(prisma.characterSnapshot.create).toHaveBeenCalled();
+    expect(result.reason).toBe("repaired");
+    expect(result.bootstrapPerformed).toBe(true);
+    expect(result.providerCalls).toBe(2);
   });
 
   it("DB hit incomplete → repair path reuses Blizzard bootstrap", async () => {
@@ -323,7 +366,7 @@ describe("prepareSmokeCharacterForRefresh", () => {
     });
     const blizzard = mockBlizzard();
     const container = {
-      prisma: mockPrisma(),
+      prisma: mockPrisma({ hasSeasonScore: true }),
       repositories: { character: characterRepository },
       providers: { blizzard },
     };

@@ -846,3 +846,89 @@ describe("computeUtilityV2 safety", () => {
     expect(genuine.confidence).toBeLessThanOrEqual(0.45);
   });
 });
+
+/**
+ * Agent 01 diagnostic freeze — Utility "+8" explainability is the domain contribution cap.
+ * Documents CASE A (different rates saturating the same cap). Does not change the cap.
+ */
+describe("scoring-stabilization: utility domain contribution cap = 8", () => {
+  it("saturates castStops and strategicCc at cappedContribution=8 with distinct uncapped values", () => {
+    const identity = { reportCode: "CAP8", fightId: 1, reportRevision: 1 };
+    // 1 combat hour, high credited interrupts + CC → both domains above curve saturation.
+    const combatHours = 1;
+    const interruptAttempts = Array.from({ length: 50 }, (_, i) => ({
+      id: `i${i}`,
+      timestampMs: i * 1000,
+      abilityGameId: 2139,
+      sourceActorId: 10,
+      sourceKind: "PLAYER" as const,
+      targetActorId: 50,
+      classification: "CONFIRMED_SUCCESS" as const,
+      credit: 1,
+      note: "ok",
+    }));
+    const ccActions = Array.from({ length: 24 }, (_, i) => ({
+      id: `c${i}`,
+      timestampMs: i * 2000,
+      abilityGameId: 118,
+      sourceActorId: 10,
+      sourceKind: "PLAYER" as const,
+      targetActorId: 100 + i,
+      inActiveCombat: true,
+    }));
+    const fs = boundFact("slot-a", "ara-kara", identity, {
+      toolkit: { hasInterrupt: true, hasSupport: true, hasStrategicCc: true },
+      hostileBegincastCount: 80,
+      hostileObservability: "PRESENT",
+      activeCombatHours: combatHours,
+      activeCombatMs: combatHours * 3_600_000,
+      interruptAttempts,
+      ccActions,
+      supportActions: [
+        {
+          id: "s1",
+          timestampMs: 500,
+          abilityGameId: 1,
+          abilityName: "Support",
+          sourceActorId: 10,
+          sourceKind: "PLAYER",
+          targetActorId: 11,
+          semantic: "REACTIVE_SUPPORT",
+          tier: "CONFIRMED_IMPACT",
+        },
+      ],
+    });
+    const result = computeUtilityV2({
+      manifest: baseManifest([selectedSlot("slot-a", "ara-kara", 0, identity)], {
+        expectedSlotCount: 1,
+        selectedSlotCount: 1,
+        activeDungeonSlugs: ["ara-kara"],
+      }),
+      factSets: [fs],
+    });
+
+    const castStops = result.domainBreakdown.find((d) => d.domain === "castStops")!;
+    const strategicCc = result.domainBreakdown.find((d) => d.domain === "strategicCc")!;
+
+    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(8);
+    expect(castStops.cappedContribution).toBe(8);
+    expect(strategicCc.cappedContribution).toBe(8);
+    expect(castStops.capApplied).toBe(true);
+    expect(strategicCc.capApplied).toBe(true);
+    // CASE A: upstream rates differ; only the displayed capped contribution matches.
+    expect(castStops.perCombatHour).not.toBe(strategicCc.perCombatHour);
+    expect(castStops.uncappedContribution).not.toBe(strategicCc.uncappedContribution);
+    expect(castStops.uncappedContribution).toBeGreaterThan(8);
+    expect(strategicCc.uncappedContribution).toBeGreaterThan(8);
+    // Event counts are not the displayed "8".
+    expect(castStops.creditedEvents).not.toBe(8);
+    expect(strategicCc.creditedEvents).not.toBe(8);
+  });
+
+  it("proves expectedDungeons=8 is unrelated to domainContributionCap", () => {
+    expect(UTILITY_V2_MODEL_CONFIG.confidence.expectedDungeons).toBe(8);
+    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(8);
+    // Coincidence of literal 8 only — different config keys / consumers.
+    expect(UTILITY_V2_MODEL_CONFIG.confidence).not.toHaveProperty("domainContributionCap");
+  });
+});

@@ -1,12 +1,12 @@
 /**
- * Align canary/replay with scoreCharacter's CharacterPerformanceAggregate path.
+ * Align canary/replay with scoreCharacter's CharacterPerformanceAggregate V2 path.
  */
 import type { AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
-import type { RegionCode } from "@mplus/contracts";
+import type { EvidenceRole, RegionCode } from "@mplus/contracts";
 import {
-  profileAggregateFactFromPersisted,
-  type PerformanceProfileAggregateFactV2,
+  throughputChannelsFromPersistedV2,
+  type PerformanceThroughputChannelFact,
 } from "@mplus/scoring";
 import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
 import {
@@ -26,11 +26,18 @@ export async function ensureCanaryProfileAggregate(input: {
   realm: string;
   seasonId: string;
   zoneId: number;
+  role: EvidenceRole;
+  specSlug: string | null;
   activeDungeonSlugs: readonly string[];
   liveProviderPermission: LiveProviderPermission;
   now?: Date;
 }): Promise<{
-  profileAggregate: PerformanceProfileAggregateFactV2 | null;
+  throughputChannels: {
+    damage: PerformanceThroughputChannelFact;
+    healing: PerformanceThroughputChannelFact | null;
+  } | null;
+  /** @deprecated Prefer throughputChannels */
+  profileAggregate: null;
   ensure: EnsureCharacterPerformanceAggregateResult;
 }> {
   const ensure = createEnsureCharacterPerformanceAggregate({ prisma: input.prisma });
@@ -57,6 +64,8 @@ export async function ensureCanaryProfileAggregate(input: {
     seasonId: input.seasonId,
     zoneId: input.zoneId,
     partition: null,
+    role: input.role,
+    specSlug: input.specSlug,
     character: {
       name: input.characterName,
       realmSlug: input.realm,
@@ -72,15 +81,16 @@ export async function ensureCanaryProfileAggregate(input: {
     provider,
   });
 
-  const profileAggregate =
+  const throughputChannels =
     result.state === "AVAILABLE" && result.data != null
-      ? profileAggregateFactFromPersisted({
-          dungeonAggregates: result.data.dungeonAggregates,
-          global:
-            result.data.globalSummary ?? result.data.compact.global,
-          activeDungeonSlugs: input.activeDungeonSlugs,
-        })
+      ? (() => {
+          const mapped = throughputChannelsFromPersistedV2({
+            compact: result.data.compact,
+            activeDungeonSlugs: input.activeDungeonSlugs,
+          });
+          return { damage: mapped.damage, healing: mapped.healing };
+        })()
       : null;
 
-  return { profileAggregate, ensure: result };
+  return { throughputChannels, profileAggregate: null, ensure: result };
 }

@@ -1,7 +1,7 @@
 /**
  * V2 discovery planning — pure, provider-free.
  *
- * Combines zone rankings, recent reports, and persisted WCL sources into bounded
+ * Combines zone rankings, parse rows, and persisted WCL sources into bounded
  * candidates with factual access/incompleteness diagnostics.
  *
  * Does NOT select final slots (Workstream 02 ownership).
@@ -25,7 +25,6 @@ export const V2_TARGET_SLOTS_PER_DUNGEON = EVIDENCE_SLOTS_PER_DUNGEON;
 
 export type DiscoverySourceKind =
   | "zone_rankings"
-  | "recent_reports"
   | "persisted_wcl"
   | "parse_row";
 
@@ -85,7 +84,7 @@ export interface PlannedDiscoveryCandidate {
   reportRevision: number | null;
   source: DiscoverySourceKind;
   diagnostics: DiscoveryAccessDiagnostics;
-  /** Raw factual fields retained for WS02 metadata mapping after hydration. */
+  /** Raw factual fields retained for WS02 metadata mapping after report mapping. */
   factual: {
     timed: boolean | null;
     runScore: number | null;
@@ -104,7 +103,7 @@ export interface DungeonFallbackDepth {
   truncatedByBound: boolean;
 }
 
-export interface ReportHydrationGroup {
+export interface ReportCodeFightGroup {
   reportCode: string;
   fightIds: number[];
   candidateKeys: string[];
@@ -113,7 +112,7 @@ export interface ReportHydrationGroup {
 export interface DiscoveryPlanResult {
   candidates: PlannedDiscoveryCandidate[];
   perDungeon: DungeonFallbackDepth[];
-  hydrationGroups: ReportHydrationGroup[];
+  reportCodeGroups: ReportCodeFightGroup[];
   totals: {
     inputCount: number;
     retainedCount: number;
@@ -126,7 +125,7 @@ const SOURCE_PRIORITY: Record<DiscoverySourceKind, number> = {
   zone_rankings: 0,
   parse_row: 1,
   persisted_wcl: 2,
-  recent_reports: 3,
+
 };
 
 function resolveAccessState(row: DiscoverySourceRow): EvidenceAccessState {
@@ -313,12 +312,12 @@ export function buildDiscoveryPlan(input: {
     };
   });
 
-  const hydrationGroups = groupCandidatesForHydration(candidates);
+  const reportCodeGroups = groupCandidatesByReportCode(candidates);
 
   return {
     candidates,
     perDungeon,
-    hydrationGroups,
+    reportCodeGroups,
     totals: {
       inputCount: merged.length,
       retainedCount: candidates.length,
@@ -328,11 +327,14 @@ export function buildDiscoveryPlan(input: {
   };
 }
 
-/** Lazy hydration: group fight IDs by report code (batch-safe metadata). */
-export function groupCandidatesForHydration(
+/**
+ * Group selected/planned fight IDs by reportCode for post-selection detailed fetch
+ * batching (post-selection detailed acquisition only).
+ */
+export function groupCandidatesByReportCode(
   candidates: readonly PlannedDiscoveryCandidate[],
-): ReportHydrationGroup[] {
-  const byReport = new Map<string, ReportHydrationGroup>();
+): ReportCodeFightGroup[] {
+  const byReport = new Map<string, ReportCodeFightGroup>();
   for (const candidate of candidates) {
     const code = candidate.discoveryIdentity.reportCode;
     let group = byReport.get(code);
@@ -353,7 +355,7 @@ export function groupCandidatesForHydration(
 }
 
 /**
- * Map a hydrated discovery candidate into WS02-consumable factual metadata.
+ * Map a discovery candidate into WS02-consumable factual metadata.
  * Requires a known dungeonSlug and positive keyLevel for the metadata schema.
  */
 export function toCandidateMetadataV2(

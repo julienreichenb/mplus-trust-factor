@@ -18,6 +18,7 @@ import {
   buildMinimalCapabilityPackage,
   createMemoryOrchestrationPorts,
 } from "./run-orchestration/memory-ports.js";
+import { buildTestThroughputChannels } from "./run-orchestration/test-fixtures.js";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
   EVIDENCE_SELECTOR_VERSION,
@@ -27,6 +28,7 @@ import {
 import { computeScoringConfidenceV1 } from "@mplus/scoring";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
+const TEST_THROUGHPUT = () => buildTestThroughputChannels(MIDNIGHT_SEASON_1_DUNGEON_SLUGS);
 
 function baseScope() {
   return {
@@ -254,6 +256,7 @@ describe("newest complete package wins (memory)", () => {
       scoringModelId: "model-1",
       scope: baseScope(),
       candidates,
+      throughputChannels: TEST_THROUGHPUT(),
       liveProviderPermission: "FORBIDDEN",
       ports,
     });
@@ -353,6 +356,7 @@ describe("provider-free replay", () => {
       scoringModelId: "model-1",
       scope: baseScope(),
       candidates,
+      throughputChannels: TEST_THROUGHPUT(),
       liveProviderPermission: "FORBIDDEN",
       ports,
     });
@@ -383,6 +387,7 @@ describe("provider-free replay", () => {
       seasonId: "season-1",
       scoringModelId: "model-1",
       scope: baseScope(),
+      throughputChannels: TEST_THROUGHPUT(),
       ports,
       existingManifest: live.manifest,
     });

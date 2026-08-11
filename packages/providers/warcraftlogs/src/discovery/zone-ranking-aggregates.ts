@@ -1,4 +1,4 @@
-import { slugifyDungeonName } from "./report-hydration.js";
+import { slugifyDungeonName } from "./dungeon-slug.js";
 import { ENCOUNTER_DUNGEON_MAP } from "./run-discovery.js";
 import type { ZoneRankingsPayload } from "./run-discovery.js";
 
@@ -162,3 +162,4 @@ export function mapZoneRankingAggregates(
     dungeons: [...bySlug.values()].sort((a, b) => a.dungeonSlug.localeCompare(b.dungeonSlug)),
   };
 }
+

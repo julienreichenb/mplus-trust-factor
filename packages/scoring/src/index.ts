@@ -41,6 +41,7 @@ export {
   validateTunableWeights,
   parseTunableWeights,
   resolveTunableWeights,
+  resolveRoleAwarePerformanceWeights,
   applyTunableWeightsToPerformanceConfig,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
@@ -55,9 +56,11 @@ export type {
   scoringDimensionConfigSet,
   scoringDimensionConfigFingerprints,
   ResolvedScoreModelV2DimensionConfigs,
+  TunableWeights,
   TunableWeightsV1,
   TunableDimensionWeights,
   TunableComponentWeights,
+  PerformanceRoleAwareWeights,
 } from "./model-config/index.js";
 
 export { clamp, clamp01, approxEqual, sum, safeDivide } from "./math.js";
@@ -527,7 +530,6 @@ export type {
   PerformanceV2CalibrationExport,
 } from "./performance/v2/index.js";
 
-/** Functional Performance Phase 2 (parses + offensive cooldown discipline). */
 export {
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   PERFORMANCE_PHASE2_MODEL_LABEL,
@@ -555,6 +557,33 @@ export type {
   RunCooldownDisciplineResult,
   AbilityCooldownScore,
 } from "./performance/phase2/index.js";
+
+/** Role-aware Performance (canonical product path — Agent 04B). */
+export {
+  PERFORMANCE_ROLE_AWARE_ALGORITHM_VERSION,
+  PERFORMANCE_ROLE_AWARE_MODEL_LABEL,
+  PARSE_CHANNEL_WEIGHTS,
+  DPS_PERFORMANCE_WEIGHTS,
+  HEALER_PERFORMANCE_WEIGHTS,
+  computeParseChannelScore,
+  computeRoleAwarePerformance,
+  computeRoleAwarePerformanceInputFingerprint,
+  throughputChannelsFromPersistedV2,
+  extractPersistedRoleAwarePerformanceEvidence,
+  buildRoleAwarePerformanceSummary,
+  projectPerformanceSummaryFromDimensionDetails,
+  mergePublishedSelectedRunsIntoPerformanceSummary,
+} from "./performance/role-aware/index.js";
+export type {
+  PerformanceThroughputChannelFact,
+  PerformanceDungeonThroughputFact,
+  ParseChannelScoreResult,
+  RoleAwarePerformanceComputeInput,
+  RoleAwarePerformanceComputeResult,
+  RoleAwarePerformanceWeightsApplied,
+  PersistedRoleAwarePerformanceEvidence,
+  PersistedParseChannelEvidence,
+} from "./performance/role-aware/index.js";
 
 /** Experience V3 Phase 1 calculator (shadow — not public-activated). */
 export {
@@ -641,6 +670,19 @@ export type {
   BuildSeasonPopulationPolicyResult,
   StandingEstimationResult,
 } from "./experience/phase1/season-population-policy.js";
+
+/** Experience Phase 1 — multi-season historical standing (Agent 03C). */
+export {
+  computeHistoricalStanding,
+  isCompleteRegionalPopulationPolicy,
+  nativeBandStandingScore,
+} from "./experience/phase1/historical-standing.js";
+export type {
+  HistoricalSeasonRatingInput,
+  HistoricalStandingProof,
+  UncontextualizedHistoricalSeason,
+  HistoricalStandingComputation,
+} from "./experience/phase1/historical-standing.js";
 
 /** Experience Phase 1 — elite Mythic+ top 0.1% cutoff history (provider-free; not production-wired). */
 export {

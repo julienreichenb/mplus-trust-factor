@@ -15,7 +15,10 @@ import type {
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
 import type { CharacterRepository } from "../persistence/character-repository.js";
-import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
+import {
+  loadCharacterRefreshEligibilitySignals,
+  persistRefreshEligibilityEvidence,
+} from "./refresh-eligibility-gate.js";
 import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { backfillCharacterRunDigestLinks } from "./character-run-digest-backfill.js";
 
@@ -58,15 +61,32 @@ export async function fetchBlizzardPublicBootstrap(
   try {
     const profileResult = await blizzard.getCharacterProfile(identity, ctx);
     providerCalls += 1;
-    let mythicRating: number | null = null;
     try {
       const keystone = await blizzard.getMythicKeystoneProfile(identity, ctx);
       providerCalls += 1;
-      mythicRating = keystone.data.currentMythicRating ?? null;
-    } catch {
-      mythicRating = null;
+      return {
+        ok: true,
+        profile: profileResult.data,
+        mythicRating: keystone.data.currentMythicRating ?? null,
+        providerCalls,
+      };
+    } catch (error) {
+      // Provider failure must not collapse into "no Mythic+ score".
+      providerCalls += 1;
+      if (error instanceof ExternalApiError) {
+        return { ok: false, error, providerCalls };
+      }
+      return {
+        ok: false,
+        error: new ExternalApiError({
+          message: error instanceof Error ? error.message : "Blizzard keystone failed",
+          code: "UNKNOWN",
+          provider: "blizzard",
+          retryable: true,
+        }),
+        providerCalls,
+      };
     }
-    return { ok: true, profile: profileResult.data, mythicRating, providerCalls };
   } catch (error) {
     if (error instanceof ExternalApiError) {
       return { ok: false, error, providerCalls };
@@ -123,7 +143,8 @@ export type ResolveOrDiscoverPublicCharacterResult = {
 
 /**
  * Canonical production operation:
- * lookup Character → reuse when complete → Blizzard discover/repair when absent/incomplete.
+ * lookup Character → reuse when complete + current-season score present →
+ * Blizzard discover/fetch when absent/incomplete/score null.
  *
  * Never creates an empty shell before Blizzard succeeds. On failure after a fresh
  * create, compensates by deleting an unreferenced shell when possible.
@@ -139,16 +160,24 @@ export async function resolveOrDiscoverPublicCharacter(input: {
   const existing = await input.characterRepository.findByIdentity(input.identity);
 
   if (existing && !characterLacksBootstrapEvidence(existing)) {
-    await backfillCharacterRunDigestLinks({
-      prisma: input.prisma,
+    const signals = await loadCharacterRefreshEligibilitySignals(input.prisma, {
       characterId: existing.id,
+      authority: input.authority,
     });
-    return {
-      character: existing,
-      bootstrapPerformed: false,
-      providerCalls: 0,
-      reason: "already_complete",
-    };
+    // Persisted finite score → reuse (zero Blizzard Mythic+ calls).
+    if (signals.currentSeasonMythicScore != null) {
+      await backfillCharacterRunDigestLinks({
+        prisma: input.prisma,
+        characterId: existing.id,
+      });
+      return {
+        character: existing,
+        bootstrapPerformed: false,
+        providerCalls: 0,
+        reason: "already_complete",
+      };
+    }
+    // Score null/missing → fall through and fetch Blizzard once.
   }
 
   const fetched = await fetchBlizzardPublicBootstrap(input.blizzard, input.identity, {

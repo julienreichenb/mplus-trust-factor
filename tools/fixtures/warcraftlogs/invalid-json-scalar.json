@@ -8,14 +8,32 @@
           "canonicalID": 800006,
           "name": "Badshape",
           "hidden": false,
-          "server": { "slug": "tarren-mill" }
+          "server": {
+            "slug": "tarren-mill"
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
-  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": {
+            "rankings": []
+          }
+        }
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 10, "pointsRemaining": 3590, "resetInSeconds": 3500 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 10,
+        "pointsRemaining": 3590,
+        "resetInSeconds": 3500
+      }
+    }
   }
 }

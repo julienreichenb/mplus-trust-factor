@@ -5,7 +5,7 @@
 import type {
   DimensionExecutable,
   OverallVerdict,
-  SlotHydrationSummary,
+  SlotAcquisitionSummary,
 } from "./classify.js";
 
 export interface ProbeSummaryHeader {
@@ -14,7 +14,7 @@ export interface ProbeSummaryHeader {
   dungeonCount: number;
   selectedSlotCount: number;
   expectedSlotCount: number;
-  fullyHydratedSlots: number;
+  fullyAcquiredSlots: number;
   performanceExecutable: DimensionExecutable;
   survivalExecutable: DimensionExecutable;
   utilityExecutable: DimensionExecutable;
@@ -29,7 +29,7 @@ export function buildSummaryMarkdown(input: {
     missingSlotIndexes: Array<0 | 1>;
     reason: string;
   }>;
-  slots: SlotHydrationSummary[];
+  slots: SlotAcquisitionSummary[];
   wclRequests: number;
   estimatedWclPoints: number | null;
   datasetCoverageNotes: string[];
@@ -48,7 +48,7 @@ export function buildSummaryMarkdown(input: {
     `- Active season: ${h.activeSeason}`,
     `- Dungeon count: ${h.dungeonCount}`,
     `- Selected slot count out of ${h.expectedSlotCount}: ${h.selectedSlotCount}`,
-    `- Fully hydrated slots: ${h.fullyHydratedSlots}`,
+    `- Fully acquired slots: ${h.fullyAcquiredSlots}`,
     `- Performance executable: ${h.performanceExecutable}`,
     `- Survival executable: ${h.survivalExecutable}`,
     `- Utility executable: ${h.utilityExecutable}`,
@@ -114,7 +114,7 @@ export function buildSummaryMarkdown(input: {
 
   for (const slot of input.slots) {
     lines.push(
-      `- ${slot.dungeonSlug}:${slot.slotIndex} state=${slot.state} hydrated=${slot.fullyHydrated} wclValid=${slot.wclReportValid}` +
+      `- ${slot.dungeonSlug}:${slot.slotIndex} state=${slot.state} acquired=${slot.fullyAcquired} wclValid=${slot.wclReportValid}` +
         (slot.reportCode
           ? ` report=${slot.reportCode} fight=${slot.fightId} rev=${slot.reportRevision}`
           : "") +

@@ -1,15 +1,16 @@
 /**
  * Experience Phase 1 — pure calculator.
  *
- * Combines previous-season relative standing, previous-season regional class
- * rank floor, and elite 0.1% cutoff history via max (not a weighted blend).
- * Provider-free.
+ * Combines historical standing (MAX of contextualized closed-season native-band
+ * scores), previous-season regional class rank floor, and elite 0.1% cutoff
+ * history via max (not a weighted blend). Provider-free.
  *
  * Availability: score 0 is valid when absence of history is resolved.
  * unavailable/null is reserved for provider/config/integrity failures.
  */
 
 import type { EliteCutoffHistoryEvidence } from "./elite-cutoff-history.js";
+import type { HistoricalStandingProof } from "./historical-standing.js";
 import {
   EXPERIENCE_PHASE1_BELOW_P600_SCORE,
   NATIVE_BAND_STANDING_SCORES,
@@ -60,6 +61,7 @@ export type ExperiencePhase1EliteEvidence =
 export type ExperiencePhase1UnavailableReason =
   | "NO_USABLE_EVIDENCE"
   | "PREVIOUS_EVIDENCE_UNAVAILABLE"
+  | "HISTORICAL_EVIDENCE_UNAVAILABLE"
   | "ELITE_EVIDENCE_UNAVAILABLE";
 
 /** Machine-readable standing provenance (no UI). */
@@ -71,6 +73,14 @@ export interface ExperiencePhase1StandingProvenance {
   populationPolicyVersion: string | null;
   matchedNativeBand: NativeCutoffBand | null;
   thresholdsUsed: Array<{ quantile: NativeCutoffQuantile; score: number }> | null;
+  /** Specific previous-acquisition reason when Experience is unavailable. */
+  acquisitionReason?: string | null;
+  /** Winning historical season identity (Agent 03C). */
+  winningSeasonId?: string | null;
+  winningSeasonSlug?: string | null;
+  winningBlizzardSeasonId?: number | null;
+  /** Count of closed seasons successfully contextualized against COMPLETE policy. */
+  contextualizedHistoricalSeasonCount?: number;
 }
 
 export interface ExperiencePhase1Result {
@@ -85,14 +95,28 @@ export interface ExperiencePhase1Result {
   confidence: number | null;
   /** Machine-readable causes for confidence < 1 and/or unavailability. */
   confidenceCauses: string[];
+  /**
+   * MAX of contextualized historical native-band standing scores (Agent 03C).
+   * Alias of previousStandingScore for backward compatibility.
+   */
+  historicalStandingScore: number | null;
+  /**
+   * @deprecated Prefer historicalStandingScore — same value (compat alias).
+   */
   previousStandingScore: number | null;
   classRankFloor: number | null;
   classRankFloorApplied: boolean;
+  /** Raw regional class rank used for the floor (when applied/available). */
+  previousRegionalClassRank?: number | null;
   eliteFloorApplied: boolean;
   confirmedEliteTitleCount: number;
   reason: ExperiencePhase1UnavailableReason | null;
   /** Optional standing provenance attached by the worker acquisition path. */
   standingProvenance?: ExperiencePhase1StandingProvenance | null;
+  /** Winning historical standing proof when historicalStandingScore is set. */
+  winningHistoricalProof?: HistoricalStandingProof | null;
+  /** Number of seasons that contributed a contextualized standing score. */
+  contextualizedHistoricalSeasonCount?: number;
 }
 
 export type CalculateExperiencePhase1EliteInput =
@@ -108,6 +132,9 @@ export interface CalculateExperiencePhase1Input {
    * Overall regional rank must not be passed here.
    */
   previousRegionalClassRank?: number | null;
+  /** Optional winning proof metadata attached to the result (not used in max). */
+  winningHistoricalProof?: HistoricalStandingProof | null;
+  contextualizedHistoricalSeasonCount?: number;
 }
 
 /**
@@ -227,8 +254,11 @@ function availableResult(input: {
   classRankFloor: number | null;
   eliteFloor: number | null;
   confirmedEliteTitleCount: number;
+  previousRegionalClassRank?: number | null;
   /** Optional provenance tags (e.g. confirmed_absence) — never lower confidence. */
   confidenceCauses?: string[];
+  winningHistoricalProof?: HistoricalStandingProof | null;
+  contextualizedHistoricalSeasonCount?: number;
 }): ExperiencePhase1Result {
   const { score, previousStandingScore, classRankFloor, eliteFloor, confirmedEliteTitleCount } =
     input;
@@ -237,18 +267,22 @@ function availableResult(input: {
     available: true,
     confidence: 1,
     confidenceCauses: [...(input.confidenceCauses ?? [])],
+    historicalStandingScore: previousStandingScore,
     previousStandingScore,
     classRankFloor,
     classRankFloorApplied:
       classRankFloor != null &&
       score === classRankFloor &&
       (previousStandingScore == null || previousStandingScore < score),
+    previousRegionalClassRank: input.previousRegionalClassRank ?? null,
     eliteFloorApplied:
       eliteFloor != null &&
       score === eliteFloor &&
       (previousStandingScore == null || previousStandingScore < score),
     confirmedEliteTitleCount,
     reason: null,
+    winningHistoricalProof: input.winningHistoricalProof ?? null,
+    contextualizedHistoricalSeasonCount: input.contextualizedHistoricalSeasonCount ?? 0,
   };
 }
 
@@ -257,25 +291,33 @@ function unavailableResult(input: {
   previousStandingScore?: number | null;
   classRankFloor?: number | null;
   confirmedEliteTitleCount?: number;
+  previousRegionalClassRank?: number | null;
+  winningHistoricalProof?: HistoricalStandingProof | null;
+  contextualizedHistoricalSeasonCount?: number;
 }): ExperiencePhase1Result {
+  const previousStandingScore = input.previousStandingScore ?? null;
   return {
     score: null,
     available: false,
     confidence: null,
     confidenceCauses: [input.reason.toLowerCase()],
-    previousStandingScore: input.previousStandingScore ?? null,
+    historicalStandingScore: previousStandingScore,
+    previousStandingScore,
     classRankFloor: input.classRankFloor ?? null,
     classRankFloorApplied: false,
+    previousRegionalClassRank: input.previousRegionalClassRank ?? null,
     eliteFloorApplied: false,
     confirmedEliteTitleCount: input.confirmedEliteTitleCount ?? 0,
     reason: input.reason,
+    winningHistoricalProof: input.winningHistoricalProof ?? null,
+    contextualizedHistoricalSeasonCount: input.contextualizedHistoricalSeasonCount ?? 0,
   };
 }
 
 /**
  * Pure Experience Phase 1 calculator.
  *
- * Experience = max(previousStandingScore, classRankFloor, eliteTitleFloor)
+ * Experience = max(historicalStandingScore, classRankFloor, eliteTitleFloor)
  * among applicable proofs (missing floors omitted).
  *
  * Resolved empty history (CONFIRMED_NO_ACTIVITY + no class-rank floor + no elite)
@@ -292,6 +334,16 @@ export function calculateExperiencePhase1(
       ? EXPERIENCE_PHASE1_ELITE_FLOOR
       : null;
   const classRankFloor = scoreRegionalClassRankFloor(input.previousRegionalClassRank);
+  const winningHistoricalProof = input.winningHistoricalProof ?? null;
+  const contextualizedHistoricalSeasonCount =
+    input.contextualizedHistoricalSeasonCount ??
+    (winningHistoricalProof != null ? 1 : 0);
+  const previousRegionalClassRank =
+    input.previousRegionalClassRank != null &&
+    Number.isFinite(input.previousRegionalClassRank) &&
+    input.previousRegionalClassRank > 0
+      ? Math.trunc(input.previousRegionalClassRank)
+      : null;
 
   let previousStandingScore: number | null = null;
   if (input.previous.state === "STANDING") {
@@ -312,6 +364,9 @@ export function calculateExperiencePhase1(
         classRankFloor,
         eliteFloor: null,
         confirmedEliteTitleCount: 0,
+        previousRegionalClassRank,
+        winningHistoricalProof,
+        contextualizedHistoricalSeasonCount,
       });
     }
     // Ambiguous: elite might raise the score to 90, or previous itself failed.
@@ -319,16 +374,22 @@ export function calculateExperiencePhase1(
       return unavailableResult({
         reason:
           input.previous.state === "UNAVAILABLE"
-            ? "PREVIOUS_EVIDENCE_UNAVAILABLE"
+            ? "HISTORICAL_EVIDENCE_UNAVAILABLE"
             : "ELITE_EVIDENCE_UNAVAILABLE",
         previousStandingScore,
         classRankFloor,
+        previousRegionalClassRank,
+        winningHistoricalProof,
+        contextualizedHistoricalSeasonCount,
       });
     }
     return unavailableResult({
       reason: "ELITE_EVIDENCE_UNAVAILABLE",
       previousStandingScore,
       classRankFloor,
+      previousRegionalClassRank,
+      winningHistoricalProof,
+      contextualizedHistoricalSeasonCount,
     });
   }
 
@@ -342,11 +403,14 @@ export function calculateExperiencePhase1(
     return unavailableResult({
       reason:
         input.previous.state === "UNAVAILABLE"
-          ? "PREVIOUS_EVIDENCE_UNAVAILABLE"
+          ? "HISTORICAL_EVIDENCE_UNAVAILABLE"
           : "NO_USABLE_EVIDENCE",
       previousStandingScore,
       classRankFloor,
       confirmedEliteTitleCount,
+      previousRegionalClassRank,
+      winningHistoricalProof,
+      contextualizedHistoricalSeasonCount,
     });
   }
 
@@ -356,5 +420,8 @@ export function calculateExperiencePhase1(
     classRankFloor,
     eliteFloor,
     confirmedEliteTitleCount,
+    previousRegionalClassRank,
+    winningHistoricalProof,
+    contextualizedHistoricalSeasonCount,
   });
 }

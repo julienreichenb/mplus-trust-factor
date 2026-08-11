@@ -639,12 +639,9 @@ export function isExperienceSeasonBindingEnsureComplete(
     return false;
   }
 
-  // UPDATED / RETAINED_LAST_KNOWN_GOOD / NO_USABLE_POLICY are stable enough to skip.
-  return (
-    policyStatus === "UPDATED" ||
-    policyStatus === "RETAINED_LAST_KNOWN_GOOD" ||
-    policyStatus === "NO_USABLE_POLICY"
-  );
+  // UPDATED / RETAINED_LAST_KNOWN_GOOD are stable enough to skip.
+  // NO_USABLE_POLICY is NOT complete — policy may land later; keep ensure retryable.
+  return policyStatus === "UPDATED" || policyStatus === "RETAINED_LAST_KNOWN_GOOD";
 }
 
 /** Process-local last Experience bind ensured for each region's current Blizzard season. */

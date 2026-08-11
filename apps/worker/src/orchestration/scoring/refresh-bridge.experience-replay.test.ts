@@ -233,6 +233,22 @@ function createHarness(opts?: {
   }) =>
     `${row.characterId}|${row.seasonId}|${row.evidenceKind}|${row.compatibilityVersion}`;
 
+  const getMythicKeystoneProfile = vi.fn(async () =>
+    providerResult(
+      {
+        currentMythicRating: 4000,
+        currentSeasonId: 15,
+        seasons: [{ seasonId: 14 }, { seasonId: 15 }],
+        character: {
+          region: "EU",
+          realmSlug: "archimonde",
+          name: "Wallidrixe",
+        },
+      },
+      "fp-mplus-index",
+    ),
+  );
+
   const getMythicKeystoneSeasonProfile = vi.fn(async (_identity, seasonId: number) => {
     if (blizzardFails) {
       throw Object.assign(new Error("blizzard historical unavailable"), {
@@ -338,7 +354,29 @@ function createHarness(opts?: {
         );
         return row;
       }),
-      findMany: vi.fn(async () => [...evidenceRows.values()]),
+      findMany: vi.fn(
+        async (args?: {
+          where?: {
+            characterId?: string;
+            evidenceKind?: string;
+            compatibilityVersion?: string;
+          };
+        }) => {
+          let rows = [...evidenceRows.values()];
+          if (args?.where?.characterId) {
+            rows = rows.filter((r) => r.characterId === args.where!.characterId);
+          }
+          if (args?.where?.evidenceKind) {
+            rows = rows.filter((r) => r.evidenceKind === args.where!.evidenceKind);
+          }
+          if (args?.where?.compatibilityVersion) {
+            rows = rows.filter(
+              (r) => r.compatibilityVersion === args.where!.compatibilityVersion,
+            );
+          }
+          return rows;
+        },
+      ),
     },
     characterScore: {
       upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
@@ -357,20 +395,28 @@ function createHarness(opts?: {
           blizzardSeasonId: row.blizzardSeasonId,
           startsAt: row.startsAt,
           endsAt: row.endsAt,
+          providerSeasonId: row.providerSeasonId,
+          isCurrent: row.isCurrent,
+          metadata: row.metadata,
         };
       }),
       findMany: vi.fn(
         async (args?: {
           where?: {
             regionId?: string;
+            id?: { in?: string[] };
             startsAt?: { lt?: Date };
-            blizzardSeasonId?: { not?: null };
+            blizzardSeasonId?: { not?: null; in?: number[] };
           };
           orderBy?: { startsAt?: "asc" | "desc" };
           take?: number;
           select?: Record<string, boolean>;
         }) => {
           let rows = Object.values(seasons);
+          if (args?.where?.id?.in) {
+            const ids = new Set(args.where.id.in);
+            rows = rows.filter((r) => ids.has(r.id));
+          }
           if (args?.where?.regionId) {
             rows = rows.filter((r) => r.regionId === args.where!.regionId);
           }
@@ -378,7 +424,12 @@ function createHarness(opts?: {
             const lt = args.where.startsAt.lt.getTime();
             rows = rows.filter((r) => r.startsAt.getTime() < lt);
           }
-          if (args?.where?.blizzardSeasonId?.not !== undefined) {
+          if (args?.where?.blizzardSeasonId?.in) {
+            const ids = new Set(args.where.blizzardSeasonId.in);
+            rows = rows.filter(
+              (r) => r.blizzardSeasonId != null && ids.has(r.blizzardSeasonId),
+            );
+          } else if (args?.where?.blizzardSeasonId?.not !== undefined) {
             rows = rows.filter((r) => r.blizzardSeasonId != null);
           }
           if (args?.orderBy?.startsAt === "desc") {
@@ -389,7 +440,6 @@ function createHarness(opts?: {
           if (typeof args?.take === "number") {
             rows = rows.slice(0, args.take);
           }
-          // buildExperiencePhase1Result needs full season rows (incl. metadata).
           if (!args?.select) {
             return rows;
           }
@@ -423,7 +473,11 @@ function createHarness(opts?: {
     },
     prisma,
     providers: {
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      blizzard: {
+        getMythicKeystoneProfile,
+        getMythicKeystoneSeasonProfile,
+        getCharacterAchievements,
+      },
       warcraftlogs: {},
       raiderio: {
         getSeasonCutoffs,
@@ -471,6 +525,7 @@ function createHarness(opts?: {
     scoringArgs,
     saved,
     evidenceRows,
+    getMythicKeystoneProfile,
     getMythicKeystoneSeasonProfile,
     getCharacterAchievements,
     getCharacterExactSeasonHistoricalRating,
@@ -501,12 +556,13 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
       container: cold.container,
     });
 
+    expect(cold.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
     expect(cold.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(cold.getCharacterAchievements).toHaveBeenCalledTimes(1);
     expect(cold.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(cold.saved[0]!.experience).toBe(90);
-    // Exact Experience contribution (memory ports → P/S/U providerCalls = 0).
-    expect(coldResult.providerCalls).toBe(2);
+    // Index + Season Details + achievements
+    expect(coldResult.providerCalls).toBe(3);
 
     const coldExp = experienceFromSaved(cold.saved[0]!);
     expect(coldExp.available).toBe(true);
@@ -576,7 +632,7 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
     const exp = experienceFromSaved(harness.saved[0]!);
     expect(exp.available).toBe(false);
     expect(exp.score).toBeNull();
-    expect(exp.reason).toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
+    expect(exp.reason).toBe("HISTORICAL_EVIDENCE_UNAVAILABLE");
     expect(exp.confidence).toBeNull();
 
     // Explicit unavailable Experience object (not a silent skip leaving dimensionDetails.experience null).
@@ -593,7 +649,7 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
     expect(result.providerCalls).toBe(0);
   });
 
-  it("C: Blizzard failure + exact RIO fallback is counted in providerCalls", async () => {
+  it("C: Blizzard historical failure does not call RIO; elite floor may still score", async () => {
     const harness = createHarness({
       allowExperienceProviders: true,
       blizzardFails: true,
@@ -604,21 +660,18 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
       container: harness.container,
     });
 
+    expect(harness.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
     expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
-    expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
-    expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledWith(
-      { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
-      PREV_RIO_SLUG,
-      expect.objectContaining({ region: "EU" }),
-    );
+    expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(harness.getCharacterAchievements).toHaveBeenCalledTimes(1);
 
-    // previousSeasonProfile (1) + achievements (1) + RIO historical (1)
+    // Index + failed Season Details + achievements
     expect(result.providerCalls).toBe(3);
 
     const exp = experienceFromSaved(harness.saved[0]!);
     expect(exp.available).toBe(true);
     expect(exp.score).toBe(90);
+    expect(exp.eliteFloorApplied).toBe(true);
     expect(harness.saved[0]!.experience).toBe(90);
   });
 });

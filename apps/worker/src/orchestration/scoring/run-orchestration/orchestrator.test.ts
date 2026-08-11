@@ -22,6 +22,7 @@ import {
   replayScoringFromPersistedEvidence,
   sourceFightKey,
 } from "./index.js";
+import { buildTestThroughputChannels } from "./test-fixtures.js";
 
 const EIGHT_DUNGEONS = [
   "ara-kara-city-of-echoes",
@@ -124,6 +125,7 @@ function baseOrchestrationInput(
     liveProviderPermission: "ALLOWED" as const,
     scope: scope(),
     candidates: fullSixteenCandidates(),
+    throughputChannels: buildTestThroughputChannels(EIGHT_DUNGEONS),
     ports,
     plannedAt: "2026-08-01T11:00:00.000Z",
     selectedAt: "2026-08-01T12:00:00.000Z",

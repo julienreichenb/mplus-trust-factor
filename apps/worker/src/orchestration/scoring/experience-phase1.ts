@@ -1,12 +1,14 @@
 /**
  * Experience Phase 1 — production evidence acquisition for refresh scoring.
  *
- * Builds an ExperiencePhase1Result from Blizzard previous-season rating +
- * persisted Season population policy + character achievements + optional
- * previous-season regional class rank (from the existing Raider.IO profile).
- * Never calls WCL or per-character season cutoffs. Failures degrade Experience only.
+ * Historical standing (Agent 03C):
+ *   Reuses 03B Blizzard HistoricalSeasonRating evidence + 03A COMPLETE
+ *   population policies. MAX of contextualized native-band scores.
+ *   Does NOT call Blizzard Season Details or Raider.IO character historical
+ *   ratings (03B is the sole historical-rating acquisition path).
  *
- * Successful closed-season evidence is persisted and reused (no TTL).
+ * Elite titles still use Blizzard achievements (cached).
+ * Failures degrade Experience only.
  */
 
 import type {
@@ -21,6 +23,7 @@ import type {
 import type { PrismaClient } from "@mplus/database";
 import {
   calculateExperiencePhase1,
+  computeHistoricalStanding,
   estimatePreviousSeasonStanding,
   extractEliteCutoffHistory,
   usablePreviousRegionalClassRank,
@@ -28,17 +31,14 @@ import {
   type ExperiencePhase1PreviousEvidence,
   type ExperiencePhase1Result,
   type ExperiencePhase1StandingProvenance,
+  type HistoricalStandingProof,
   type NativeCutoffBand,
   type NativeCutoffQuantile,
+  type SeasonPopulationPolicy,
 } from "@mplus/scoring";
 import {
-  acquirePreviousSeasonRatingEvidence,
-  applyExactSeasonRioRatingFallback,
   exactSeasonScoreFromRioProfile,
-  mayAttemptImmutableRioHistoricalFallback,
-  resolveCanonicalPreviousSeasonBinding,
   type CanonicalPreviousSeasonBinding,
-  type ExperienceSeasonBindingCandidate,
   type PersistProviderResultFn,
   type PreviousSeasonRatingEvidence,
   type RioExactSeasonScoreEvidence,
@@ -47,13 +47,14 @@ import {
 import { readExperiencePopulationPolicyMetadata } from "./experience-season-population-policy-metadata.js";
 import {
   EXPERIENCE_EVIDENCE_KIND,
-  EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
   buildEliteCutoffHistoryPersistInput,
-  buildPreviousSeasonRatingPersistInput,
   parsePersistedEliteCutoffHistoryPayload,
-  ratingEvidenceFromPersistedRow,
   type ExperienceEvidenceStore,
 } from "./experience-evidence-persist.js";
+import {
+  listHistoricalSeasonRatingsFromStore,
+  type HistoricalSeasonRating,
+} from "./experience-blizzard-season-history.js";
 
 export type ExperiencePhase1BlizzardPort = Pick<
   BlizzardProvider,
@@ -85,8 +86,8 @@ export interface BuildExperiencePhase1Input {
    */
   previousRegionalClassRank?: number | null;
   /**
-   * Optional already-resolved exact-season RIO evidence (rare test seam).
-   * Production uses raiderIoExactSeason port / dedicated HTTP on Blizzard failure.
+   * Optional already-resolved exact-season RIO evidence (legacy seam; unused for
+   * historical standing after Agent 03C).
    */
   rioExactSeasonFallback?: RioExactSeasonScoreEvidence | null;
   /**
@@ -94,20 +95,22 @@ export interface BuildExperiencePhase1Input {
    */
   rioPreviousSeasonCorroboration?: RioPreviousSeasonCorroboration | null;
   /**
-   * Optional pre-resolved canonical previous binding (production refresh-bridge).
-   * When set, phase-1 does not re-infer previous season / RIO slug.
+   * Optional pre-resolved canonical previous binding (legacy; unused for standing).
    */
   canonicalPreviousBinding?: CanonicalPreviousSeasonBinding | null;
   /**
-   * Bound previous Raider.IO season slug — only used when the selected Season row has none
-   * and no canonicalPreviousBinding was supplied.
+   * Bound previous Raider.IO season slug — unused for historical standing.
    */
   boundPreviousRaiderIoSlug?: string | null;
   /**
    * Dedicated exact-season RIO historical rating port.
-   * Required for production fallback when no compatible preloaded profile exists.
+   * Unused for 03C historical standing (zero RIO character historical calls).
    */
   raiderIoExactSeason?: ExperiencePhase1RaiderIoExactSeasonPort | null;
+  /**
+   * Optional preloaded historical ratings (tests). When omitted, loaded from store.
+   */
+  historicalRatingsOverride?: HistoricalSeasonRating[] | null;
 }
 
 export type ExperiencePhase1RaiderIoExactSeasonPort = {
@@ -120,13 +123,16 @@ export type ExperiencePhase1RaiderIoExactSeasonPort = {
 
 export interface BuildExperiencePhase1Result {
   experience: ExperiencePhase1Result;
-  /** Blizzard getMythicKeystoneSeasonProfile invocations (0 or 1). */
+  /**
+   * Legacy counter — always 0 after Agent 03C (03B owns Season Details).
+   * Kept so callers/tests can assert no duplicate previous-season fetch.
+   */
   previousSeasonProfileCalls: number;
   /** Blizzard getCharacterAchievements invocations (0 or 1). */
   achievementsCalls: number;
-  /** Dedicated Raider.IO historical rating fallback invocations (profile reuse = 0). */
+  /** Always 0 for historical standing (Agent 03C). */
   raiderIoHistoricalRatingCalls: number;
-  /** True when previous-season rating came from durable evidence. */
+  /** True when historical standing came from durable evidence. */
   previousSeasonRatingFromCache: boolean;
   /** True when elite evidence came from durable evidence. */
   eliteFromCache: boolean;
@@ -141,32 +147,16 @@ export interface BuildExperiencePhase1Result {
     populationPolicyVersion: string | null;
     matchedNativeBand: string | null;
     thresholdsUsed: Array<{ quantile: NativeCutoffQuantile; score: number }> | null;
-  };
-}
-
-function toBindingCandidate(row: {
-  id: string;
-  regionId: string | null;
-  slug: string;
-  blizzardSeasonId: number | null;
-  startsAt: Date | null;
-  endsAt: Date | null;
-  providerSeasonId?: string | null;
-}): ExperienceSeasonBindingCandidate {
-  return {
-    id: row.id,
-    regionId: row.regionId,
-    slug: row.slug,
-    blizzardSeasonId: row.blizzardSeasonId,
-    startsAt: row.startsAt,
-    endsAt: row.endsAt,
-    providerSeasonId: row.providerSeasonId ?? null,
+    contextualizedHistoricalSeasonCount: number;
+    uncontextualizedHistoricalSeasonCount: number;
+    winningHistoricalProof: HistoricalStandingProof | null;
   };
 }
 
 /**
  * Map Agent 03 rating evidence + persisted population policy into calculator previous input.
  * Provider failure / missing policy / estimate failure → UNAVAILABLE (never score 0).
+ * @deprecated Prefer computeHistoricalStanding for multi-season Experience (03C).
  */
 export function mapPreviousEvidenceToPhase1Input(input: {
   ratingEvidence: PreviousSeasonRatingEvidence;
@@ -192,7 +182,6 @@ export function mapPreviousEvidenceToPhase1Input(input: {
     };
   }
 
-  // HAS_VALUE
   if (!policyMetadata) {
     return {
       previous: { state: "UNAVAILABLE", reason: "MISSING_POPULATION_POLICY" },
@@ -239,11 +228,7 @@ export function previousRegionalClassRankFromRioProfile(
   return usablePreviousRegionalClassRank(profile.previousRanks ?? null);
 }
 
-/** Build RIO corroboration/fallback input from an already-fetched profile (no extra call).
- *
- * Exact season slug must match bound previous RIO slug on currentSeason or previousSeason.
- * Missing profile → null (do not assume refresh always supplies it).
- */
+/** Build RIO corroboration/fallback input from an already-fetched profile (no extra call). */
 export function rioPreviousSeasonCorroborationFromProfile(
   profile:
     | {
@@ -286,62 +271,74 @@ export function rioPreviousSeasonCorroborationFromProfile(
   };
 }
 
-function resolvePreloadedRioExactSeasonFallback(
-  input: BuildExperiencePhase1Input,
-): RioExactSeasonScoreEvidence | null {
-  if (input.rioExactSeasonFallback) return input.rioExactSeasonFallback;
-  const legacy = input.rioPreviousSeasonCorroboration;
-  if (
-    legacy != null &&
-    legacy.seasonBound === true &&
-    legacy.exactSeasonSlug?.trim()
-  ) {
-    const score = legacy.previousSeasonScore;
-    // Positive exact-season score may be reused without a dedicated HTTP call.
-    // Zero/null cannot prove absence without dungeon run counts → treat as not reusable.
-    if (score != null && Number.isFinite(score) && score > 0) {
-      return {
-        profileFetched: legacy.profileFetched,
-        exactSeasonSlug: legacy.exactSeasonSlug,
-        exactSeasonScore: score,
-        activityProof: "UNKNOWN",
-      };
-    }
+async function loadPoliciesForHistoricalSeasons(input: {
+  prisma: Pick<PrismaClient, "season">;
+  ratings: HistoricalSeasonRating[];
+}): Promise<Map<string, SeasonPopulationPolicy | null>> {
+  const policyBySeasonId = new Map<string, SeasonPopulationPolicy | null>();
+  const ids = [...new Set(input.ratings.map((r) => r.seasonId))];
+  if (ids.length === 0) return policyBySeasonId;
+
+  const rows = await input.prisma.season.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, metadata: true },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const id of ids) {
+    const meta = readExperiencePopulationPolicyMetadata(byId.get(id)?.metadata ?? null);
+    policyBySeasonId.set(id, meta?.policy ?? null);
   }
-  return null;
+  return policyBySeasonId;
 }
 
-function rioEvidenceFromDedicatedResult(input: {
-  seasonSlug: string;
-  result: ProviderResult<RaiderIoExactSeasonHistoricalRating>;
-  providerPayloadId: string | null;
-}): RioExactSeasonScoreEvidence {
-  const data = input.result.data;
-  if (!data.seasonFound) {
+function previousFromHistoricalStanding(computation: ReturnType<typeof computeHistoricalStanding>): {
+  previous: ExperiencePhase1PreviousEvidence;
+  reason: string | null;
+  winning: HistoricalStandingProof | null;
+} {
+  if (computation.winning) {
     return {
-      profileFetched: true,
-      exactSeasonSlug: input.seasonSlug,
-      exactSeasonScore: undefined,
-      activityProof: "UNKNOWN",
-      providerPayloadId: input.providerPayloadId,
-      fetchedAt: input.result.provenance.fetchedAt,
+      previous: { state: "STANDING", standing: computation.winning.standing },
+      reason: null,
+      winning: computation.winning,
+    };
+  }
+  // Season-level CONFIRMED_NO_ACTIVITY rows are neutral facts only — they do NOT
+  // prove whole-history absence (03B: index absence = UNKNOWN). Without HAS_VALUE
+  // + COMPLETE policy proofs, historical standing is unavailable (not E=0).
+  if (computation.uncontextualized.length > 0) {
+    return {
+      previous: {
+        state: "UNAVAILABLE",
+        reason: "NO_CONTEXTUALIZED_HISTORICAL_STANDING",
+      },
+      reason: "NO_CONTEXTUALIZED_HISTORICAL_STANDING",
+      winning: null,
+    };
+  }
+  if (computation.confirmedNoActivityOnly) {
+    return {
+      previous: {
+        state: "UNAVAILABLE",
+        reason: "NO_SCOREABLE_HISTORICAL_STANDING",
+      },
+      reason: "NO_SCOREABLE_HISTORICAL_STANDING",
+      winning: null,
     };
   }
   return {
-    profileFetched: true,
-    exactSeasonSlug: input.seasonSlug,
-    exactSeasonScore: data.scoreAll,
-    activityProof: data.activityProof,
-    providerPayloadId: input.providerPayloadId,
-    fetchedAt: input.result.provenance.fetchedAt,
+    previous: { state: "UNAVAILABLE", reason: "NO_HISTORICAL_RATING_EVIDENCE" },
+    reason: "NO_HISTORICAL_RATING_EVIDENCE",
+    winning: null,
   };
 }
 
 /**
  * Acquire Experience Phase 1 evidence and compute the pure calculator result.
  *
- * Cold: at most 1 previous-season Blizzard profile + optional exact-season RIO
- * fallback + 1 achievements call. Warm/replay: durable evidence only (0 providers).
+ * Historical standing: durable 03B evidence only (0 Season Details / 0 RIO
+ * character historical calls from this function).
+ * Elite: at most 1 achievements call when not cached.
  */
 export async function buildExperiencePhase1Result(
   input: BuildExperiencePhase1Input,
@@ -356,16 +353,18 @@ export async function buildExperiencePhase1Result(
     populationPolicyVersion: null as string | null,
     matchedNativeBand: null as string | null,
     thresholdsUsed: null as Array<{ quantile: NativeCutoffQuantile; score: number }> | null,
+    contextualizedHistoricalSeasonCount: 0,
+    uncontextualizedHistoricalSeasonCount: 0,
+    winningHistoricalProof: null as HistoricalStandingProof | null,
   };
   const previousRegionalClassRank = input.previousRegionalClassRank ?? null;
   const store = input.evidenceStore ?? null;
 
-  let previousSeasonProfileCalls = 0;
+  const previousSeasonProfileCalls = 0;
   let achievementsCalls = 0;
-  let raiderIoHistoricalRatingCalls = 0;
+  const raiderIoHistoricalRatingCalls = 0;
   let previousSeasonRatingFromCache = false;
   let eliteFromCache = false;
-  let ratingEvidenceOriginalSource: "BLIZZARD" | "RAIDERIO_FALLBACK" | null = null;
   let previous: ExperiencePhase1PreviousEvidence = {
     state: "UNAVAILABLE",
     reason: "NOT_ATTEMPTED",
@@ -377,256 +376,52 @@ export async function buildExperiencePhase1Result(
 
   const currentRow = await input.prisma.season.findUnique({
     where: { id: input.currentSeasonId },
-    select: {
-      id: true,
-      regionId: true,
-      slug: true,
-      blizzardSeasonId: true,
-      startsAt: true,
-      endsAt: true,
-    },
+    select: { id: true, regionId: true },
   });
-
-  let regionSeasons: Array<{
-    id: string;
-    regionId: string | null;
-    slug: string;
-    blizzardSeasonId: number | null;
-    startsAt: Date | null;
-    endsAt: Date | null;
-    metadata: unknown;
-    providerSeasonId?: string | null;
-  }> = [];
-  let previousBinding: ExperienceSeasonBindingCandidate | null = null;
-  let boundRioSlugFromCanonical: string | null = null;
 
   if (!currentRow) {
     diagnostics.bindingReason = "CURRENT_SEASON_NOT_FOUND";
     diagnostics.previousReason = "CURRENT_SEASON_NOT_FOUND";
     previous = { state: "UNAVAILABLE", reason: "CURRENT_SEASON_NOT_FOUND" };
   } else {
-    regionSeasons = currentRow.regionId
-      ? await input.prisma.season.findMany({
-          where: { regionId: currentRow.regionId },
-          select: {
-            id: true,
-            regionId: true,
-            slug: true,
-            blizzardSeasonId: true,
-            startsAt: true,
-            endsAt: true,
-            metadata: true,
-            providerSeasonId: true,
-          },
-        })
-      : [];
+    const ratings =
+      input.historicalRatingsOverride ??
+      (store
+        ? await listHistoricalSeasonRatingsFromStore(store, input.characterId, {
+            prisma: input.prisma,
+          })
+        : []);
 
-    const supplied = input.canonicalPreviousBinding;
-    const binding =
-      supplied != null
-        ? supplied
-        : resolveCanonicalPreviousSeasonBinding(
-            toBindingCandidate(currentRow),
-            regionSeasons.map(toBindingCandidate),
-          );
-
-    if (!binding.ok) {
-      diagnostics.bindingReason = binding.reason;
-      diagnostics.previousReason = binding.reason;
-      previous = { state: "UNAVAILABLE", reason: binding.reason };
-    } else {
-      previousBinding = binding.season;
-      // Canonical slug from the selected previous row; caller override is fallback only.
-      boundRioSlugFromCanonical =
-        binding.boundRaiderIoSlug ||
-        input.boundPreviousRaiderIoSlug?.trim() ||
-        null;
-    }
-  }
-
-  if (previousBinding) {
-    const previousRow = regionSeasons.find((s) => s.id === previousBinding!.id);
-    const policyMetadata = readExperiencePopulationPolicyMetadata(
-      previousRow?.metadata ?? null,
-    );
-    const boundRioSlug = boundRioSlugFromCanonical;
-
-    let ratingEvidence: PreviousSeasonRatingEvidence | null = null;
-
-    if (store) {
-      const cached = await store.find({
-        characterId: input.characterId,
-        seasonId: previousBinding.id,
-        evidenceKind: EXPERIENCE_EVIDENCE_KIND.PREVIOUS_SEASON_RATING,
-        compatibilityVersion: EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
-      });
-      if (cached) {
-        const blizzardSeasonId = previousBinding.blizzardSeasonId;
-        ratingEvidence =
-          blizzardSeasonId != null && Number.isFinite(blizzardSeasonId)
-            ? ratingEvidenceFromPersistedRow(cached, {
-                characterId: input.characterId,
-                seasonId: previousBinding.id,
-                blizzardSeasonId,
-                raiderIoSeasonSlug: boundRioSlug,
-              })
-            : ratingEvidenceFromPersistedRow(cached);
-        if (ratingEvidence) {
-          previousSeasonRatingFromCache = true;
-          diagnostics.ratingSource = "PERSISTED";
-          if (
-            ratingEvidence.state === "HAS_VALUE" ||
-            ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
-          ) {
-            ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
-          }
-        }
-        // Incompatible cache: leave ratingEvidence null → reacquire or unavailable below.
-      }
+    if (ratings.length > 0) {
+      previousSeasonRatingFromCache = true;
+      diagnostics.ratingSource = "PERSISTED";
     }
 
-    if (!ratingEvidence && input.allowProviderCalls) {
-      previousSeasonProfileCalls = 1;
-      ratingEvidence = await acquirePreviousSeasonRatingEvidence({
-        identity: input.identity,
-        previousSeason: previousBinding,
-        blizzard: input.blizzard,
-        ctx: input.ctx,
-        persistProviderResult: input.persistProviderResult,
-      });
-
-      if (ratingEvidence.state === "PROVIDER_FAILURE") {
-        const mayRioFallback = mayAttemptImmutableRioHistoricalFallback(
-          ratingEvidence.cause,
-        );
-        let rioFallback: RioExactSeasonScoreEvidence | null = null;
-
-        if (mayRioFallback) {
-          rioFallback = resolvePreloadedRioExactSeasonFallback(input);
-
-          // Dedicated exact-season RIO HTTP when no reusable positive preloaded evidence.
-          if (
-            rioFallback == null &&
-            boundRioSlug &&
-            input.raiderIoExactSeason &&
-            input.allowProviderCalls
-          ) {
-            try {
-              raiderIoHistoricalRatingCalls = 1;
-              const rioResult =
-                await input.raiderIoExactSeason.getCharacterExactSeasonHistoricalRating(
-                  input.identity,
-                  boundRioSlug,
-                  input.ctx,
-                );
-              const payloadId = await input.persistProviderResult(rioResult);
-              rioFallback = rioEvidenceFromDedicatedResult({
-                seasonSlug: boundRioSlug,
-                result: rioResult,
-                providerPayloadId: payloadId,
-              });
-            } catch (cause) {
-              rioFallback = null;
-              diagnostics.previousReason =
-                cause instanceof Error
-                  ? `RIO_EXACT_SEASON_FETCH_FAILED:${cause.message}`
-                  : "RIO_EXACT_SEASON_FETCH_FAILED";
-            }
-          } else if (rioFallback == null && !boundRioSlug) {
-            diagnostics.previousReason = "BLIZZARD_FAILURE_UNBOUND_RIO_SEASON";
-          } else if (
-            rioFallback == null &&
-            boundRioSlug &&
-            !input.raiderIoExactSeason
-          ) {
-            diagnostics.previousReason = "RIO_EXACT_SEASON_PORT_UNAVAILABLE";
-          }
-
-          ratingEvidence = applyExactSeasonRioRatingFallback({
-            binding: previousBinding,
-            ratingEvidence,
-            rio: rioFallback,
-          });
-        } else {
-          diagnostics.previousReason =
-            diagnostics.previousReason ??
-            "BLIZZARD_TRANSIENT_OR_NON_FALLBACK_NO_RIO";
-        }
-
-        if (
-          ratingEvidence.state === "HAS_VALUE" ||
-          ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
-        ) {
-          diagnostics.ratingSource = ratingEvidence.ratingSource;
-          ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
-        }
-      } else if (
-        ratingEvidence.state === "HAS_VALUE" ||
-        ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
-      ) {
-        diagnostics.ratingSource = ratingEvidence.ratingSource;
-        ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
-      }
-
-      if (
-        store &&
-        (ratingEvidence.state === "HAS_VALUE" ||
-          ratingEvidence.state === "CONFIRMED_NO_ACTIVITY")
-      ) {
-        const persistInput = buildPreviousSeasonRatingPersistInput({
-          characterId: input.characterId,
-          evidence: ratingEvidence,
-          raiderIoSeasonSlug:
-            boundRioSlug ??
-            input.rioExactSeasonFallback?.exactSeasonSlug ??
-            input.rioPreviousSeasonCorroboration?.exactSeasonSlug ??
-            null,
-        });
-        if (persistInput) {
-          await store.upsertImmutable(persistInput);
-        }
-      }
-    } else if (!ratingEvidence) {
-      ratingEvidence = {
-        state: "UNRESOLVED",
-        reason: input.allowProviderCalls
-          ? "PREVIOUS_RATING_UNAVAILABLE"
-          : "PREVIOUS_RATING_NOT_PERSISTED",
-      };
-    }
-
-    const mapped = mapPreviousEvidenceToPhase1Input({
-      ratingEvidence,
-      policyMetadata,
+    const policyBySeasonId = await loadPoliciesForHistoricalSeasons({
+      prisma: input.prisma,
+      ratings,
     });
+    const computation = computeHistoricalStanding({
+      ratings,
+      policyBySeasonId,
+      regionCode: input.regionCode,
+    });
+    diagnostics.contextualizedHistoricalSeasonCount = computation.proofs.length;
+    diagnostics.uncontextualizedHistoricalSeasonCount =
+      computation.uncontextualized.length;
+
+    const mapped = previousFromHistoricalStanding(computation);
     previous = mapped.previous;
     diagnostics.previousReason = mapped.reason;
-    if (
-      !diagnostics.ratingSource &&
-      (ratingEvidence.state === "HAS_VALUE" ||
-        ratingEvidence.state === "CONFIRMED_NO_ACTIVITY")
-    ) {
-      diagnostics.ratingSource = ratingEvidence.ratingSource;
-      ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
-    }
+    diagnostics.winningHistoricalProof = mapped.winning;
 
-    if (ratingEvidence.state === "HAS_VALUE") {
-      diagnostics.historicalRating = ratingEvidence.rating;
-      diagnostics.exactHistoricalSeasonSlug = ratingEvidence.seasonSlug;
-    } else if (ratingEvidence.state === "CONFIRMED_NO_ACTIVITY") {
-      diagnostics.historicalRating = ratingEvidence.rating;
-      diagnostics.exactHistoricalSeasonSlug = ratingEvidence.seasonSlug;
-    }
-
-    if (policyMetadata) {
-      diagnostics.populationPolicyVersion = policyMetadata.policy.version;
-    }
-    if (previous.state === "STANDING") {
-      diagnostics.matchedNativeBand = previous.standing.nativeBand;
-      diagnostics.thresholdsUsed = previous.standing.thresholdsUsed;
-      diagnostics.populationPolicyVersion = previous.standing.policyVersion;
+    if (mapped.winning) {
+      diagnostics.historicalRating = mapped.winning.rating;
       diagnostics.exactHistoricalSeasonSlug =
-        diagnostics.exactHistoricalSeasonSlug ?? previous.standing.seasonSlug;
+        mapped.winning.policySeasonSlug || mapped.winning.seasonSlug;
+      diagnostics.populationPolicyVersion = mapped.winning.populationPolicyVersion;
+      diagnostics.matchedNativeBand = mapped.winning.nativeBand;
+      diagnostics.thresholdsUsed = mapped.winning.thresholdsUsed;
     }
   }
 
@@ -690,19 +485,28 @@ export async function buildExperiencePhase1Result(
     previous,
     elite,
     previousRegionalClassRank,
+    winningHistoricalProof: diagnostics.winningHistoricalProof,
+    contextualizedHistoricalSeasonCount:
+      diagnostics.contextualizedHistoricalSeasonCount,
   });
 
   const standingProvenance: ExperiencePhase1StandingProvenance = {
     historicalRating: diagnostics.historicalRating,
-    ratingSource:
-      diagnostics.ratingSource === "BLIZZARD" ||
-      diagnostics.ratingSource === "RAIDERIO_FALLBACK"
-        ? diagnostics.ratingSource
-        : ratingEvidenceOriginalSource,
+    ratingSource: "BLIZZARD",
     exactHistoricalSeasonSlug: diagnostics.exactHistoricalSeasonSlug,
     populationPolicyVersion: diagnostics.populationPolicyVersion,
     matchedNativeBand: (diagnostics.matchedNativeBand as NativeCutoffBand | null) ?? null,
     thresholdsUsed: diagnostics.thresholdsUsed,
+    acquisitionReason: diagnostics.previousReason,
+    winningSeasonId: diagnostics.winningHistoricalProof?.seasonId ?? null,
+    winningSeasonSlug:
+      diagnostics.winningHistoricalProof?.policySeasonSlug ??
+      diagnostics.winningHistoricalProof?.seasonSlug ??
+      null,
+    winningBlizzardSeasonId:
+      diagnostics.winningHistoricalProof?.blizzardSeasonId ?? null,
+    contextualizedHistoricalSeasonCount:
+      diagnostics.contextualizedHistoricalSeasonCount,
   };
 
   const experience: ExperiencePhase1Result = {

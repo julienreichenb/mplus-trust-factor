@@ -9,6 +9,7 @@ import {
   ScoreDimension,
   MetricDirection,
 } from "@prisma/client";
+import { seedExperienceSeasonCutoffsFromCatalog } from "./seed-experience-season-cutoffs.js";
 
 function loadRootEnv(): void {
   const rootEnv = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../.env");
@@ -169,7 +170,7 @@ const defaultModelConfigV6 = {
   overallFormula: "WEIGHTED_DIMENSIONS",
   /** Admin console tunable weights — defaults ≡ current production P/U/S behaviour. */
   tunableWeights: {
-    schemaVersion: "tunable-weights.1",
+    schemaVersion: "tunable-weights.2",
     dimensions: {
       performance: 35,
       survival: 30,
@@ -178,13 +179,23 @@ const defaultModelConfigV6 = {
     },
     components: {
       performance: {
-        phase1: 80,
-        cooldown: 20,
-        dungeonPeak: 40,
-        dungeonFloor: 45,
-        dungeonConsistency: 15,
-        profileBestAverage: 45,
-        profileMedianAverage: 55,
+        parse: {
+          bestAverage: 45,
+          medianAverage: 55,
+        },
+        roles: {
+          dps: {
+            damageParse: 80,
+            cooldown: 20,
+          },
+          tank: {
+            damageParse: 100,
+          },
+          healer: {
+            healingParse: 65,
+            damageParse: 35,
+          },
+        },
       },
       survival: {
         outcome: 55,
@@ -743,8 +754,13 @@ async function seed(): Promise<void> {
     });
   }
 
+  const cutoffsReport = await seedExperienceSeasonCutoffsFromCatalog(prisma);
+  const applied = cutoffsReport.results.filter((r) => r.status === "APPLIED").length;
+  const unchanged = cutoffsReport.results.filter((r) => r.status === "UNCHANGED").length;
+
   console.log(
-    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v6 ACTIVE (v1–v5 archived), metrics, red flags.",
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v6 ACTIVE (v1–v5 archived), metrics, red flags," +
+      ` experience cutoffs catalog v${cutoffsReport.catalogVersion} (${cutoffsReport.entryCount} entries; applied=${applied}, unchanged=${unchanged}).`,
   );
 }
 

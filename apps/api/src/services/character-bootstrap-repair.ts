@@ -16,9 +16,10 @@ export const CHARACTER_BOOTSTRAP_INCOMPLETE = "CHARACTER_BOOTSTRAP_INCOMPLETE" a
  * eligibility gate can make a non-UNKNOWN decision from local data alone.
  *
  * Authoritative fields (minimum): level, Blizzard character ID, class, active spec, role.
- * Provider-assisted repair remains exact resolve / forceRetry only (see worker
+ * Provider-assisted repair remains exact resolve (see worker
  * `ensurePublicCharacterBootstrap` / `persistPublicCharacterBootstrap` /
- * `resolveOrDiscoverPublicCharacter`).
+ * `resolveOrDiscoverPublicCharacter`). Missing current-season Mythic+ score
+ * also triggers a bounded Blizzard fetch on normal resolve.
  */
 export function latestJobIsEligibilityUnknown(latestJob: {
   status: string;
@@ -64,8 +65,9 @@ export function shouldRepairCharacterBootstrap(input: {
   if (lacksBootstrap) return true;
   // Prior fail-closed UNKNOWN must not permanently strand the character.
   if (unknownFailure) return true;
-  // Explicit retry may refresh season-scoped Mythic+ evidence when still missing.
-  if (input.forceRetry && input.missingSeasonMythicEvidence) return true;
+  // Missing current-season Mythic+ score → fetch Blizzard once (forceRetry not required).
+  if (input.missingSeasonMythicEvidence) return true;
+  void input.forceRetry;
   return false;
 }
 

@@ -80,7 +80,7 @@ export interface ProbeFailureDiagnostics {
   rejectionReasons: Record<string, number>;
   /** Total reports inspected. */
   reportsInspected: number;
-  /** Total fights that passed hydration. */
+  /** Total fights that passed post-selection report mapping. */
   fightsInspected: number;
   /** Schema or zone warnings. */
   schemaWarnings: string[];
@@ -219,7 +219,6 @@ function parseArgs(argv: string[]): {
   outputRoot: string;
   maxRunsPerDungeon: number;
   maxReportsPerDungeon: number;
-  maxRecentReportPages: number;
   resume: boolean;
   resumePartial: boolean;
   retryErrors: boolean;
@@ -278,7 +277,6 @@ function parseArgs(argv: string[]): {
       join(process.cwd(), "raw-artifacts", "wcl-probe-utility"),
     maxRunsPerDungeon: Number(flags["max-runs-per-dungeon"] ?? 3),
     maxReportsPerDungeon: Number(flags["max-reports-per-dungeon"] ?? 8),
-    maxRecentReportPages: Number(flags["max-recent-report-pages"] ?? 1),
     resume: boolFlags.has("resume") || envFlag(flags["resume"]),
     resumePartial: boolFlags.has("resume-partial") || envFlag(flags["resume-partial"]),
     retryErrors: boolFlags.has("retry-errors") || envFlag(flags["retry-errors"]),
@@ -417,8 +415,8 @@ async function buildProbeFailureDiagnostics(
     );
     schemaWarnings = diag.schemaWarnings ?? [];
     for (const rej of diag.candidateRunsRejected ?? []) {
-      // Normalize reason: strip fight index suffix (hydrate_fight_N_reason → reason)
-      const normalized = rej.reason.replace(/^hydrate_fight_\d+_/, "");
+      // Normalize reason: strip fight index suffix (map_fight_N_reason → reason)
+      const normalized = rej.reason.replace(/^map_fight_\d+_/, "");
       rejectionReasons[normalized] = (rejectionReasons[normalized] ?? 0) + 1;
     }
   } catch {
@@ -449,8 +447,8 @@ async function buildProbeFailureDiagnostics(
     schemaWarnings,
     characterFound,
     diagnosis,
-    // zone_rankings_aggregate_only is retryable: increasing maxRecentReportPages
-    // or wider report window may surface the missing dungeon candidates.
+    // zone_rankings_aggregate_only is retryable only if encounterRankings
+    // or a later rankings refresh can supply parse-linked report/fight IDs.
     retryable: diagnosis !== "character_not_found" && diagnosis !== "all_fights_target_absent",
     partialArtifactPaths: [...new Set(partialArtifactPaths)],
   };
@@ -869,8 +867,6 @@ async function validateCharacter(
   opts: {
     /** When set, only probe these dungeons (PARTIAL resume). */
     focusDungeons?: string[] | null;
-    /** Number of recentReports pages to fetch during discovery. */
-    maxRecentReportPages?: number;
     /** When true, allow live WCL even for COMPLETE characters. */
     forceRefetch?: boolean;
   } = {},
@@ -1023,7 +1019,6 @@ async function validateCharacter(
         zoneConfig: provider.getZoneConfig(),
         maxRunsPerDungeon,
         maxReportsInspectedPerDungeon: maxReportsPerDungeon,
-        maxRecentReportPages: opts.maxRecentReportPages ?? 1,
         focusDungeons: opts.focusDungeons ?? null,
         cleanOutputDir: true,
       });
@@ -1600,7 +1595,6 @@ async function main(): Promise<void> {
       historicalCostPerDungeon,
       {
         focusDungeons: partialFocusDungeons,
-        maxRecentReportPages: args.maxRecentReportPages,
         forceRefetch: args.forceRefetch,
       },
     );

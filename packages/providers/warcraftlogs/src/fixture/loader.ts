@@ -26,7 +26,6 @@ export interface WclFixtureBundle {
   zoneRankings: unknown;
   /** Optional points_and_damage payload for Performance (production path). */
   zoneRankingsPointsAndDamage?: unknown;
-  recentReports: unknown;
   rateLimitData: unknown;
   report?: unknown;
   events?: Record<string, unknown>;

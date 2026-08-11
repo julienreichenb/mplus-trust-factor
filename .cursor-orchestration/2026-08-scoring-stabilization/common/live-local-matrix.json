@@ -1,0 +1,453 @@
+{
+  "mutation": false,
+  "providerCalls": 0,
+  "seasons": [
+    {
+      "id": "822802c7-486a-4d4f-b7e0-3037f02f91d8",
+      "slug": "placeholder-current",
+      "blizzardSeasonId": null,
+      "providerSeasonId": null,
+      "isCurrent": true,
+      "startsAt": null,
+      "endsAt": null,
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+      "slug": "blizzard-season-17",
+      "blizzardSeasonId": 17,
+      "providerSeasonId": "season-mn-1",
+      "isCurrent": true,
+      "startsAt": "2026-03-18T04:00:00.000Z",
+      "endsAt": null,
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "c8a85cb9-7ed1-4339-8640-6364d3050812",
+      "slug": "auto-current",
+      "blizzardSeasonId": null,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": null,
+      "endsAt": null,
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "1bf5289e-779c-489f-ae2a-9424ecc5276f",
+      "slug": "pub-cancel-season",
+      "blizzardSeasonId": 999001,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2026-01-01T00:00:00.000Z",
+      "endsAt": null,
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "1e41c326-5ac2-4c3f-883a-11640c7dc7eb",
+      "slug": "blizzard-season-15",
+      "blizzardSeasonId": 15,
+      "providerSeasonId": "season-tww-3",
+      "isCurrent": false,
+      "startsAt": "2025-08-06T04:00:00.000Z",
+      "endsAt": "2026-03-18T04:00:00.000Z",
+      "populationPolicyPresent": true,
+      "populationPolicyQuality": "COMPLETE"
+    },
+    {
+      "id": "d739c9c4-7f94-4c13-94db-8294d7c0b435",
+      "slug": "blizzard-season-14",
+      "blizzardSeasonId": 14,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2025-03-05T04:00:00.000Z",
+      "endsAt": "2025-08-06T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "fa876bfc-72f5-4f70-bca9-0349e4833fe3",
+      "slug": "blizzard-season-13",
+      "blizzardSeasonId": 13,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2024-09-11T04:00:00.000Z",
+      "endsAt": "2025-03-05T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "5fcffeea-6914-47b7-b680-77209975b193",
+      "slug": "blizzard-season-12",
+      "blizzardSeasonId": 12,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2024-04-24T04:00:00.000Z",
+      "endsAt": "2024-09-11T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "87815ac7-6b36-415e-bc6d-763cbd4a57df",
+      "slug": "blizzard-season-11",
+      "blizzardSeasonId": 11,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2023-11-15T04:00:00.000Z",
+      "endsAt": "2024-04-24T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "e7aef4e6-53ac-414d-8a34-88941bf10f77",
+      "slug": "blizzard-season-10",
+      "blizzardSeasonId": 10,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2023-05-10T04:00:00.000Z",
+      "endsAt": "2023-11-15T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "d29c9e7d-57f8-408d-a6bc-6acfabbb690b",
+      "slug": "blizzard-season-9",
+      "blizzardSeasonId": 9,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2022-11-28T23:00:00.000Z",
+      "endsAt": "2023-05-10T04:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "719993ee-7a80-449d-8891-8f8dee5fb144",
+      "slug": "blizzard-season-8",
+      "blizzardSeasonId": 8,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2022-08-03T07:00:00.000Z",
+      "endsAt": "2022-11-28T23:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "0e881f0c-0af8-4122-aabf-997351da3e1f",
+      "slug": "blizzard-season-7",
+      "blizzardSeasonId": 7,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2022-03-02T07:00:00.000Z",
+      "endsAt": "2022-08-03T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "8f79d366-be9d-437f-a6a9-2937c97e2215",
+      "slug": "blizzard-season-6",
+      "blizzardSeasonId": 6,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2021-07-07T07:00:00.000Z",
+      "endsAt": "2022-03-02T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "639ce72b-b105-4b36-8ca0-89ad0d2a0ecf",
+      "slug": "blizzard-season-5",
+      "blizzardSeasonId": 5,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2020-11-23T23:00:00.000Z",
+      "endsAt": "2021-07-07T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "77d67cc4-5e19-433c-b6c8-fbe9885ef1a4",
+      "slug": "blizzard-season-4",
+      "blizzardSeasonId": 4,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2020-01-22T07:00:00.000Z",
+      "endsAt": "2020-11-23T23:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "87cc0c22-79e2-4859-9a73-3396031ef0c7",
+      "slug": "blizzard-season-3",
+      "blizzardSeasonId": 3,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2019-07-10T07:00:00.000Z",
+      "endsAt": "2020-01-22T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "59b884e2-9aa1-41f9-90ae-e220a134745d",
+      "slug": "blizzard-season-2",
+      "blizzardSeasonId": 2,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2019-01-23T07:00:00.000Z",
+      "endsAt": "2019-07-10T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    },
+    {
+      "id": "91416f03-cb33-4780-aa47-16df608b6d67",
+      "slug": "blizzard-season-1",
+      "blizzardSeasonId": 1,
+      "providerSeasonId": null,
+      "isCurrent": false,
+      "startsAt": "2018-08-29T00:00:00.000Z",
+      "endsAt": "2019-01-23T07:00:00.000Z",
+      "populationPolicyPresent": false,
+      "populationPolicyQuality": null
+    }
+  ],
+  "characters": [
+    {
+      "name": "Wallidrixe",
+      "characterId": "cbbbd732-8c82-4364-b63c-a94a548765e0",
+      "scores": [
+        {
+          "id": "8e736310-efff-4872-a363-1203b1a6ad17",
+          "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+          "scoringVersion": "scoring-v1.performance-phase2.utility-phase2.survival-phase2",
+          "performance": 94.95966105348867,
+          "utility": 62.3,
+          "survival": 72.93254876739533,
+          "experience": 0,
+          "confidence": 1,
+          "calculatedAt": "2026-08-10T10:44:12.979Z",
+          "summary": {
+            "performanceConfidence": {
+              "value": null,
+              "reasons": null,
+              "components": null
+            },
+            "experienceExplain": {
+              "score": null,
+              "availability": null,
+              "reasons": null,
+              "drivers": null
+            },
+            "experienceDetails": {
+              "score": 0,
+              "reason": null,
+              "available": true,
+              "confidence": 1,
+              "classRankFloor": null,
+              "confidenceCauses": [],
+              "eliteFloorApplied": false,
+              "standingProvenance": {
+                "ratingSource": "RAIDERIO_FALLBACK",
+                "thresholdsUsed": null,
+                "historicalRating": null,
+                "matchedNativeBand": null,
+                "populationPolicyVersion": "season-population-policy-v2",
+                "exactHistoricalSeasonSlug": "blizzard-season-15"
+              },
+              "classRankFloorApplied": false,
+              "previousStandingScore": 0,
+              "confirmedEliteTitleCount": 0
+            },
+            "performanceDetails": {
+              "state": "AVAILABLE",
+              "coverage": {
+                "selectedRunCount": 16,
+                "activeDungeonCount": 8,
+                "profileDungeonCount": 8,
+                "detailedDungeonCount": 8,
+                "evaluatedAbilityCount": 16,
+                "cooldownUsableRunCount": 16
+              },
+              "confidence": 1,
+              "limitations": [
+                "difficulty_policy_orchestrator_default"
+              ],
+              "phase1Score": 95.1525048672758,
+              "weightsApplied": {
+                "phase1": 0.8,
+                "cooldown": 0.2
+              },
+              "calculatorVersion": "performance-phase2-v1",
+              "confidenceBreakdown": {
+                "band": "HIGH",
+                "value": 1,
+                "causes": [],
+                "components": {
+                  "phase1Weight": 0.8,
+                  "cooldownWeight": 0.2,
+                  "phase1Confidence": 1,
+                  "selectedRunCount": 16,
+                  "cooldownRunCoverage": 1,
+                  "evaluatedAbilityCount": 16,
+                  "cooldownUsableRunCount": 16,
+                  "cooldownEvidenceConfidence": 1
+                },
+                "schemaVersion": "dimension-confidence-breakdown-v1"
+              },
+              "offensiveCooldownDiscipline": 94.18828579834016
+            }
+          }
+        }
+      ],
+      "experienceEvidence": [
+        {
+          "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+          "evidenceKind": "ELITE_CUTOFF_HISTORY",
+          "state": "CONFIRMED_ABSENCE",
+          "source": "BLIZZARD",
+          "payload": {
+            "confirmed": [],
+            "schemaVersion": "elite-cutoff-catalog-v1",
+            "confirmedCount": 0
+          },
+          "compatibilityVersion": "elite-cutoff-catalog-v1",
+          "updatedAt": "2026-08-09T16:20:44.310Z"
+        },
+        {
+          "seasonId": "1e41c326-5ac2-4c3f-883a-11640c7dc7eb",
+          "evidenceKind": "PREVIOUS_SEASON_RATING",
+          "state": "CONFIRMED_ABSENCE",
+          "source": "RAIDERIO_FALLBACK",
+          "payload": {
+            "state": "CONFIRMED_NO_ACTIVITY",
+            "rating": null,
+            "seasonSlug": "blizzard-season-15",
+            "ratingSource": "RAIDERIO_FALLBACK",
+            "schemaVersion": "experience-previous-rating-v1",
+            "blizzardSeasonId": 15,
+            "internalSeasonId": "1e41c326-5ac2-4c3f-883a-11640c7dc7eb",
+            "raiderIoSeasonSlug": "season-tww-3"
+          },
+          "compatibilityVersion": "experience-previous-rating-v1",
+          "updatedAt": "2026-08-09T16:20:44.056Z"
+        }
+      ]
+    },
+    {
+      "name": "Lfgmasochist",
+      "characterId": "1542d208-5aeb-43c0-bf1b-47b94bd72089",
+      "scores": [
+        {
+          "id": "5df8a0c1-8eb9-43f5-92b9-80c3f8ff8e89",
+          "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+          "scoringVersion": "scoring-v1.performance-phase2.utility-phase2.survival-phase2",
+          "performance": 57.74000000000001,
+          "utility": 69.18,
+          "survival": 63.65937495542074,
+          "experience": null,
+          "confidence": 0.38412,
+          "calculatedAt": "2026-08-10T10:58:17.071Z",
+          "summary": {
+            "performanceConfidence": {
+              "value": null,
+              "reasons": null,
+              "components": null
+            },
+            "experienceExplain": {
+              "score": null,
+              "availability": null,
+              "reasons": null,
+              "drivers": null
+            },
+            "experienceDetails": {
+              "score": null,
+              "reason": "PREVIOUS_EVIDENCE_UNAVAILABLE",
+              "available": false,
+              "confidence": null,
+              "classRankFloor": null,
+              "confidenceCauses": [
+                "previous_evidence_unavailable"
+              ],
+              "eliteFloorApplied": false,
+              "standingProvenance": {
+                "ratingSource": null,
+                "thresholdsUsed": null,
+                "historicalRating": null,
+                "matchedNativeBand": null,
+                "populationPolicyVersion": "season-population-policy-v2",
+                "exactHistoricalSeasonSlug": null
+              },
+              "classRankFloorApplied": false,
+              "previousStandingScore": null,
+              "confirmedEliteTitleCount": 0
+            },
+            "performanceDetails": {
+              "state": "PARTIAL",
+              "coverage": {
+                "selectedRunCount": 0,
+                "activeDungeonCount": 8,
+                "profileDungeonCount": 6,
+                "detailedDungeonCount": 0,
+                "evaluatedAbilityCount": 45,
+                "cooldownUsableRunCount": 15
+              },
+              "confidence": 0.4268,
+              "limitations": [
+                "profile_only",
+                "incomplete_dungeon_coverage",
+                "incomplete_detailed_slot_coverage",
+                "difficulty_policy_confidence_reduced",
+                "phase1_partial",
+                "difficulty_policy_orchestrator_default"
+              ],
+              "phase1Score": 55.50833333333335,
+              "weightsApplied": {
+                "phase1": 0.8,
+                "cooldown": 0.2
+              },
+              "calculatorVersion": "performance-phase2-v1",
+              "confidenceBreakdown": {
+                "band": "LOW",
+                "value": 0.4268,
+                "causes": [
+                  "profile_only",
+                  "incomplete_dungeon_coverage",
+                  "incomplete_detailed_slot_coverage",
+                  "difficulty_policy_confidence_reduced"
+                ],
+                "components": {
+                  "phase1Weight": 0.8,
+                  "cooldownWeight": 0.2,
+                  "phase1Confidence": 0.2835,
+                  "selectedRunCount": 15,
+                  "cooldownRunCoverage": 1,
+                  "evaluatedAbilityCount": 45,
+                  "cooldownUsableRunCount": 15,
+                  "cooldownEvidenceConfidence": 1
+                },
+                "schemaVersion": "dimension-confidence-breakdown-v1"
+              },
+              "offensiveCooldownDiscipline": 66.66666666666666
+            }
+          }
+        }
+      ],
+      "experienceEvidence": [
+        {
+          "seasonId": "965c666a-7e90-42d1-8cc8-e9da6467d6d7",
+          "evidenceKind": "ELITE_CUTOFF_HISTORY",
+          "state": "CONFIRMED_ABSENCE",
+          "source": "BLIZZARD",
+          "payload": {
+            "confirmed": [],
+            "schemaVersion": "elite-cutoff-catalog-v1",
+            "confirmedCount": 0
+          },
+          "compatibilityVersion": "elite-cutoff-catalog-v1",
+          "updatedAt": "2026-08-10T10:53:28.241Z"
+        }
+      ]
+    }
+  ]
+}

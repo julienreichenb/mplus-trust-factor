@@ -156,6 +156,20 @@ export class CharacterExperienceEvidenceRepository {
     return rows.map(toDto);
   }
 
+  async findManyPreviousSeasonRatingsForCharacter(
+    characterId: string,
+  ): Promise<CharacterExperienceEvidenceDTO[]> {
+    const rows = await this.prisma.characterExperienceEvidence.findMany({
+      where: {
+        characterId,
+        evidenceKind: EXPERIENCE_EVIDENCE_KIND.PREVIOUS_SEASON_RATING,
+        compatibilityVersion: EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+      },
+      orderBy: [{ blizzardSeasonId: "asc" }, { seasonId: "asc" }],
+    });
+    return rows.map(toDto);
+  }
+
   /**
    * Insert-or-keep successful evidence. Existing compatible rows win (immutable).
    * Does not overwrite a successful fact with a later fetch of the same identity.

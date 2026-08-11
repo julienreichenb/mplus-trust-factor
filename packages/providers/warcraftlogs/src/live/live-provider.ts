@@ -10,7 +10,10 @@ import type {
   WclRateBudgetDecisionDTO,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { ExternalApiError } from "@mplus/contracts";
+import {
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+  ExternalApiError,
+} from "@mplus/contracts";
 import { computeRunFingerprint } from "@mplus/domain";
 import type { AppEnv } from "@mplus/config";
 import {
@@ -18,7 +21,6 @@ import {
   characterResolveSchema,
   parseWithSchema,
   rateLimitDataSchema,
-  recentReportsSchema,
   reportFightSchema,
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
@@ -32,13 +34,10 @@ import {
   deriveWclProvenance,
   mapCharacterSummary,
   mapRegionToWcl,
-  mapZoneRankings,
   mythicRunPlaceholders,
-  rankingsToCandidates,
-  recentReportsToCandidates,
-  countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
+import type { mapZoneRankings, rankingsToCandidates } from "../discovery/run-discovery.js";
 import {
   buildAliasedEncounterRankingsQuery,
   encounterObservationsToZoneRankingsPayload,
@@ -52,23 +51,16 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
-  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
 } from "../discovery/points-and-damage-performance.js";
+import {
+  ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+  buildRoleAwareAggregateFromRaw,
+  buildRoleAwarePerformanceAggregateRequestFingerprint,
+} from "../discovery/role-aware-performance-aggregate.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
-import {
-  INCREMENTAL_HYDRATION_BATCH_SIZE,
-  INITIAL_HYDRATION_BUDGET,
-  MAX_HYDRATION_REPORTS,
-} from "../discovery/bounds.js";
-import {
-  hydrateFightUnknownCandidates,
-  type HydrationReportPayload,
-} from "../discovery/report-hydration.js";
-import { hydrateFightUnknownCandidatesIterative } from "../discovery/iterative-report-hydration.js";
-import { collectBoundedRecentReportCodes } from "../discovery/recent-reports-pagination.js";
 import {
   extractFriendlyPlayerActorIds,
   fightOwnershipRejectionDetail,
@@ -109,8 +101,6 @@ export interface LiveWarcraftLogsProviderConfig {
   /** Explicit current M+ zone ID (preferred over WCL_MPLUS_ZONE_ID env). */
   zoneId?: number;
   zoneExpiresAt?: string | null;
-  /** Override MAX_HYDRATION_REPORTS bound. */
-  maxHydrationReports?: number;
   processEnv?: NodeJS.ProcessEnv;
   logger?: Pick<Console, "info" | "warn" | "error">;
 }
@@ -219,7 +209,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   private readonly revisionCache = new ReportRevisionCache();
   private readonly zoneConfig: MplusZoneConfig;
   private readonly logger: Pick<Console, "info" | "warn" | "error">;
-  private readonly maxHydrationReports: number;
 
   constructor(private readonly config: LiveWarcraftLogsProviderConfig) {
     const tokenManager = new WclTokenManager({
@@ -233,10 +222,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       logger: config.logger,
     });
     this.logger = config.logger ?? console;
-    const envMax = Number((config.processEnv ?? process.env).WCL_MAX_HYDRATION_REPORTS);
-    this.maxHydrationReports =
-      config.maxHydrationReports ??
-      (Number.isInteger(envMax) && envMax > 0 ? envMax : MAX_HYDRATION_REPORTS);
     this.zoneConfig = resolveMplusZoneConfig({
       zoneId: config.zoneId,
       expiresAt: config.zoneExpiresAt,
@@ -257,104 +242,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
-      .map((slug) => slug.trim().toLowerCase())
-      .filter((slug) => slug.length > 0);
-    const fetchReport = (code: string) => this.fetchReportPayloadForHydration(code);
-
-    // Coverage-aware iterative path (V2 cold production): open reports until each
-    // active dungeon has TARGET candidates or stubs/rate budget are exhausted.
-    // Legacy fixed budget (MAX_HYDRATION_REPORTS=5) is insufficient for 2×8 slots.
-    let hydratedCandidates = discovery.candidates;
-    let hydratedReportCount = 0;
-    let terminalHydrationReason: string | null = null;
-    let totalReportsHydrated: number | null = null;
-    let reportsRemaining: number | null = null;
-
-    const preCoverage =
-      activeDungeonSlugs.length > 0
-        ? timedEligibleCoverageByDungeon(discovery.candidates, activeDungeonSlugs)
-        : null;
-    const fightUnknownRemaining = discovery.candidates.some((c) => c.incompleteness.fightUnknown);
-
-    if (activeDungeonSlugs.length > 0 && preCoverage?.fullCoverage && !fightUnknownRemaining) {
-      // encounterRankings already supplied timed fight-known candidates — skip mass hydration.
-      hydratedCandidates = discovery.candidates;
-      hydratedReportCount = 0;
-      terminalHydrationReason = "full_coverage";
-      totalReportsHydrated = 0;
-      reportsRemaining = 0;
-      this.logger.info(
-        {
-          identity,
-          activeDungeonCount: activeDungeonSlugs.length,
-          distinctTimedPerDungeon: preCoverage.distinctTimedPerDungeon,
-          terminalHydrationReason,
-        },
-        "wcl.discovery.hydration_skipped_encounter_rankings_coverage",
-      );
-    } else if (activeDungeonSlugs.length > 0) {
-      const iterative = await hydrateFightUnknownCandidatesIterative({
-        candidates: discovery.candidates,
-        characterName: identity.name,
-        realmSlug: identity.realmSlug,
-        hints: ctx.wclHydrationHints,
-        activeDungeonSlugs,
-        initialBudget:
-          this.maxHydrationReports > MAX_HYDRATION_REPORTS
-            ? this.maxHydrationReports
-            : INITIAL_HYDRATION_BUDGET,
-        incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
-        fetchReport,
-        evaluateIncrementalAdmission: (args) => ({
-          allow: true,
-          action: "OK" as const,
-          reasons: ["live_discover_incremental_default_allow"],
-          projectedIncrementalPoints: args.projectedIncrementalPoints,
-        }),
-      });
-      hydratedCandidates = iterative.candidates;
-      hydratedReportCount = iterative.hydratedReportCount;
-      terminalHydrationReason = iterative.diagnostics.terminalHydrationReason;
-      totalReportsHydrated = iterative.diagnostics.totalReportsHydrated;
-      reportsRemaining = iterative.diagnostics.reportsRemaining;
-    } else {
-      const legacy = await hydrateFightUnknownCandidates({
-        candidates: discovery.candidates,
-        characterName: identity.name,
-        realmSlug: identity.realmSlug,
-        hints: ctx.wclHydrationHints,
-        maxReports: this.maxHydrationReports,
-        fetchReport,
-      });
-      hydratedCandidates = legacy.candidates;
-      hydratedReportCount = legacy.hydratedReportCount;
-    }
-
-    const knownFightCandidates = hydratedCandidates.filter(
-      (c) => !c.incompleteness.fightUnknown,
-    ).length;
-    if (hydratedReportCount > 0) {
-      this.logger.info(
-        {
-          identity,
-          hydratedReportCount,
-          knownFightCandidates,
-          coverageAware: activeDungeonSlugs.length > 0,
-          activeDungeonCount: activeDungeonSlugs.length,
-          ...(terminalHydrationReason != null
-            ? {
-                terminalHydrationReason,
-                totalReportsHydrated,
-                reportsRemaining,
-              }
-            : {}),
-        },
-        "wcl.discovery.hydration",
-      );
-    }
-    const runs = hydratedCandidates
-      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
+    const runs = discovery.candidates
+      .filter((c) => c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = providerEnvelope(
       runs,
@@ -392,51 +281,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       activeDungeonSlugs: slugs,
       authoritativeEncounters: authoritative,
     });
-  }
-
-  private async fetchReportPayloadForHydration(
-    reportCode: string,
-  ): Promise<HydrationReportPayload | null> {
-    const reportResult = await this.client.request({
-      operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
-      query: OPERATIONS.ReportWithFightAndMasterData.query,
-      variables: { code: reportCode },
-    });
-    const parsed = parseWithSchema(reportFightSchema, reportResult.response.data, "Report");
-    const report = parsed.reportData.report;
-    if (!report) return null;
-    return {
-      code: report.code,
-      revision: report.revision,
-      startTime: report.startTime,
-      endTime: report.endTime,
-      visibility: report.visibility,
-      zone: report.zone ?? null,
-      fights: report.fights.map((f) => ({
-        id: f.id,
-        encounterID: f.encounterID,
-        name: f.name,
-        difficulty: f.difficulty,
-        kill: f.kill,
-        startTime: f.startTime,
-        endTime: f.endTime,
-        keystoneLevel: f.keystoneLevel,
-        keystoneBonus: f.keystoneBonus,
-        keystoneTime: f.keystoneTime,
-        inProgress: f.inProgress ?? false,
-        friendlyPlayers: f.friendlyPlayers ?? undefined,
-      })),
-      masterData: report.masterData
-        ? {
-            actors: (report.masterData.actors ?? []).map((a) => ({
-              id: a.id,
-              name: a.name,
-              type: a.type,
-              server: a.server,
-            })),
-          }
-        : null,
-    };
   }
 
   async discoverCharacterSummary(
@@ -487,27 +331,38 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   }
 
   /**
-   * Dedicated Character.zoneRankings points_and_damage fetch.
-   * Does not resolve character, query recent reports, hydrate fights, or fetch events.
-   * Character/season Performance evidence — not fight-local.
+   * Dedicated Character.zoneRankings role-aware throughput aggregate.
+   * DPS/Tank: one points_and_damage field. Healer: aliased healing + damage in one HTTP call.
+   * Does not resolve character or fetch combat events.
    */
   async fetchCharacterPerformanceAggregate(input: {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
-    record: PointsAndDamagePerformanceRecord;
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
+      adapterVersion: string;
+      metric: string;
+      compact: unknown | null;
+      raw: unknown;
+      errorMessage?: string;
+    };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
     providerCalls: number;
   }> {
-    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+    const fingerprint = buildRoleAwarePerformanceAggregateRequestFingerprint({
       region: input.character.region,
       realmSlug: input.character.realmSlug,
       name: input.character.name,
       zoneId: input.zoneId,
       partition: input.partition,
+      role: input.role,
+      specSlug: input.specSlug,
     });
 
     const serverRegion = mapRegionToWcl(input.character.region);
@@ -521,15 +376,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       variables.partition = input.partition;
     }
 
-    // Rate-budget gate before the points_and_damage GraphQL operation.
     const budget = await this.fetchRateLimit(input.ctx);
     if (budget.action === "STOP") {
       return {
-        record: pointsAndDamageErrorRecord(
-          "SKIPPED",
-          null,
-          "WCL rate budget STOP — points_and_damage Performance deferred",
-        ),
+        record: {
+          state: "SKIPPED",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage:
+            "WCL rate budget STOP — role-aware Performance aggregate deferred",
+        },
         rawPayload: null,
         sourceRequestFingerprint: fingerprint,
         providerCalls: 1,
@@ -538,7 +396,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     if (shouldDeferExpensiveWork(budget)) {
       throw wclError(
         "BUDGET_EXCEEDED",
-        "WCL rate budget exceeded — deferring points_and_damage Performance fetch",
+        "WCL rate budget exceeded — deferring role-aware Performance fetch",
         {
           visibility: "RATE_LIMITED",
           utilizationPercent: budget.utilizationPercent,
@@ -546,23 +404,30 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       );
     }
 
+    const op =
+      input.role === "HEALER"
+        ? OPERATIONS.CharacterZoneRankingsRoleAwareHealer
+        : OPERATIONS.CharacterZoneRankingsRoleAwareDamage;
+
     try {
       const perfResult = await this.client.request({
-        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
-        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        operationName: op.operationName,
+        query: op.query,
         variables,
         region: input.character.region,
       });
 
       if (perfResult.response.errors && perfResult.response.errors.length > 0) {
         const messages = perfResult.response.errors.map((e) => e.message);
-        const record = pointsAndDamageErrorRecord(
-          "ERROR",
-          null,
-          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
-        );
         return {
-          record,
+          record: {
+            state: "ERROR",
+            adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+            metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+            compact: null,
+            raw: null,
+            errorMessage: `${op.operationName} GraphQL error: ${messages.join("; ")}`,
+          },
           rawPayload: null,
           sourceRequestFingerprint: fingerprint,
           providerCalls: 1,
@@ -570,13 +435,123 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
 
       const data = perfResult.response.data as
+        | {
+            characterData?: {
+              character?: {
+                damage?: unknown;
+                healing?: unknown;
+              } | null;
+            };
+          }
+        | null
+        | undefined;
+      const damageRaw = parseJsonScalar(
+        data?.characterData?.character?.damage ?? null,
+      );
+      const healingRaw =
+        input.role === "HEALER"
+          ? parseJsonScalar(data?.characterData?.character?.healing ?? null)
+          : null;
+
+      const built = buildRoleAwareAggregateFromRaw({
+        role: input.role,
+        targetSpecSlug: input.specSlug,
+        zoneId: input.zoneId,
+        partition: input.partition,
+        damageRaw,
+        healingRaw,
+      });
+
+      if (built.state !== "OK" || built.compact == null) {
+        return {
+          record: {
+            state: built.state,
+            adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+            metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+            compact: null,
+            raw: built.rawPayload,
+            errorMessage: built.errorMessage,
+          },
+          rawPayload: built.rawPayload,
+          sourceRequestFingerprint: fingerprint,
+          providerCalls: 1,
+        };
+      }
+
+      return {
+        record: {
+          state: "OK",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: built.compact,
+          raw: built.rawPayload,
+        },
+        rawPayload: built.rawPayload,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown";
+      const schemaUnsupported =
+        error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
+      return {
+        record: {
+          state: schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage: `role-aware Performance query failed (${message})`,
+        },
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
+  }
+
+  /** Discovery-path pad-only fetch (not the scoring V2 aggregate). */
+  private async fetchPointsAndDamageForDiscovery(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<PointsAndDamagePerformanceRecord> {
+    const serverRegion = mapRegionToWcl(input.character.region);
+    const variables: Record<string, unknown> = {
+      name: input.character.name,
+      serverSlug: input.character.realmSlug,
+      serverRegion,
+      zoneID: input.zoneId,
+    };
+    if (input.partition != null) {
+      variables.partition = input.partition;
+    }
+    try {
+      const perfResult = await this.client.request({
+        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        variables,
+        region: input.character.region,
+      });
+      if (perfResult.response.errors && perfResult.response.errors.length > 0) {
+        return pointsAndDamageErrorRecord(
+          "ERROR",
+          null,
+          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${perfResult.response.errors
+            .map((e) => e.message)
+            .join("; ")}`,
+        );
+      }
+      const data = perfResult.response.data as
         | { characterData?: { character?: { zoneRankings?: unknown } | null } }
         | null
         | undefined;
-      const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
+      const raw = parseJsonScalar(
+        data?.characterData?.character?.zoneRankings ?? null,
+      );
       let record = adaptPointsAndDamagePerformance({ raw });
       if (record.state === "EMPTY") {
-        // Never fabricate OK from empty — treat as ERROR for scoring consumers.
         record = { ...record, state: "ERROR" };
       } else if (record.state === "OK" && record.dungeonAggregates.length === 0) {
         record = pointsAndDamageErrorRecord(
@@ -585,27 +560,16 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
           "points_and_damage returned OK with zero usable dungeon aggregates",
         );
       }
-      return {
-        record,
-        rawPayload: raw,
-        sourceRequestFingerprint: fingerprint,
-        providerCalls: 1,
-      };
+      return record;
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown";
       const schemaUnsupported =
         error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
-      const record = pointsAndDamageErrorRecord(
+      return pointsAndDamageErrorRecord(
         schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
         null,
-        `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+        `points_and_damage query failed (${message})`,
       );
-      return {
-        record,
-        rawPayload: null,
-        sourceRequestFingerprint: fingerprint,
-        providerCalls: 1,
-      };
     }
   }
 
@@ -981,7 +945,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
 
     let rankings: ReturnType<typeof mapZoneRankings> = [];
     let rankingCandidates: ReturnType<typeof rankingsToCandidates> = [];
-    let usedEncounterRankings = false;
     let performance: PointsAndDamagePerformanceRecord = pointsAndDamageErrorRecord(
       "SKIPPED",
       null,
@@ -991,6 +954,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
       .map((slug) => slug.trim().toLowerCase())
       .filter((slug) => slug.length > 0);
+
     let encounterTargets: ActiveDungeonEncounterBinding[] = [];
     try {
       encounterTargets = this.resolveEncounterBindingsFromContext(ctx);
@@ -1002,8 +966,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       throw error;
     }
 
-    if (shouldQueryZoneRankings(this.zoneConfig) && encounterTargets.length > 0) {
-      // Preferred discovery: one aliased encounterRankings call for active dungeons.
+    const encounterTargetSlugs = new Set(
+      encounterTargets.map((e) => e.dungeonSlug.trim().toLowerCase()),
+    );
+    const coversAllActiveDungeons =
+      activeDungeonSlugs.length === 0 ||
+      activeDungeonSlugs.every((slug) => encounterTargetSlugs.has(slug));
+
+    if (
+      shouldQueryZoneRankings(this.zoneConfig) &&
+      encounterTargets.length > 0 &&
+      coversAllActiveDungeons
+    ) {
       const aliased = buildAliasedEncounterRankingsQuery(encounterTargets);
       const erResult = await this.client.request<{
         characterData: { character: Record<string, unknown> | null };
@@ -1027,19 +1001,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         encounterTargets.map((e) => [e.encounterId, e.dungeonSlug] as const),
       );
       rankingCandidates = rankingsToEncounterCandidates(rankings, slugByEncounter);
-      usedEncounterRankings = true;
       const coverage = timedEligibleCoverageByDungeon(rankingCandidates, activeDungeonSlugs);
       warnings.push(
         `encounterRankings aliased: dungeons=${encounterTargets.length} logBackedRanks=${rankings.length} timedCoverage=${JSON.stringify(coverage.distinctTimedPerDungeon)} full=${coverage.fullCoverage}`,
       );
 
-      const perf = await this.fetchCharacterPerformanceAggregate({
+      const perf = await this.fetchPointsAndDamageForDiscovery({
         character: identity,
         zoneId: this.zoneConfig.zoneId,
         partition: null,
         ctx,
       });
-      performance = perf.record;
+      performance = perf;
       if (performance.state === "SCHEMA_UNSUPPORTED") {
         warnings.push(
           performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
@@ -1047,133 +1020,28 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       } else if (performance.state === "ERROR") {
         warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage ERROR");
       }
-    } else if (shouldQueryZoneRankings(this.zoneConfig)) {
-      // Legacy: zone-wide Parses when active encounter IDs are unavailable.
-      const rankingsResult = await this.client.request({
-        operationName: OPERATIONS.CharacterZoneRankings.operationName,
-        query: OPERATIONS.CharacterZoneRankings.query,
-        variables: {
-          name: identity.name,
-          serverSlug: identity.realmSlug,
-          serverRegion,
-          zoneID: this.zoneConfig.zoneId,
-        },
-        region: identity.region,
-      });
-      const rankingsParsed = parseWithSchema(
-        zoneRankingsSchema,
-        rankingsResult.response.data,
-        "ZoneRankings",
-      );
-      const zonePayload = (rankingsParsed.characterData.character?.zoneRankings ??
-        null) as ZoneRankingsPayload | null;
-      const rowCounts = countParseStyleRankingRows(zonePayload);
-      if (rowCounts.totalRows > 0 && rowCounts.parseRows === 0) {
-        warnings.push(
-          `zoneRankings returned ${rowCounts.totalRows} aggregate row(s) without report/fightID — Parses compare payload unavailable; falling back to recentReports stubs`,
-        );
-      }
-      rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
-      rankingCandidates = rankingsToCandidates(rankings);
-
-      const perf = await this.fetchCharacterPerformanceAggregate({
-        character: identity,
-        zoneId: this.zoneConfig.zoneId,
-        partition: null,
-        ctx,
-      });
-      performance = perf.record;
-      if (performance.state === "SCHEMA_UNSUPPORTED") {
-        warnings.push(
-          performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
-        );
-      } else if (performance.state === "ERROR") {
-        warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage ERROR");
-      }
-    } else {
+    } else if (!shouldQueryZoneRankings(this.zoneConfig)) {
       warnings.push(
-        `Skipped zoneRankings/encounterRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
+        `Skipped encounterRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
       );
       performance = pointsAndDamageErrorRecord(
         "SKIPPED",
         null,
         `Skipped points_and_damage — configured zone ${this.zoneConfig.zoneId} is expired`,
       );
-    }
-
-    // recentReports → mass hydration only when encounter lists cannot fill timed slots.
-    type RecentCandidate = ReturnType<typeof recentReportsToCandidates>["candidates"][number];
-    let recentCandidates: RecentCandidate[] = [];
-    let privateSkippedTotal = 0;
-    let recentPublicCount = 0;
-
-    const erCoverage =
-      usedEncounterRankings && activeDungeonSlugs.length > 0
-        ? timedEligibleCoverageByDungeon(rankingCandidates, activeDungeonSlugs)
-        : null;
-
-    if (erCoverage?.fullCoverage) {
-      warnings.push(
-        "recentReports pagination skipped — encounterRankings already provide timed coverage for every active dungeon",
-      );
     } else {
-      const candidatesByCode = new Map<string, RecentCandidate>();
-      const pagination = await collectBoundedRecentReportCodes({
-        fetchPage: async (page, limit) => {
-          const recentResult = await this.client.request({
-            operationName: OPERATIONS.CharacterRecentReports.operationName,
-            query: OPERATIONS.CharacterRecentReports.query,
-            variables: {
-              name: identity.name,
-              serverSlug: identity.realmSlug,
-              serverRegion,
-              limit,
-              page,
-            },
-            region: identity.region,
-          });
-          const recentParsed = parseWithSchema(
-            recentReportsSchema,
-            recentResult.response.data,
-            "RecentReports",
-          );
-          const pagePayload = recentParsed.characterData.character?.recentReports;
-          const recentMapped = recentReportsToCandidates(pagePayload);
-          for (const candidate of recentMapped.candidates) {
-            if (!candidatesByCode.has(candidate.reportCode)) {
-              candidatesByCode.set(candidate.reportCode, candidate);
-            }
-          }
-          return {
-            reportCodes: recentMapped.candidates.map((c) => c.reportCode),
-            hasMorePages: pagePayload?.has_more_pages === true,
-            privateSkipped: recentMapped.privateSkipped,
-            unlistedSkipped: recentMapped.unlistedSkipped,
-          };
-        },
-      });
-
-      recentCandidates = pagination.reportCodes
-        .map((code) => candidatesByCode.get(code))
-        .filter((c): c is RecentCandidate => c != null);
-      privateSkippedTotal = pagination.privateSkipped + pagination.unlistedSkipped;
-      recentPublicCount = recentCandidates.length;
-
-      if (pagination.unlistedSkipped > 0) {
-        warnings.push(
-          `Skipped ${pagination.unlistedSkipped} unlisted report(s) — never probed with allowUnlisted`,
-        );
-      }
-      if (pagination.privateSkipped > 0) {
-        warnings.push(`Skipped ${pagination.privateSkipped} private report(s)`);
-      }
       warnings.push(
-        `recentReports pagination: pagesFetched=${pagination.pagesFetched} stop=${pagination.stopReason} uniqueReports=${recentPublicCount}`,
+        "encounterRankings discovery requires complete wclActiveDungeonEncounters — no fallback discovery",
+      );
+      performance = pointsAndDamageErrorRecord(
+        "SKIPPED",
+        null,
+        "points_and_damage skipped — missing active dungeon encounter bindings",
       );
     }
 
-    const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {
-      privateSkipped: privateSkippedTotal,
+    const provenance = deriveWclProvenance(character, rankings, rankingCandidates.length, {
+      privateSkipped: 0,
     });
     const summary = mapCharacterSummary(
       character,
@@ -1190,8 +1058,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
       performance,
       rankingCandidates,
-      recentCandidates,
-      privateReportsSkipped: privateSkippedTotal,
+      privateReportsSkipped: 0,
     });
   }
 

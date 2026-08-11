@@ -8,8 +8,7 @@ import {
   mapRegionToWcl,
   mapZoneRankings,
   classifyReportVisibility,
-  recentReportsToCandidates,
-  countParseStyleRankingRows,
+    countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
 import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
@@ -17,12 +16,6 @@ import {
   resolveActorSourceIdStrict,
   resolveOwnedPetActorIds,
 } from "../discovery/run-matching.js";
-import {
-  candidatesFromHydratedReport,
-  prioritizeReportsForHydration,
-  type HydrationReportPayload,
-} from "../discovery/report-hydration.js";
-import { MAX_RECENT_REPORTS_LIMIT } from "../discovery/bounds.js";
 import { OPERATIONS } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
@@ -38,7 +31,6 @@ import type {
 } from "./types.js";
 import {
   activeSeasonDungeonPool,
-  buildSurvivalCandidateQueuesFromHydrated,
   classSlugFromWclClassId,
   emptyRejection,
   extractAggregateDungeonHints,
@@ -68,7 +60,6 @@ import type {
 
 const DEFAULT_MAX_RUNS_PER_DUNGEON = 3;
 const DEFAULT_MAX_REPORTS_PER_DUNGEON = 8;
-const PROBE_MAX_HYDRATION_REPORTS = 40;
 const PROBE_MAX_EVENT_PAGES = 200;
 const PROBE_EVENT_PAGE_LIMIT = 1000;
 
@@ -508,7 +499,7 @@ export async function runSurvivalCalibrationProbe(
   );
   if (parseCounts.totalRows > 0 && parseCounts.parseRows === 0) {
     schemaWarnings.push(
-      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — hydrating recentReports`,
+      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — skipping (recentReports discovery removed; encounterRankings-only)`,
     );
   }
 
@@ -516,135 +507,13 @@ export async function runSurvivalCalibrationProbe(
     (rawZoneRankings as { rankings?: unknown[] } | null) ?? null,
     zoneConfig.zoneId,
   );
-  let byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
+  const byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
   const aggregateHints = extractAggregateDungeonHints(rawZoneRankings);
 
+  // Rankings-only discovery: no recentReports / fightUnknown mass-hydration fallback.
   if ([...byDungeon.values()].every((b) => b.length === 0)) {
-    bumpOpCount(opCounts, OPERATIONS.CharacterRecentReports.operationName);
-    const recentResult = await options.client.requestPermissive<{
-      characterData?: {
-        character?: {
-          recentReports?: {
-            data?: Array<{
-              code: string;
-              title?: string | null;
-              startTime: number;
-              endTime?: number | null;
-              visibility?: string | null;
-              zone?: { id: number; name?: string | null } | null;
-            }>;
-            total?: number | null;
-            has_more_pages?: boolean | null;
-          } | null;
-        } | null;
-      };
-    }>({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: options.identity.name,
-        serverSlug: options.identity.realmSlug,
-        serverRegion: mapRegionToWcl(options.identity.region),
-        limit: MAX_RECENT_REPORTS_LIMIT,
-        page: 1,
-      },
-      region: options.identity.region,
-    });
-    collectGraphQlErrors(
-      graphqlErrors,
-      OPERATIONS.CharacterRecentReports.operationName,
-      recentResult.response.errors,
-    );
-    perOperation.push({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      costUnits: recentResult.costUnits,
-      durationMs: recentResult.durationMs,
-      snapshot: rateLimitFromExtensions(recentResult.response.extensions),
-    });
-
-    const recentMapped = recentReportsToCandidates(
-      recentResult.response.data?.characterData?.character?.recentReports,
-    );
-    const prioritized = prioritizeReportsForHydration(
-      recentMapped.candidates,
-      [],
-      PROBE_MAX_HYDRATION_REPORTS,
-    );
-
-    const hydratedCandidates: Array<{
-      reportCode: string;
-      fightId: number;
-      encounterId: number;
-      dungeonSlug: string | null;
-      keyLevel: number | null;
-      score: number | null;
-      durationMs: number | null;
-      startTimeMs: number | null;
-      completedAt: string | null;
-    }> = [];
-
-    for (const stub of prioritized) {
-      reportsInspected.add(stub.reportCode);
-      const fetched = await fetchAndCacheReport(
-        options.client,
-        options.identity,
-        stub.reportCode,
-        reportCache,
-        graphqlErrors,
-        perOperation,
-        opCounts,
-        cacheStats,
-      );
-      if (!fetched.ok) {
-        runsRejected.push({
-          reportCode: stub.reportCode,
-          fightId: 0,
-          dungeonSlug: null,
-          reason: `hydrate_${fetched.reason}`,
-        });
-        continue;
-      }
-      const mapped = candidatesFromHydratedReport(
-        {
-          code: fetched.data.code,
-          startTime: fetched.data.startTime,
-          endTime: fetched.data.endTime,
-          visibility: fetched.data.visibility,
-          zone: fetched.data.zone,
-          fights: fetched.data.fights,
-          masterData: { actors: fetched.data.actors },
-        } satisfies HydrationReportPayload,
-        options.identity.name,
-        options.identity.realmSlug,
-      );
-      for (const reason of mapped.rejected) {
-        runsRejected.push({
-          reportCode: stub.reportCode,
-          fightId: 0,
-          dungeonSlug: null,
-          reason: `hydrate_${reason}`,
-        });
-      }
-      for (const c of mapped.candidates) {
-        fightsInspected.push({ reportCode: c.reportCode, fightId: c.fightId });
-        hydratedCandidates.push({
-          reportCode: c.reportCode,
-          fightId: c.fightId,
-          encounterId: c.encounterId,
-          dungeonSlug: c.dungeonSlug,
-          keyLevel: c.keyLevel,
-          score: c.score,
-          durationMs: c.durationMs,
-          startTimeMs: c.startTimeMs,
-          completedAt: c.completedAt,
-        });
-      }
-    }
-
-    byDungeon = buildSurvivalCandidateQueuesFromHydrated(
-      hydratedCandidates,
-      aggregateHints,
-      dungeonPool,
+    schemaWarnings.push(
+      "No zoneRankings parse-linked candidates; recentReports fallback removed — empty queues skipped",
     );
   }
 

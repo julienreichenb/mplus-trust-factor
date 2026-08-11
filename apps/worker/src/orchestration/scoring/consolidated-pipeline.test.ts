@@ -14,6 +14,7 @@ import {
   buildMinimalCapabilityPackage,
   createMemoryOrchestrationPorts,
 } from "./run-orchestration/memory-ports.js";
+import { buildTestThroughputChannels } from "./run-orchestration/test-fixtures.js";
 import {
   orchestrateScoringRuns,
   replayScoringFromPersistedEvidence,
@@ -26,6 +27,7 @@ import {
 import { computeScoringConfidenceV1 } from "@mplus/scoring";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
+const TEST_THROUGHPUT = () => buildTestThroughputChannels(MIDNIGHT_SEASON_1_DUNGEON_SLUGS);
 
 function baseScope() {
   return {
@@ -150,6 +152,7 @@ describe("cold then warm orchestration idempotency", () => {
       liveProviderPermission: "ALLOWED",
       scope: baseScope(),
       candidates,
+      throughputChannels: TEST_THROUGHPUT(),
       ports,
     });
     expect(cold.characterDigests).toHaveLength(16);
@@ -186,6 +189,7 @@ describe("cold then warm orchestration idempotency", () => {
       liveProviderPermission: "FORBIDDEN",
       scope: baseScope(),
       candidates,
+      throughputChannels: TEST_THROUGHPUT(),
       ports,
       existingManifest: cold.manifest,
     });
@@ -202,6 +206,7 @@ describe("cold then warm orchestration idempotency", () => {
       seasonId: "season-1",
       scoringModelId: "model-1",
       scope: baseScope(),
+      throughputChannels: TEST_THROUGHPUT(),
       ports,
       existingManifest: cold.manifest,
     });
@@ -363,6 +368,7 @@ describe("cold then warm orchestration idempotency", () => {
       liveProviderPermission: "FORBIDDEN",
       scope: baseScope(),
       candidates,
+      throughputChannels: TEST_THROUGHPUT(),
       ports,
     });
     expect(result.characterDigests).toHaveLength(16);

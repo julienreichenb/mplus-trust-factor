@@ -11,15 +11,36 @@
           "classID": 8,
           "faction": 0,
           "hidden": false,
-          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+          "server": {
+            "slug": "tarren-mill",
+            "region": {
+              "name": "EU"
+            }
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
-  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": {
+            "rankings": []
+          }
+        }
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 40, "pointsRemaining": 3560, "resetInSeconds": 3000 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 40,
+        "pointsRemaining": 3560,
+        "resetInSeconds": 3000
+      }
+    }
   },
   "report": {
     "errors": [

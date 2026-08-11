@@ -33,36 +33,37 @@ export const DIMENSION_HELP = {
 
 export const COMPONENT_HELP = {
   performance: {
-    phase1: {
-      label: "Parse & profile score",
+    parseBestAverage: {
+      label: "Best parse average",
       whatItMeans:
-        "Season parses and profile summary — peak and floor runs, difficulty-adjusted, with a profile stabilizer.",
+        "Controls how Best and Median Warcraft Logs throughput percentiles are combined.",
     },
-    cooldown: {
-      label: "Offensive cooldown discipline",
+    parseMedianAverage: {
+      label: "Median parse average",
       whatItMeans:
-        "How consistently offensive cooldowns are used across selected dungeon runs.",
+        "Controls how Best and Median Warcraft Logs throughput percentiles are combined.",
     },
-    dungeonPeak: {
-      label: "Dungeon peak parse",
-      whatItMeans: "Weight of the stronger selected parse in each dungeon.",
+    dpsDamageParse: {
+      label: "Damage parse",
+      whatItMeans: "Damage parse measures throughput across the active dungeon pool.",
     },
-    dungeonFloor: {
-      label: "Dungeon floor parse",
+    dpsCooldown: {
+      label: "Offensive cooldown",
       whatItMeans:
-        "Weight of the weaker selected parse — rewards a strong floor, not only a high peak.",
+        "Offensive cooldown discipline measures use of eligible offensive cooldowns.",
     },
-    dungeonConsistency: {
-      label: "Dungeon consistency",
-      whatItMeans: "Reward for keeping peak and floor close at a high level.",
+    tankDamageParse: {
+      label: "Damage parse",
+      whatItMeans: "Tank Performance is based entirely on damage throughput parses.",
     },
-    profileBestAverage: {
-      label: "Profile best average",
-      whatItMeans: "Season profile best-average contribution to the profile stabilizer.",
+    healerHealingParse: {
+      label: "Healing parse",
+      whatItMeans: "Healing parse measures healing throughput.",
     },
-    profileMedianAverage: {
-      label: "Profile median average",
-      whatItMeans: "Season profile median-average contribution to the profile stabilizer.",
+    healerDamageParse: {
+      label: "Damage parse",
+      whatItMeans:
+        "Damage parse rewards healers who contribute damage while maintaining their healing role.",
     },
   },
   utility: {

@@ -300,8 +300,16 @@ function performanceFixture(
     confidence: 0.72,
     confidenceBreakdown,
     phase1Score: 80,
+    damageParseScore: 80,
+    healingParseScore: null,
     offensiveCooldownDiscipline: 35,
-    weightsApplied: { phase1: 0.8, cooldown: 0.2 },
+    weightsApplied: {
+      phase1: 0.8,
+      damageParse: 0.8,
+      healingParse: 0,
+      cooldown: 0.2,
+    },
+    roleAware: {} as PerformancePhase2ComputeResult["roleAware"],
     phase1: {} as PerformancePhase2ComputeResult["phase1"],
     cooldown: {
       score: 35,
@@ -319,6 +327,8 @@ function performanceFixture(
       detailedDungeonCount: 6,
       selectedRunCount: 10,
       profileDungeonCount: 8,
+      damageDungeonCount: 8,
+      healingDungeonCount: 0,
       cooldownUsableRunCount: 4,
       evaluatedAbilityCount: 3,
     },
@@ -507,18 +517,29 @@ function utilityFixture(
 function experienceFixture(
   overrides: Partial<ExperiencePhase1Result> = {},
 ): ExperiencePhase1Result {
+  const baseStanding =
+    overrides.historicalStandingScore ?? overrides.previousStandingScore ?? 85;
   return {
     score: 85,
     available: true,
     confidence: 1,
     confidenceCauses: [],
-    previousStandingScore: 85,
+    historicalStandingScore: baseStanding,
+    previousStandingScore: baseStanding,
     classRankFloor: 80,
     classRankFloorApplied: false,
     eliteFloorApplied: false,
     confirmedEliteTitleCount: 0,
     reason: null,
     ...overrides,
+    historicalStandingScore:
+      overrides.historicalStandingScore ??
+      overrides.previousStandingScore ??
+      baseStanding,
+    previousStandingScore:
+      overrides.previousStandingScore ??
+      overrides.historicalStandingScore ??
+      baseStanding,
   };
 }
 
@@ -560,10 +581,10 @@ describe("Score Explainability V1", () => {
       const cooldown = dim.scoreStory.drivers.find(
         (d) => d.code === "performance.offensive_cooldown_discipline",
       );
-      const phase1 = dim.scoreStory.drivers.find(
-        (d) => d.code === "performance.phase1_score",
+      const damageParse = dim.scoreStory.drivers.find(
+        (d) => d.code === "performance.damage_parse",
       );
-      expect(phase1?.direction).toBe("POSITIVE");
+      expect(damageParse?.direction).toBe("POSITIVE");
       expect(cooldown?.direction).toBe("NEGATIVE");
       expect(cooldown?.value).toBe(35);
       expect(cooldown?.contribution).toBeCloseTo(0.2 * (35 - 50), 6);
@@ -943,7 +964,7 @@ describe("Score Explainability V1", () => {
           score: null,
           phase1Score: null,
           offensiveCooldownDiscipline: null,
-          weightsApplied: { phase1: 0, cooldown: 0 },
+          weightsApplied: { phase1: 0, damageParse: 0, healingParse: 0, cooldown: 0 },
           confidenceBreakdown: buildDimensionConfidenceBreakdown({
             value: 0,
             causes: ["performance_unavailable"],
@@ -1040,7 +1061,7 @@ describe("Score Explainability V1", () => {
       }).dimensions.EXPERIENCE;
 
       const previous = dim.scoreStory.drivers.find(
-        (d) => d.code === "experience.previous_standing",
+        (d) => d.code === "experience.historical_standing",
       );
       const classRank = dim.scoreStory.drivers.find(
         (d) => d.code === "experience.class_rank_floor",
@@ -1096,7 +1117,7 @@ describe("Score Explainability V1", () => {
       );
       expect(classRank?.params.determinedFinalScore).toBe(true);
       expect(
-        dim.scoreStory.drivers.find((d) => d.code === "experience.previous_standing")
+        dim.scoreStory.drivers.find((d) => d.code === "experience.historical_standing")
           ?.params.determinedFinalScore,
       ).toBe(false);
     });
@@ -1123,7 +1144,7 @@ describe("Score Explainability V1", () => {
         "experience.confirmed_no_activity",
       );
       expect(dim.scoreStory.drivers[0]?.direction).toBe("NEUTRAL");
-      expect(dim.scoreStory.drivers[0]?.label).toMatch(/none confirmed/i);
+      expect(dim.scoreStory.drivers[0]?.label).toMatch(/no confirmed Mythic\+ history/i);
       expect(dim.confidenceStory.value).toBe(1);
       expect(dim.confidenceStory.reasons).toEqual([]);
     });

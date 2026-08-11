@@ -203,7 +203,7 @@ describe("probe failure diagnosis", () => {
       wclErrors: [],
       rejectionReasons: { target_absent: 85, not_mythic_plus: 3 },
       schemaWarnings: [
-        "zoneRankings returned 8 aggregate row(s) without report/fightID — hydrating recentReports",
+        "zoneRankings returned 8 aggregate row(s) without report/fightID — skipping (recentReports discovery removed; encounterRankings-only)",
       ],
     });
     // zone_rankings_aggregate_only wins because it's checked before target_absent
@@ -257,7 +257,7 @@ function isRetryable(diagnosis: Diagnosis): boolean {
 }
 
 describe("probe failure retryable flag", () => {
-  it("zone_rankings_aggregate_only is retryable (wider page window may find missing dungeons)", () => {
+  it("zone_rankings_aggregate_only is retryable (rankings refresh may supply fight IDs)", () => {
     expect(isRetryable("zone_rankings_aggregate_only")).toBe(true);
   });
 

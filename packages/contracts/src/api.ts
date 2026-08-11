@@ -140,7 +140,12 @@ export interface SelectedRunSummary {
   timed: boolean | null;
   completedAt: IsoDateTime | null;
   wclReportMatched: boolean;
-  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  selectionReason:
+    | "HIGHEST_KEY"
+    | "HIGHEST_SCORE_TIEBREAK"
+    | "LATEST_TIEBREAK"
+    | "WCL_PREFERRED_OVER_HIGHER_UNLOGGED"
+    | null;
   coverageRatio: number | null;
 }
 
@@ -172,7 +177,12 @@ export interface SelectedRunSummaryDTO {
   timed: boolean;
   wclReportMatched: boolean;
   wclCoverageRatio: number | null;
-  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  selectionReason:
+    | "HIGHEST_KEY"
+    | "HIGHEST_SCORE_TIEBREAK"
+    | "LATEST_TIEBREAK"
+    | "WCL_PREFERRED_OVER_HIGHER_UNLOGGED"
+    | null;
   parsePercentile: number | null;
   hasDetailedAnalysis: boolean;
   /**
@@ -275,7 +285,8 @@ export interface PerformanceDungeonSummaryDTO {
   encounterId?: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
-  loggedRunCount: number;
+  /** Null when log count is absent from evidence — never fabricated as zero. */
+  loggedRunCount: number | null;
   keystoneLevel?: number | null;
   throughputBracket?: number | null;
   ratingPoints?: number | null;
@@ -355,9 +366,45 @@ export interface PerformanceHistoricalSummaryDTO {
   seasons: PerformanceHistoricalSeasonSummaryDTO[];
 }
 
+/** Public dungeon row for a single role-aware throughput channel. */
+export interface PerformanceRoleAwareDungeonSummaryDTO {
+  dungeonSlug: string;
+  dungeonName: string;
+  bestParsePercentile: number | null;
+  medianParsePercentile: number | null;
+  /** Null when log count is absent from aggregate evidence — never fabricated as zero. */
+  loggedRunCount: number | null;
+}
+
+/** Public summary for one role-aware parse channel (damage or healing). */
+export interface PerformanceRoleAwareChannelSummaryDTO {
+  score: number | null;
+  confidence: number;
+  bestAverage: number | null;
+  medianAverage: number | null;
+  availableCells: number;
+  expectedCells: number;
+  dungeons: PerformanceRoleAwareDungeonSummaryDTO[];
+}
+
+/** Role-aware Performance public breakdown (Agent 04D). */
+export interface PerformanceRoleAwareSummaryDTO {
+  role: "DPS" | "TANK" | "HEALER";
+  performanceScore: number | null;
+  weightsApplied: {
+    damageParse: number;
+    healingParse: number;
+    cooldown: number;
+  };
+  damage: PerformanceRoleAwareChannelSummaryDTO;
+  healing: PerformanceRoleAwareChannelSummaryDTO | null;
+}
+
 export interface PerformanceSummaryDTO {
   currentSeason: PerformanceCurrentSeasonSummaryDTO;
   historical: PerformanceHistoricalSummaryDTO | null;
+  /** Present on operational CharacterScore rows scored with role-aware Performance. */
+  roleAware?: PerformanceRoleAwareSummaryDTO;
 }
 
 /** Public aggregate-only Survival V1.1.1 explanation. */

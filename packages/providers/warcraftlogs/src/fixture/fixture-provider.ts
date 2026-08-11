@@ -17,32 +17,32 @@ import {
   mapRegionToWcl,
   mapZoneRankings,
   mythicRunPlaceholders,
-  rankingsToCandidates,
-  recentReportsToCandidates,
-  type ZoneRankingsPayload,
+  rankingsToCandidates,  type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
-  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
 } from "../discovery/points-and-damage-performance.js";
+import {
+  ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+  buildRoleAwareAggregateFromRaw,
+  buildRoleAwarePerformanceAggregateRequestFingerprint,
+} from "../discovery/role-aware-performance-aggregate.js";
+import { CHARACTER_PERFORMANCE_AGGREGATE_METRIC } from "@mplus/contracts";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import { FIXTURE_MPLUS_ZONE_ID, resolveMplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
   parseWithSchema,
-  rateLimitDataSchema,
-  recentReportsSchema,
-  reportFightSchema,
+  rateLimitDataSchema,  reportFightSchema,
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
 import { wclError } from "../client/errors.js";
 import { buildRunCombatFacts } from "../analysis/combat-facts.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot } from "../rate/rate-budget.js";
-import { hydrateFightUnknownCandidates } from "../discovery/report-hydration.js";
 import {
   fightOwnershipRejectionDetail,
   resolveFightOwnership,
@@ -114,54 +114,8 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = this.discoverCharacter(identity, ctx);
-    const hydrated = await hydrateFightUnknownCandidates({
-      candidates: discovery.candidates,
-      characterName: identity.name,
-      realmSlug: identity.realmSlug,
-      hints: ctx.wclHydrationHints,
-      fetchReport: async (code) => {
-        const fixture = loadReportFixture(code);
-        const raw = (fixture.report as { data: unknown } | undefined)?.data;
-        if (!raw) return null;
-        const parsed = parseWithSchema(reportFightSchema, raw, "Report");
-        const report = parsed.reportData.report;
-        if (!report) return null;
-        return {
-          code: report.code,
-          revision: report.revision,
-          startTime: report.startTime,
-          endTime: report.endTime,
-          visibility: report.visibility,
-          zone: report.zone ?? null,
-          fights: report.fights.map((f) => ({
-            id: f.id,
-            encounterID: f.encounterID,
-            name: f.name,
-            difficulty: f.difficulty,
-            kill: f.kill,
-            startTime: f.startTime,
-            endTime: f.endTime,
-        keystoneLevel: f.keystoneLevel,
-        keystoneBonus: f.keystoneBonus,
-        keystoneTime: f.keystoneTime,
-        inProgress: f.inProgress ?? false,
-        friendlyPlayers: f.friendlyPlayers ?? undefined,
-          })),
-          masterData: report.masterData
-            ? {
-                actors: (report.masterData.actors ?? []).map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  type: a.type,
-                  server: a.server,
-                })),
-              }
-            : null,
-        };
-      },
-    });
-    const runs = hydrated.candidates
-      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
+    const runs = discovery.candidates
+      .filter((c) => c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = emptyProviderResult(
       runs,
@@ -229,19 +183,30 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
-    record: ReturnType<typeof adaptPointsAndDamagePerformance>;
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
+      adapterVersion: string;
+      metric: string;
+      compact: unknown | null;
+      raw: unknown;
+      errorMessage?: string;
+    };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
     providerCalls: number;
   }> {
-    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+    const fingerprint = buildRoleAwarePerformanceAggregateRequestFingerprint({
       region: input.character.region,
       realmSlug: input.character.realmSlug,
       name: input.character.name,
       zoneId: input.zoneId,
       partition: input.partition,
+      role: input.role,
+      specSlug: input.specSlug,
     });
     const fixture = loadFixtureByIdentity(
       input.character.name,
@@ -252,26 +217,59 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       | undefined;
     if (!padEnvelope) {
       return {
-        record: pointsAndDamageErrorRecord(
-          "SKIPPED",
-          null,
-          "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
-        ),
+        record: {
+          state: "SKIPPED",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage:
+            "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
+        },
         rawPayload: null,
         sourceRequestFingerprint: fingerprint,
         providerCalls: 1,
       };
     }
-    const raw = parseJsonScalar(
+    const damageRaw = parseJsonScalar(
       padEnvelope.data?.characterData?.character?.zoneRankings ?? null,
     );
-    let record = adaptPointsAndDamagePerformance({ raw });
-    if (record.state === "EMPTY") {
-      record = { ...record, state: "ERROR" };
+    const healingRaw =
+      input.role === "HEALER" && damageRaw != null && typeof damageRaw === "object"
+        ? { ...(damageRaw as Record<string, unknown>), metric: "points_and_healing" }
+        : null;
+    const built = buildRoleAwareAggregateFromRaw({
+      role: input.role,
+      targetSpecSlug: input.specSlug,
+      zoneId: input.zoneId,
+      partition: input.partition,
+      damageRaw,
+      healingRaw,
+    });
+    if (built.state !== "OK" || built.compact == null) {
+      return {
+        record: {
+          state: built.state,
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: built.rawPayload,
+          errorMessage: built.errorMessage,
+        },
+        rawPayload: built.rawPayload,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
     }
     return {
-      record,
-      rawPayload: raw,
+      record: {
+        state: "OK",
+        adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+        compact: built.compact,
+        raw: built.rawPayload,
+      },
+      rawPayload: built.rawPayload,
       sourceRequestFingerprint: fingerprint,
       providerCalls: 1,
     };
@@ -461,21 +459,13 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
           "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
         );
 
-    const recentRaw = (fixture.recentReports as { data: unknown }).data;
-    const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
-    const recentMapped = recentReportsToCandidates(
-      recentParsed.characterData.character?.recentReports,
-    );
-
-    const provenance = deriveWclProvenance(character, rankings, recentMapped.candidates.length, {
-      privateSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
-    });
+    const provenance = deriveWclProvenance(character, rankings, rankings.length);
     const summary = mapCharacterSummary(
       character,
       identity.region,
       ctx.now,
       provenance.visibility,
-      performance.state === "OK" ? [] : [performance.diagnostics.errorMessage ?? "Performance unavailable"],
+      [],
       provenance.dataState,
     );
 
@@ -485,8 +475,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
       performance,
       rankingCandidates: rankingsToCandidates(rankings),
-      recentCandidates: recentMapped.candidates,
-      privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
+      privateReportsSkipped: 0,
     });
   }
 

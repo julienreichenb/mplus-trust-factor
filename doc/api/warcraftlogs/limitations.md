@@ -31,7 +31,7 @@ Production uses `Character.zoneRankings(metric: points_and_damage, byBracket: tr
 | `explanation.performanceSummary` | Normalized global + per-dungeon summary |
 | Observations | `performance.current_season_peak` / `performance.current_season_consistency` |
 
-Peak/consistency = equal-weight means of available dungeon Best%/Median%. `ratingPoints` / `keystoneLevel` / `scoreRankPercent` stay diagnostic only. `displayedRunCount` is a confidence input; WCL does not expose `throughputSampleCount`. GraphQL failure → Performance unavailable; schema mismatch → `SCHEMA_UNSUPPORTED`. Performance is independent of Survival/Utility combat ingestion. Run discovery still uses `playerscore`+`compare:Parses` / `recentReports` for matching only.
+Peak/consistency = equal-weight means of available dungeon Best%/Median%. `ratingPoints` / `keystoneLevel` / `scoreRankPercent` stay diagnostic only. `displayedRunCount` is a confidence input; WCL does not expose `throughputSampleCount`. GraphQL failure → Performance unavailable; schema mismatch → `SCHEMA_UNSUPPORTED`. Performance is independent of Survival/Utility combat ingestion. Run discovery uses encounterRankings (preferred) / zoneRankings Parses; detailed report fetch is post-selection only.
 
 ### `fastestKill` / `bestRank.speed` encoding
 

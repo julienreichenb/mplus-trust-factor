@@ -214,6 +214,16 @@ export const mythicKeystoneSeasonProfileSchema = z
       })
       .passthrough()
       .optional(),
+    /**
+     * Season-details endpoint (canonical): `mythic_rating`.
+     * Some payloads / fixtures still use index-shaped `current_mythic_rating`.
+     */
+    mythic_rating: z
+      .object({
+        rating: z.number().optional(),
+      })
+      .passthrough()
+      .optional(),
     current_mythic_rating: z
       .object({
         rating: z.number().optional(),

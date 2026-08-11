@@ -1,7 +1,7 @@
 /**
  * WCL Evidence Query Planner V2 — public API.
  *
- * Workstream 03: discovery, hydration grouping, dataset union, cost estimates.
+ * Workstream 03: discovery, report-code grouping, dataset union, cost estimates.
  * Does not select final slots or finalize EvidenceManifestV2 (Workstream 02).
  */
 
@@ -36,7 +36,7 @@ import {
 } from "./dataset-plan.js";
 import {
   buildDiscoveryPlan,
-  groupCandidatesForHydration,
+  groupCandidatesByReportCode,
   toCandidateMetadataV2,
   type DiscoveryPlanResult,
   type DiscoverySourceRow,
@@ -93,7 +93,7 @@ export interface DetailedEvidencePlan {
   cost: CostPlanSummary;
 }
 
-/** Stage A/B: discovery + hydration grouping (no slot selection). */
+/** Stage A/B: discovery + report-code grouping (no slot selection). */
 export function planCandidateDiscovery(input: {
   zoneRankingCandidates?: DiscoverySourceRow[];
   parseRows?: DiscoverySourceRow[];
@@ -127,7 +127,7 @@ export {
   buildPlannerCompatibilityKey,
   buildDatasetRequirements,
   unionDatasetsForConsumers,
-  groupCandidatesForHydration,
+  groupCandidatesByReportCode,
   toCandidateMetadataV2,
   previewRateBudgetForPlan,
 };

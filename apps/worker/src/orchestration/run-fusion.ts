@@ -236,8 +236,18 @@ function hasExternalSource(run: MythicRunDTO): boolean {
   return run.sources.some((s) => s.provider === "BLIZZARD" || s.provider === "RAIDER_IO");
 }
 
+export function mythicRunHasWclSource(run: MythicRunDTO): boolean {
+  return run.sources.some(
+    (s) => typeof s.provider === "string" && s.provider.toUpperCase() === "WARCRAFT_LOGS",
+  );
+}
+
+export function sourceRefHasWcl(provider: string): boolean {
+  return provider.toUpperCase() === "WARCRAFT_LOGS";
+}
+
 function hasWclSource(run: MythicRunDTO): boolean {
-  return run.sources.some((s) => s.provider === "WARCRAFT_LOGS");
+  return mythicRunHasWclSource(run);
 }
 
 function mergeParticipants(

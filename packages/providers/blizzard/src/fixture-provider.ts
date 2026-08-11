@@ -43,6 +43,7 @@ import {
   normalizeRealmIndexEntry,
   normalizeSeason,
   normalizeTalentSnapshot,
+  pickSeasonProfileMythicRating,
   refLabel,
   resolveCurrentSeasonIdFromIndex,
   roleFromSpecType,
@@ -364,7 +365,7 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
     const profile = normalizeMythicProfileIndex(
       {
         seasons: [{ id: seasonId }],
-        current_mythic_rating: raw.current_mythic_rating,
+        current_mythic_rating: pickSeasonProfileMythicRating(raw),
         character: raw.character,
       },
       identity,

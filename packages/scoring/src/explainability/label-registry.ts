@@ -39,15 +39,26 @@ export interface LabelPresentation {
 type ParamMap = Record<string, string | number | boolean | null>;
 
 const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
-  "performance.phase1_score": {
-    labelKey: "score.performance.phase1_score",
-    template: "Season performance baseline scored {value}",
+  "performance.damage_parse": {
+    labelKey: "score.performance.damage_parse",
+    template: "Damage parse performance scored {value}",
+    visibility: "PUBLIC",
+  },
+  "performance.healing_parse": {
+    labelKey: "score.performance.healing_parse",
+    template: "Healing parse performance scored {value}",
     visibility: "PUBLIC",
   },
   "performance.offensive_cooldown_discipline": {
     labelKey: "score.performance.offensive_cooldown_discipline",
     template: "Offensive cooldown discipline scored {value}",
     visibility: "PUBLIC",
+  },
+  /** Forensic / legacy — not emitted by active role-aware Performance. */
+  "performance.phase1_score": {
+    labelKey: "score.performance.phase1_score",
+    template: "Season performance baseline scored {value}",
+    visibility: "AUDIT_ONLY",
   },
   "survival.outcome": {
     labelKey: "score.survival.outcome",
@@ -91,22 +102,27 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
   },
   "experience.previous_standing": {
     labelKey: "score.experience.previous_standing",
-    template: "Previous-season standing proof scored {value}",
+    template: "Historical standing: {nativeBandLabel} in {seasonLabel}",
+    visibility: "PUBLIC",
+  },
+  "experience.historical_standing": {
+    labelKey: "score.experience.historical_standing",
+    template: "Historical standing: {nativeBandLabel} in {seasonLabel}",
     visibility: "PUBLIC",
   },
   "experience.class_rank_floor": {
     labelKey: "score.experience.class_rank_floor",
-    template: "Class-rank floor proof scored {value}",
+    template: "Regional class rank #{classRank} provides an Experience floor of {value}",
     visibility: "PUBLIC",
   },
   "experience.elite_title_floor": {
     labelKey: "score.experience.elite_title_floor",
-    template: "Elite title floor proof scored {value}",
+    template: "Historical seasonal elite title provides an Experience floor of {value}",
     visibility: "PUBLIC",
   },
   "experience.confirmed_no_activity": {
     labelKey: "score.experience.confirmed_no_activity",
-    template: "Previous-season activity: none confirmed",
+    template: "No confirmed Mythic+ history for scored seasons",
     visibility: "PUBLIC",
   },
 };
@@ -126,6 +142,81 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   profile_only: {
     labelKey: "confidence.performance.profile_only",
     template: "Performance relies on profile aggregate only",
+    visibility: "AUDIT_ONLY",
+  },
+  damage_parse_coverage_incomplete: {
+    labelKey: "confidence.performance.damage_parse_coverage_incomplete",
+    template: "Damage parse coverage is incomplete",
+    visibility: "PUBLIC",
+  },
+  healing_parse_coverage_incomplete: {
+    labelKey: "confidence.performance.healing_parse_coverage_incomplete",
+    template: "Healing parse coverage is incomplete",
+    visibility: "PUBLIC",
+  },
+  damage_parse_channel_missing: {
+    labelKey: "confidence.performance.damage_parse_channel_missing",
+    template: "Damage parse evidence is missing",
+    visibility: "PUBLIC",
+  },
+  healing_parse_channel_missing: {
+    labelKey: "confidence.performance.healing_parse_channel_missing",
+    template: "Healing parse evidence is missing",
+    visibility: "PUBLIC",
+  },
+  damage_parse_unavailable: {
+    labelKey: "confidence.performance.damage_parse_unavailable",
+    template: "Damage parse performance unavailable",
+    visibility: "PUBLIC",
+  },
+  healing_parse_unavailable: {
+    labelKey: "confidence.performance.healing_parse_unavailable",
+    template: "Healing parse performance unavailable",
+    visibility: "PUBLIC",
+  },
+  damage_parse_spec_mismatch: {
+    labelKey: "confidence.performance.damage_parse_spec_mismatch",
+    template: "Damage parse specialization does not match the character",
+    visibility: "PUBLIC",
+  },
+  healing_parse_spec_mismatch: {
+    labelKey: "confidence.performance.healing_parse_spec_mismatch",
+    template: "Healing parse specialization does not match the character",
+    visibility: "PUBLIC",
+  },
+  damage_parse_spec_binding_unproven: {
+    labelKey: "confidence.performance.damage_parse_spec_binding_unproven",
+    template: "Damage parse specialization binding is unproven from the payload",
+    visibility: "PUBLIC",
+  },
+  healing_parse_spec_binding_unproven: {
+    labelKey: "confidence.performance.healing_parse_spec_binding_unproven",
+    template: "Healing parse specialization binding is unproven from the payload",
+    visibility: "PUBLIC",
+  },
+  damage_parse_stale: {
+    labelKey: "confidence.performance.damage_parse_stale",
+    template: "Performance aggregate is stale",
+    visibility: "PUBLIC",
+  },
+  healing_parse_stale: {
+    labelKey: "confidence.performance.healing_parse_stale",
+    template: "Performance aggregate is stale",
+    visibility: "PUBLIC",
+  },
+  damage_parse_no_usable_percentiles: {
+    labelKey: "confidence.performance.damage_parse_no_usable_percentiles",
+    template: "No usable damage parse percentiles",
+    visibility: "PUBLIC",
+  },
+  healing_parse_no_usable_percentiles: {
+    labelKey: "confidence.performance.healing_parse_no_usable_percentiles",
+    template: "No usable healing parse percentiles",
+    visibility: "PUBLIC",
+  },
+  role_identity_unknown: {
+    labelKey: "confidence.performance.role_identity_unknown",
+    template: "Character role is unknown",
     visibility: "PUBLIC",
   },
   detailed_only: {
@@ -288,7 +379,12 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   // Experience
   previous_evidence_unavailable: {
     labelKey: "confidence.experience.previous_evidence_unavailable",
-    template: "Previous-season evidence unavailable",
+    template: "Historical Experience evidence unavailable",
+    visibility: "PUBLIC",
+  },
+  historical_evidence_unavailable: {
+    labelKey: "confidence.experience.historical_evidence_unavailable",
+    template: "Historical Experience evidence unavailable",
     visibility: "PUBLIC",
   },
   elite_evidence_unavailable: {

@@ -33,6 +33,10 @@ import {
   previousRegionalClassRankFromRioProfile,
   rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
+import {
+  acquireBlizzardSeasonHistory,
+  experienceEvidenceStoreFromRepository,
+} from "./experience-blizzard-season-history.js";
 import { resolveCanonicalPreviousSeasonBinding } from "./experience-previous-season-evidence.js";
 import { createCharacterExperienceEvidenceRepository } from "@mplus/database";
 
@@ -304,6 +308,48 @@ export async function runAuthoritativeScoring(
         now: input.calculatedAt,
       };
       try {
+        const evidenceRepo = createCharacterExperienceEvidenceRepository(
+          input.container.prisma,
+        );
+        const evidenceStore = experienceEvidenceStoreFromRepository(evidenceRepo);
+
+        // Agent 03B — persist closed-season Blizzard history before Phase 1 reuse.
+        try {
+          const history = await acquireBlizzardSeasonHistory({
+            prisma: input.container.prisma,
+            characterId: input.characterId,
+            identity: {
+              region: input.region,
+              realmSlug: input.realm,
+              name: input.characterName,
+            },
+            regionCode: input.region,
+            currentSeasonId: input.seasonId,
+            blizzard: input.container.providers.blizzard,
+            ctx: experienceCtx,
+            persistProviderResult: (result) =>
+              recordProviderResult(input.container.repositories, result),
+            evidenceStore,
+            allowProviderCalls: allowExperienceProviders,
+            now: new Date(input.calculatedAt),
+          });
+          experienceProviderCalls +=
+            history.profileIndexCalls + history.seasonDetailsCalls;
+        } catch (historyError) {
+          input.container.logger.warn(
+            {
+              event: "EXPERIENCE_BLIZZARD_HISTORY_FAILED",
+              characterId: input.characterId,
+              seasonId: input.seasonId,
+              error:
+                historyError instanceof Error
+                  ? historyError.message
+                  : String(historyError),
+            },
+            "EXPERIENCE_BLIZZARD_HISTORY_FAILED",
+          );
+        }
+
         // One canonical previous-season binding decision (internal Season + RIO slug).
         let canonicalPreviousBinding: ReturnType<
           typeof resolveCanonicalPreviousSeasonBinding
@@ -359,9 +405,7 @@ export async function runAuthoritativeScoring(
           persistProviderResult: (result) =>
             recordProviderResult(input.container.repositories, result),
           allowProviderCalls: allowExperienceProviders,
-          evidenceStore: createCharacterExperienceEvidenceRepository(
-            input.container.prisma,
-          ),
+          evidenceStore,
           canonicalPreviousBinding,
           boundPreviousRaiderIoSlug,
           raiderIoExactSeason:
@@ -381,7 +425,7 @@ export async function runAuthoritativeScoring(
             ),
         });
         experience = built.experience;
-        experienceProviderCalls =
+        experienceProviderCalls +=
           built.previousSeasonProfileCalls +
           built.achievementsCalls +
           built.raiderIoHistoricalRatingCalls;

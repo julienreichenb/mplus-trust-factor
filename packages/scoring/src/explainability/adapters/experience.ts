@@ -8,6 +8,7 @@ import {
   EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE,
   type ExperiencePhase1Result,
 } from "../../experience/phase1/calculate.js";
+import type { NativeCutoffBand } from "../../experience/phase1/season-population-policy.js";
 import {
   buildConfidenceReasonsFromCauses,
   buildScoreDriver,
@@ -19,6 +20,35 @@ function availabilityFromExperience(
 ): DimensionExplainabilityV1["availability"] {
   if (!result.available || result.score == null) return "UNAVAILABLE";
   return "AVAILABLE";
+}
+
+function nativeBandPublicLabel(band: NativeCutoffBand | null | undefined): string {
+  switch (band) {
+    case "p999":
+      return "top 0.1%";
+    case "p990":
+      return "top 1%";
+    case "p900":
+      return "top 10%";
+    case "p750":
+      return "top 25%";
+    case "p600":
+      return "top 40%";
+    case "below_p600":
+      return "below top 40%";
+    default:
+      return "historical";
+  }
+}
+
+function seasonPublicLabel(result: ExperiencePhase1Result): string {
+  const slug =
+    result.winningHistoricalProof?.policySeasonSlug ??
+    result.winningHistoricalProof?.seasonSlug ??
+    result.standingProvenance?.winningSeasonSlug ??
+    result.standingProvenance?.exactHistoricalSeasonSlug;
+  const trimmed = typeof slug === "string" ? slug.trim() : "";
+  return trimmed || "historical Mythic+ season";
 }
 
 export function adaptExperienceExplainability(
@@ -62,20 +92,19 @@ export function adaptExperienceExplainability(
   const finalScore = result.score!;
   const drivers: ScoreDriverV1[] = [];
 
-  const previous = result.previousStandingScore;
+  const historical =
+    result.historicalStandingScore ?? result.previousStandingScore;
   const classRank = result.classRankFloor;
   const eliteFloor =
     result.confirmedEliteTitleCount > 0 ? EXPERIENCE_PHASE1_ELITE_FLOOR : null;
 
   const isConfirmedNoActivityOnly =
-    previous === EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE &&
+    historical === EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE &&
     finalScore === EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE &&
     !result.classRankFloorApplied &&
     !result.eliteFloorApplied;
 
   if (isConfirmedNoActivityOnly) {
-    // Authoritative score fact (E=0 with confidence 1) — NEUTRAL so product never
-    // presents confirmed absence as a player weakness.
     drivers.push(
       buildScoreDriver({
         code: "experience.confirmed_no_activity",
@@ -117,19 +146,31 @@ export function adaptExperienceExplainability(
           },
           evidence: {
             standingProvenance: result.standingProvenance ?? null,
+            winningHistoricalProof: result.winningHistoricalProof ?? null,
+            contextualizedHistoricalSeasonCount:
+              result.contextualizedHistoricalSeasonCount ?? null,
           },
         }),
       );
     };
 
-    if (previous != null) {
+    if (historical != null) {
+      const band =
+        result.winningHistoricalProof?.nativeBand ??
+        result.standingProvenance?.matchedNativeBand ??
+        null;
       pushProof(
-        "experience.previous_standing",
-        previous,
-        previous === finalScore,
+        "experience.historical_standing",
+        historical,
+        historical === finalScore,
         {
           ratingSource: result.standingProvenance?.ratingSource ?? null,
-          nativeBand: result.standingProvenance?.matchedNativeBand ?? null,
+          nativeBand: band,
+          nativeBandLabel: nativeBandPublicLabel(band),
+          seasonLabel: seasonPublicLabel(result),
+          historicalRating: result.standingProvenance?.historicalRating ?? null,
+          contextualizedHistoricalSeasonCount:
+            result.contextualizedHistoricalSeasonCount ?? 0,
         },
       );
     }
@@ -138,7 +179,10 @@ export function adaptExperienceExplainability(
         "experience.class_rank_floor",
         classRank,
         result.classRankFloorApplied || classRank === finalScore,
-        { classRankFloorApplied: result.classRankFloorApplied },
+        {
+          classRankFloorApplied: result.classRankFloorApplied,
+          classRank: result.previousRegionalClassRank ?? null,
+        },
       );
     }
     if (eliteFloor != null) {
@@ -154,7 +198,6 @@ export function adaptExperienceExplainability(
     }
   }
 
-  // Confidence 1 → no confidence reasons (score facts live in scoreStory).
   const confidenceValue = result.confidence;
   return {
     dimension: "EXPERIENCE",

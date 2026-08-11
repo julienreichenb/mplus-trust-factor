@@ -51,7 +51,7 @@ describe("scoring live character probe classify", () => {
     ).toBe("PARTIAL");
   });
 
-  it("returns READY when all dimensions executable with full hydration", () => {
+  it("returns READY when all dimensions executable with full acquisition", () => {
     const ready = {
       executable: "YES" as const,
       calculated: true,
@@ -64,7 +64,7 @@ describe("scoring live character probe classify", () => {
         dungeonCount: 8,
         selectedSlotCount: 16,
         expectedSlotCount: 16,
-        fullyHydratedSlots: 16,
+        fullyAcquiredSlots: 16,
         discoveryFailed: false,
         datasetFailedSlots: 0,
         factExtractionFailedSlots: 0,
@@ -89,7 +89,7 @@ describe("scoring live character probe classify", () => {
         dungeonCount: 8,
         selectedSlotCount: 0,
         expectedSlotCount: 16,
-        fullyHydratedSlots: 0,
+        fullyAcquiredSlots: 0,
         discoveryFailed: false,
         datasetFailedSlots: 0,
         factExtractionFailedSlots: 0,

@@ -31,6 +31,10 @@ import {
 } from "./experience-season-population-policy-metadata.js";
 import { buildExperiencePhase1Result } from "./experience-phase1.js";
 import {
+  acquireBlizzardSeasonHistory,
+  listHistoricalSeasonRatingsFromStore,
+} from "./experience-blizzard-season-history.js";
+import {
   classifyBlizzardPreviousSeasonFailureForRioFallback,
   resolveCanonicalPreviousSeasonBinding,
 } from "./experience-previous-season-evidence.js";
@@ -151,7 +155,27 @@ function createPrismaFake(rows: ReturnType<typeof seasonRowsWithFixturePollution
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
         rows.find((r) => r.id === where.id) ?? null,
       ),
-      findMany: vi.fn(async () => rows),
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where?:
+            | { id: { in: string[] } }
+            | { regionId: string; blizzardSeasonId: { in: number[] } };
+        } = {}) => {
+          if (where && "id" in where && where.id?.in) {
+            return rows.filter((r) => where.id.in.includes(r.id));
+          }
+          if (where && "blizzardSeasonId" in where && where.blizzardSeasonId?.in) {
+            return rows.filter(
+              (r) =>
+                r.regionId === where.regionId &&
+                where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+            );
+          }
+          return rows;
+        },
+      ),
     },
   };
 }
@@ -1319,50 +1343,71 @@ describe("Agent 02 F3 — canonical previous binding resists fixture pollution",
     expect(binding.boundRaiderIoSlug).not.toBe("season-fixture-fake-rio");
   });
 
-  it("phase-1 RIO exact-season call uses canonical slug under fixture pollution", async () => {
+  it("phase-1 makes zero RIO historical calls; binding authority stays on Season.providerSeasonId", async () => {
     const rows = seasonRowsWithFixturePollution();
-    const prisma = createPrismaFake(rows);
-    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
-      throw Object.assign(new Error("not found"), {
-        statusCode: 404,
-        code: "NOT_FOUND",
-      });
+    const binding = resolveCanonicalPreviousSeasonBinding(rows[0]!, rows);
+    expect(binding.ok).toBe(true);
+    if (!binding.ok) return;
+    expect(binding.boundRaiderIoSlug).toBe("season-tww-3");
+    expect(binding.boundRaiderIoSlug).not.toBe("season-fixture-fake-rio");
+
+    const getCharacterExactSeasonHistoricalRating = vi.fn(async () => {
+      throw new Error("RIO historical must not run after 03C");
     });
-    const getCharacterExactSeasonHistoricalRating = vi.fn(async () =>
-      providerResult({
-        seasonSlug: "season-tww-3",
-        seasonFound: true,
-        scoreAll: 2900,
-        activityProof: "UNKNOWN" as const,
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: "season-tww-3",
+      })!,
+    );
+    await store.upsertImmutable(
+      buildEliteCutoffHistoryPersistInput({
+        characterId: CHAR_ID,
+        currentSeasonId: CURRENT_ID,
+        confirmedCount: 0,
+        confirmed: [],
+        fetchedAt: "2026-08-08T00:00:01.000Z",
       }),
     );
 
     const result = await buildExperiencePhase1Result({
-      prisma: prisma as never,
+      prisma: createPrismaFake(rows) as never,
       characterId: CHAR_ID,
       identity,
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile,
-        getCharacterAchievements: vi.fn(async () => achievementsDto()),
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("phase1 must not acquire Season Details");
+        }),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("elite already seeded");
+        }),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
-      allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
-      // Poisoned caller slug must not win over the selected Season.providerSeasonId.
+      allowProviderCalls: false,
+      evidenceStore: store,
       boundPreviousRaiderIoSlug: "season-fixture-fake-rio",
       raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
     });
 
-    expect(getCharacterExactSeasonHistoricalRating).toHaveBeenCalledWith(
-      identity,
-      "season-tww-3",
-      expect.anything(),
-    );
-    expect(result.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonProfileCalls).toBe(0);
     expect(result.experience.available).toBe(true);
+    expect(result.diagnostics.ratingSource).toBe("PERSISTED");
   });
 });
 
@@ -1432,10 +1477,9 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
     expect(ratingEvidenceFromPersistedRow(row, expected)).toBeNull();
   });
 
-  it("incompatible cache with providers allowed → reacquire", async () => {
+  it("incompatible cache with providers allowed → reacquire attempted; corrupt row not trusted", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const bad = makeValidRow({ blizzardSeasonId: 99 });
-    // Seed incompatible row under the identity key.
     await store.upsertImmutable({
       characterId: bad.characterId,
       seasonId: bad.seasonId,
@@ -1450,15 +1494,44 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
       fetchedAt: bad.fetchedAt,
     });
 
+    const getMythicKeystoneProfile = vi.fn(async () =>
+      providerResult({
+        currentMythicRating: 1,
+        currentSeasonId: 15,
+        seasons: [{ seasonId: 14 }, { seasonId: 15 }],
+        character: identity,
+      }),
+    );
     const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfile(3100));
+    const prisma = createPrismaFake(seasonRowsWithFixturePollution());
+    const acquired = await acquireBlizzardSeasonHistory({
+      prisma: prisma as never,
+      characterId: CHAR_ID,
+      identity,
+      regionCode: "EU",
+      currentSeasonId: CURRENT_ID,
+      blizzard: { getMythicKeystoneProfile, getMythicKeystoneSeasonProfile },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      evidenceStore: store,
+      allowProviderCalls: true,
+      now: new Date(ctx.now),
+    });
+
+    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(acquired.failedSeasonIds).toContain(14);
+    expect(acquired.ratings.some((r) => r.seasonId === PREV_ID)).toBe(false);
+
     const result = await buildExperiencePhase1Result({
-      prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
+      prisma: prisma as never,
       characterId: CHAR_ID,
       identity,
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile,
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw new Error("phase1 must not acquire");
+        }),
         getCharacterAchievements: vi.fn(async () => achievementsDto()),
       },
       ctx,
@@ -1467,9 +1540,9 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
       evidenceStore: store,
     });
 
-    expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(result.previousSeasonProfileCalls).toBe(0);
     expect(result.previousSeasonRatingFromCache).toBe(false);
-    expect(result.diagnostics.ratingSource).toBe("BLIZZARD");
+    expect(result.experience.available).toBe(false);
   });
 
   it("incompatible cache with providers forbidden → unavailable", async () => {
@@ -1491,6 +1564,11 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
       contentHash: null,
       fetchedAt: bad.fetchedAt,
     });
+
+    const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID, {
+      prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
+    });
+    expect(listed).toEqual([]);
 
     const result = await buildExperiencePhase1Result({
       prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
@@ -1644,7 +1722,7 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
     ).toBeNull();
   });
 
-  it("correct exact RAIDERIO_FALLBACK replays provider-free", async () => {
+  it("RAIDERIO_FALLBACK historical row is not accepted as 03C Blizzard standing", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const persist = buildPreviousSeasonRatingPersistInput({
       characterId: CHAR_ID,
@@ -1671,6 +1749,11 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
       }),
     );
 
+    const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID, {
+      prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
+    });
+    expect(listed).toEqual([]);
+
     const getMythicKeystoneSeasonProfile = vi.fn(async () => {
       throw new Error("should not call");
     });
@@ -1692,9 +1775,8 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
       evidenceStore: store,
     });
     expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
-    expect(result.previousSeasonRatingFromCache).toBe(true);
-    expect(result.experience.available).toBe(true);
-    expect(result.diagnostics.ratingSource).toBe("PERSISTED");
+    expect(result.previousSeasonRatingFromCache).toBe(false);
+    expect(result.experience.available).toBe(false);
   });
 });
 
@@ -1838,6 +1920,30 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
         reasons: [],
       }),
     ).toBe(true);
+  });
+
+  /**
+   * Agent 03 acceptance — NO_USABLE_POLICY must remain retryable (not memoized).
+   * Otherwise ensure never re-runs when population policy later becomes available.
+   */
+  it("scoring-stabilization: NO_USABLE_POLICY is not ensure-complete", () => {
+    expect(
+      isExperienceSeasonBindingEnsureComplete({
+        region: "EU",
+        status: "ok",
+        hydratedSeasonCount: 2,
+        currentSeasonId: "cur-midnight",
+        previousSeasonId: "prev-tww",
+        currentRaiderIoSlug: "season-midnight-1",
+        previousRaiderIoSlug: "season-tww-3",
+        policySync: {
+          status: "NO_USABLE_POLICY",
+          seasonId: "prev-tww",
+          reason: "INSUFFICIENT_POLICY",
+        },
+        reasons: ["POLICY_SYNC_INSUFFICIENT"],
+      }),
+    ).toBe(false);
   });
 
   it("ensureExperienceSeasonBindingReady retries after failure then skips after success", async () => {
@@ -2151,18 +2257,47 @@ describe("Agent 02 F6 — Blizzard terminal vs transient RIO fallback", () => {
     expect(persisted).toBeNull();
   });
 
-  it("terminal 404 still permits exact-season RIO fallback", async () => {
+  it("terminal 404 does not call RIO character historical (03C Blizzard-only)", async () => {
     const { result, persisted, getCharacterExactSeasonHistoricalRating } =
       await runWithBlizzardError({ statusCode: 404, code: "NOT_FOUND" });
-    expect(getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
-    expect(persisted).not.toBeNull();
-    expect(result.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
+    expect(persisted).toBeNull();
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    // Phase1 alone cannot invent historical standing without 03B evidence.
+    expect(result.experience.available).toBe(false);
   });
 
-  it("successful Blizzard never calls RIO fallback", async () => {
+  it("phase1 never calls RIO historical even when Blizzard Season Details would succeed", async () => {
     const getCharacterExactSeasonHistoricalRating = vi.fn(async () => {
       throw new Error("RIO should not run");
     });
+    const store = createInMemoryExperienceEvidenceStore();
+    await store.upsertImmutable(
+      buildPreviousSeasonRatingPersistInput({
+        characterId: CHAR_ID,
+        evidence: {
+          state: "HAS_VALUE",
+          rating: 2900,
+          ratingSource: "BLIZZARD",
+          internalSeasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: "p",
+        },
+        raiderIoSeasonSlug: "season-tww-3",
+      })!,
+    );
+    await store.upsertImmutable(
+      buildEliteCutoffHistoryPersistInput({
+        characterId: CHAR_ID,
+        currentSeasonId: CURRENT_ID,
+        confirmedCount: 0,
+        confirmed: [],
+        fetchedAt: "2026-08-08T00:00:01.000Z",
+      }),
+    );
     const result = await buildExperiencePhase1Result({
       prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
       characterId: CHAR_ID,
@@ -2176,10 +2311,13 @@ describe("Agent 02 F6 — Blizzard terminal vs transient RIO fallback", () => {
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
-      evidenceStore: createInMemoryExperienceEvidenceStore(),
+      evidenceStore: store,
       raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
     });
     expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
-    expect(result.diagnostics.ratingSource).toBe("BLIZZARD");
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.previousSeasonProfileCalls).toBe(0);
+    expect(result.diagnostics.ratingSource).toBe("PERSISTED");
+    expect(result.experience.available).toBe(true);
   });
 });

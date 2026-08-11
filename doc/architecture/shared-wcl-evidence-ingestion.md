@@ -7,7 +7,7 @@
 
 ```
 refresh-pipeline
-├── discoverCharacterRuns / report hydration          [WCL]
+├── discoverCharacterRuns (encounterRankings)          [WCL]
 ├── getReportFightDetails / masterData                [WCL]  ← often per-dimension
 ├── combat-facts (event-fetcher)
 │   └── ReportEvents × categories                     [WCL]

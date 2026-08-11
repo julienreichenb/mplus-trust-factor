@@ -15,7 +15,7 @@ import type {
   RaiderIoStaticData,
 } from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
-import type { WclCharacterSummaryDTO, WclDungeonPerformanceAggregateDTO } from "./warcraftlogs.js";
+import type { WclCharacterSummaryDTO } from "./warcraftlogs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
 
@@ -28,24 +28,14 @@ export interface ProviderFetchContext {
   /** Character under refresh — used for WCL actor resolution in report fight details. */
   targetCharacter?: CharacterIdentityInput;
   /**
-   * Optional current-season Blizzard/Raider.IO run hints for prioritizing
-   * recentReports hydration (completedAt / dungeon / key).
-   */
-  wclHydrationHints?: Array<{
-    completedAt: IsoDateTime;
-    dungeonSlug?: string;
-    keyLevel?: number;
-  }>;
-  /**
-   * Active-season dungeon pool (canonical slugs). When present, live
-   * `discoverCharacterRuns` uses coverage-aware iterative hydration so a cold
-   * DB can still populate the 2×N evidence candidate pool from public WCL.
+   * Active-season dungeon pool (canonical slugs). Authoritative pool for
+   * encounterRankings scoring discovery (with {@link wclActiveDungeonEncounters}).
    */
   wclActiveDungeonSlugs?: readonly string[];
   /**
    * Authoritative WCL encounter IDs for the active-season dungeon pool
-   * (from SeasonDungeon / dungeon.wclZoneOrEncounterId). When present,
-   * encounterRankings discovery uses these bindings instead of a static map.
+   * (from SeasonDungeon / dungeon.wclZoneOrEncounterId). Required for
+   * scoring run discovery via Character.encounterRankings.
    */
   wclActiveDungeonEncounters?: ReadonlyArray<{
     dungeonSlug: string;
@@ -341,23 +331,25 @@ export interface WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclCharacterSummaryDTO>>;
   /**
-   * Dedicated Character.zoneRankings points_and_damage aggregate (character/season).
-   * Must not pull recent reports, fight hydration, or events.
+   * Dedicated Character.zoneRankings role-aware throughput aggregate (character/season).
+   * DPS/Tank: points_and_damage only. Healer: aliased points_and_healing + points_and_damage.
+   * Must not pull character report listings, mass report opens, or events.
    */
   fetchCharacterPerformanceAggregate?(input: {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
     record: {
       state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
       adapterVersion: string;
-      metric: "points_and_damage";
+      metric: string;
+      compact: unknown | null;
       raw: unknown;
-      dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
-      global: unknown;
-      diagnostics: unknown;
+      errorMessage?: string;
     };
     rawPayload: unknown;
     sourceRequestFingerprint: string;

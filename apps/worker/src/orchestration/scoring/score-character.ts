@@ -3,9 +3,9 @@
  *
  * character → select runs → load/fetch raw → digests → rankings → calculate → persist
  *
- * Ensures CharacterPerformanceAggregate (points_and_damage) once per operation and
- * feeds it into functional Performance Phase 2 (`performance-phase2-v1`) together
- * with selected digests and offensive cooldown discipline.
+ * Ensures CharacterPerformanceAggregate (role-aware throughput V2) once per operation and
+ * feeds it into role-aware Performance (`performance-role-aware-v1`). Detailed playerscore
+ * digests remain score-neutral for Performance.
  */
 import {
   CharacterScoreRepository,
@@ -46,9 +46,10 @@ import {
   buildScoreExplainabilityV1,
   computePartialComposite,
   defaultSkillDimensionWeights,
-  profileAggregateFactFromPersisted,
+  throughputChannelsFromPersistedV2,
   resolveTunableWeights,
   trustDimensionWeightsFromTunable,
+  extractPersistedRoleAwarePerformanceEvidence,
   type ExperiencePhase1Result,
   type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
@@ -56,7 +57,7 @@ import {
 
 /** Bumped when authoritative Survival Phase 2 product path activates. */
 export const SCORING_VERSION =
-  "scoring-v1.performance-phase2.utility-phase2.survival-phase2";
+  "scoring-v1.performance-role-aware-v1.utility-phase2.survival-phase2";
 
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
@@ -244,6 +245,8 @@ export async function scoreCharacter(
     seasonId: input.seasonId,
     zoneId,
     partition: input.partition ?? null,
+    role: input.role,
+    specSlug: input.specSlug,
     character: {
       name: input.identity.characterName,
       realmSlug: input.identity.realm,
@@ -257,14 +260,11 @@ export async function scoreCharacter(
       : null,
   });
 
-  const profileAggregate =
+  const throughputChannels =
     performanceAggregate.state === "AVAILABLE" &&
     performanceAggregate.data != null
-      ? profileAggregateFactFromPersisted({
-          dungeonAggregates: performanceAggregate.data.dungeonAggregates,
-          global:
-            performanceAggregate.data.globalSummary ??
-            performanceAggregate.data.compact.global,
+      ? throughputChannelsFromPersistedV2({
+          compact: performanceAggregate.data.compact,
           activeDungeonSlugs: input.activeDungeonSlugs,
         })
       : null;
@@ -310,7 +310,8 @@ export async function scoreCharacter(
     scoringModelId: input.scoringModelId,
     scoringModelVersion: input.scoringModelVersion,
     difficultyPolicy: input.difficultyPolicy,
-    profileAggregate,
+    throughputChannels,
+    expectedPartition: input.partition ?? null,
     scoreModelConfig,
   });
 
@@ -427,6 +428,17 @@ export async function scoreCharacter(
 
   const persistCharacterScore = input.persistCharacterScore !== false;
   let characterScoreId: string | null = null;
+  const roleAwareEvidence =
+    performance?.roleAware != null
+      ? extractPersistedRoleAwarePerformanceEvidence({
+          roleAware: performance.roleAware,
+          activeDungeonSlugs: input.activeDungeonSlugs,
+        })
+      : null;
+  const persistedAggregateCompact =
+    performanceAggregate.state === "AVAILABLE" && performanceAggregate.data != null
+      ? performanceAggregate.data.compact
+      : null;
   if (persistCharacterScore) {
     const scores = new CharacterScoreRepository(input.prisma);
     const saved = await scores.save({
@@ -474,6 +486,7 @@ export async function scoreCharacter(
                 state: performance.state,
                 confidence: performance.confidence,
                 confidenceBreakdown: performance.confidenceBreakdown,
+                roleAware: roleAwareEvidence,
               }
             : null,
           utility: utility
@@ -515,6 +528,7 @@ export async function scoreCharacter(
             cache: performanceAggregate.cache,
             contentHash: performanceAggregate.contentHash,
             aggregateRowId: performanceAggregate.aggregateRowId,
+            compact: persistedAggregateCompact,
           },
         }),
       ),

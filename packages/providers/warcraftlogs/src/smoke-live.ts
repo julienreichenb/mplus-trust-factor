@@ -16,11 +16,12 @@ import { LiveWarcraftLogsProvider } from "./live/live-provider.js";
 import { OPERATIONS } from "./operations/queries.js";
 import { DETAILED_EVENT_TYPES } from "./operations/queries.js";
 import { shouldQueryZoneRankings } from "./discovery/mplus-zone.js";
+import { ENCOUNTER_DUNGEON_MAP, mapRegionToWcl } from "./discovery/run-discovery.js";
+import { slugifyDungeonName } from "./discovery/dungeon-slug.js";
 import {
   DEFAULT_MATCHING_CONFIG,
   matchRunCandidate,
 } from "./discovery/run-matching.js";
-import { mapRegionToWcl } from "./discovery/run-discovery.js";
 import {
   assertWorkerWclPath,
   rejectionReasonFromMatch,
@@ -83,6 +84,49 @@ function buildCtx(identity: CharacterIdentityInput): ProviderFetchContext {
     forceRefresh: true,
     now: new Date().toISOString(),
     targetCharacter: identity,
+  };
+}
+
+/**
+ * Resolve dungeon encounter bindings from WorldDataZone for encounterRankings discovery.
+ * Plumbing only — does not change discovery algorithms.
+ */
+async function resolveDiscoveryDungeonBindings(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+): Promise<{
+  wclActiveDungeonSlugs: string[];
+  wclActiveDungeonEncounters: Array<{ dungeonSlug: string; encounterId: number }>;
+}> {
+  const zone = provider.getZoneConfig();
+  const client = provider.getGraphQlClient();
+  const zoneResult = await client.requestPermissive<{
+    worldData?: {
+      zone?: {
+        encounters?: Array<{ id: number; name?: string | null }> | null;
+      } | null;
+    };
+  }>({
+    operationName: OPERATIONS.WorldDataZone.operationName,
+    query: OPERATIONS.WorldDataZone.query,
+    variables: { id: zone.zoneId },
+    region: identity.region,
+  });
+  const encounters = zoneResult.response.data?.worldData?.zone?.encounters ?? [];
+  const bySlug = new Map<string, number>();
+  for (const e of encounters) {
+    const dungeonSlug =
+      ENCOUNTER_DUNGEON_MAP[e.id] ?? (e.name ? slugifyDungeonName(e.name) : null);
+    if (!dungeonSlug) continue;
+    const key = dungeonSlug.trim().toLowerCase();
+    if (!bySlug.has(key)) bySlug.set(key, e.id);
+  }
+  const wclActiveDungeonEncounters = [...bySlug.entries()]
+    .map(([dungeonSlug, encounterId]) => ({ dungeonSlug, encounterId }))
+    .sort((a, b) => a.dungeonSlug.localeCompare(b.dungeonSlug));
+  return {
+    wclActiveDungeonSlugs: wclActiveDungeonEncounters.map((r) => r.dungeonSlug),
+    wclActiveDungeonEncounters,
   };
 }
 
@@ -372,55 +416,7 @@ async function probeRankingsDiagnostics(
   }
 }
 
-async function probeRecentReportsList(
-  provider: LiveWarcraftLogsProvider,
-  identity: CharacterIdentityInput,
-): Promise<{
-  total: number | null;
-  codes: string[];
-  graphqlErrors: string[];
-}> {
-  const client = provider.getGraphQlClient();
-  try {
-    const result = await client.request({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: identity.name,
-        serverSlug: identity.realmSlug,
-        serverRegion: mapRegionToWcl(identity.region),
-        limit: 10,
-        page: 1,
-      },
-      region: identity.region,
-    });
-    const page = (
-      result.response.data as {
-        characterData?: {
-          character?: {
-            recentReports?: {
-              total?: number | null;
-              data?: Array<{ code?: string; visibility?: string }>;
-            } | null;
-          } | null;
-        };
-      }
-    )?.characterData?.character?.recentReports;
-    const codes = (page?.data ?? [])
-      .filter((r) => r.code && (r.visibility ?? "public").toLowerCase() === "public")
-      .map((r) => r.code!)
-      .slice(0, 5);
-    return {
-      total: typeof page?.total === "number" ? page.total : null,
-      codes,
-      graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
-    };
-  } catch (error) {
-    return { total: null, codes: [], graphqlErrors: [errorMessage(error)] };
-  }
-}
-
-async function probeRecentReportDetails(
+async function probeSelectedReportDetails(
   provider: LiveWarcraftLogsProvider,
   identity: CharacterIdentityInput,
   reportCodes: string[],
@@ -520,7 +516,7 @@ function bestCandidateForExternal(
   let best: ReturnType<typeof matchRunCandidate> | null = null;
   let bestCandidate: WclRunCandidate | null = null;
   for (const candidate of candidates) {
-    if (candidate.incompleteness.fightUnknown) continue;
+    if (candidate.fightId <= 0) continue;
     const match = matchRunCandidate(candidate, external, [], DEFAULT_MATCHING_CONFIG);
     if (
       !best ||
@@ -749,11 +745,17 @@ async function runDeep(
 
   const zone = provider.getZoneConfig();
   const zoneQueried = shouldQueryZoneRankings(zone);
+  const dungeonBindings = await resolveDiscoveryDungeonBindings(provider, identity);
+  const discoveryCtx: ProviderFetchContext = {
+    ...ctx,
+    wclActiveDungeonSlugs: dungeonBindings.wclActiveDungeonSlugs,
+    wclActiveDungeonEncounters: dungeonBindings.wclActiveDungeonEncounters,
+  };
 
   let discovery: Awaited<ReturnType<LiveWarcraftLogsProvider["discoverCharacter"]>>;
   let discoveryError: string | null = null;
   try {
-    discovery = await provider.discoverCharacter(identity, ctx);
+    discovery = await provider.discoverCharacter(identity, discoveryCtx);
   } catch (error) {
     discoveryError = errorMessage(error);
     const details =
@@ -802,36 +804,25 @@ async function runDeep(
   const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity));
   const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
 
-  const runsResult = await provider.discoverCharacterRuns(identity, {
-    ...ctx,
-    wclHydrationHints: selectedExternals.map((run) => ({
-      completedAt: run.completedAt,
-      dungeonSlug: run.dungeonSlug,
-      keyLevel: run.keyLevel,
-    })),
-  });
+  const runsResult = await provider.discoverCharacterRuns(identity, discoveryCtx);
   const rankingsProbe = await probeRankingsDiagnostics(
     provider,
     identity,
     zone.zoneId,
     zoneQueried,
   );
-  const recentList = await probeRecentReportsList(provider, identity);
   const reportCodes = [
-    ...new Set([
-      ...recentList.codes,
-      ...discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode),
-    ]),
+    ...new Set(discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode)),
   ].slice(0, 5);
-  const recentDetails = await probeRecentReportDetails(provider, identity, reportCodes);
+  const selectedReportDetails = await probeSelectedReportDetails(provider, identity, reportCodes);
 
-  // Prefer hydrated fight-known candidates for matching (discoverCharacterRuns already hydrated).
+  // Prefer fight-known candidates from encounterRankings / zoneRankings discovery.
   const matchCandidates =
     runsResult.data.length > 0
       ? discovery.candidates
-          .filter((c) => !c.incompleteness.fightUnknown)
+          .filter((c) => c.fightId > 0)
           .concat(
-            // Synthesize matchable candidates from discoverCharacterRuns DTOs when discovery stubs were hydrated.
+            // Synthesize matchable candidates from discoverCharacterRuns DTOs.
             runsResult.data.map((run) => ({
               reportCode: run.sources[0]?.reportCode ?? run.id,
               fightId: run.sources[0]?.fightId ?? 0,
@@ -846,7 +837,7 @@ async function runDeep(
               durationMs: run.durationMs,
               timed: run.timed,
               selectionTags: [] as Array<"LATEST" | "HIGHEST">,
-              source: "recentReports" as const,
+              source: "encounterRankings" as const,
               matchConfidence: null,
               targetActorId: null,
               incompleteness: {
@@ -855,7 +846,6 @@ async function runDeep(
                 timedUnknown: false,
                 keyLevelUnknown: run.keyLevel <= 0,
                 rosterIncomplete: true,
-                fightUnknown: false,
               },
               warnings: [],
             })),
@@ -879,7 +869,7 @@ async function runDeep(
             dungeonSlug: best.candidate.dungeonSlug,
             keyLevel: best.candidate.keyLevel,
             completedAt: best.candidate.completedAt,
-            fightUnknown: best.candidate.incompleteness.fightUnknown,
+            fightIdKnown: best.candidate.fightId > 0,
           }
         : null,
       confidence: best.confidence,
@@ -893,7 +883,7 @@ async function runDeep(
     (m) => m.confidence === "HIGH" || m.confidence === "MEDIUM",
   )?.bestWclCandidate;
   const analyzableCandidate =
-    matchCandidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
+    matchCandidates.find((c) => c.fightId > 0) ?? null;
 
   let reportCode: string | null = null;
   let fightId = 0;
@@ -956,7 +946,7 @@ async function runDeep(
       skipped: true,
       reason: "no_candidate_with_known_fight_id",
       hint:
-        "discoverCharacterRuns filters fightUnknown stubs; empty zoneRankings leaves only recentReports stubs and blocks getReportFightDetails.",
+        "No encounterRankings/zoneRankings candidate with fightId > 0; recentReports discovery is removed.",
     };
   }
 
@@ -972,7 +962,7 @@ async function runDeep(
       requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
       missingFromRefreshPipeline: missingWorkerCalls,
       note:
-        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO, passes hydration hints, then discoverCharacterRuns hydrates fightUnknown stubs before filtering.",
+        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO; discovery is encounterRankings-first, then detailed acquisition of selected fights only.",
     },
     characterDiscovery: {
       characterId: discovery.summary.wclCharacterId,
@@ -993,16 +983,13 @@ async function runDeep(
       graphqlErrors: rankingsProbe.graphqlErrors,
       zoneWarning: zone.warning,
     },
-    recentReports: {
-      total: recentList.total,
-      listGraphqlErrors: recentList.graphqlErrors,
-      candidateStubCount: discovery.candidates.filter((c) => c.source === "recentReports").length,
-      probedReports: recentDetails,
-      note: "recentReports stubs are hydrated (bounded) before discoverCharacterRuns filtering; probed rows show masterData target presence.",
+    selectedReportDetails: {
+      probedReports: selectedReportDetails,
+      note: "Optional ReportWithFightAndMasterData for already-discovered report codes (not recentReports listing).",
     },
     normalizedCandidates: {
       total: matchCandidates.length,
-      withKnownFight: matchCandidates.filter((c) => !c.incompleteness.fightUnknown).length,
+      withKnownFight: matchCandidates.filter((c) => c.fightId > 0).length,
       returnedByDiscoverCharacterRuns: runsResult.data.length,
       candidatesTruncated: discovery.candidatesTruncated,
       privateReportsSkipped: discovery.privateReportsSkipped,
@@ -1015,11 +1002,10 @@ async function runDeep(
         startTimeMs: c.startTimeMs,
         targetActorId: c.targetActorId ?? null,
         source: c.source,
-        fightUnknown: c.incompleteness.fightUnknown,
         dungeonUnknown: c.incompleteness.dungeonUnknown,
         warnings: c.warnings.slice(0, 3),
       })),
-      note: "Fight-known candidates come from zoneRankings Parses rows and/or bounded recentReports hydration.",
+      note: "Fight-known candidates come from encounterRankings and/or zoneRankings Parses rows only.",
     },
     matching: {
       externalRunCount: selectedExternals.length,

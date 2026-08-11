@@ -10,7 +10,7 @@ import {
   mergeTunableWeightsIntoConfig,
   resolveTunableWeightsFromConfig,
   validateTunableWeightsClient,
-  type TunableWeightsV1,
+  type TunableWeights,
 } from "../api/tunable-weights";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
@@ -31,7 +31,7 @@ const router = useRouter();
 
 const models = ref<AdminScoreModelDTO[]>([]);
 const selectedId = ref<string>("");
-const draftWeights = ref<TunableWeightsV1>(createDefaultTunableWeights());
+const draftWeights = ref<TunableWeights>(createDefaultTunableWeights());
 const savedSnapshot = ref<string>("");
 const loading = ref(true);
 const loadError = ref<string | null>(null);
@@ -316,31 +316,174 @@ onMounted(() => {
 
           <div class="components">
             <template v-if="dimKey === 'performance'">
-              <div
-                v-for="key in (['phase1', 'cooldown', 'dungeonPeak', 'dungeonFloor', 'dungeonConsistency', 'profileBestAverage', 'profileMedianAverage'] as const)"
-                :key="key"
-                class="component-row"
-              >
-                <label>
-                  <span class="comp-label">
-                    {{ COMPONENT_HELP.performance[key].label }}
-                    <FieldTooltip
-                      :label="`${COMPONENT_HELP.performance[key].label} help`"
-                      :what-it-means="COMPONENT_HELP.performance[key].whatItMeans"
+              <div class="comp-section" data-testid="perf-section-parse">
+                <h3 class="comp-section-title">Parse calculation</h3>
+                <p class="comp-section-hint">Shared by all roles</p>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.parseBestAverage.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.parseBestAverage.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.parseBestAverage.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.parse.bestAverage"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-parse-bestAverage"
                     />
-                  </span>
-                  <input
-                    v-model.number="draftWeights.components.performance[key]"
-                    type="number"
-                    min="0"
-                    step="1"
-                    :disabled="!isEditable"
-                    :data-testid="`comp-performance-${key}`"
-                  />
-                </label>
-                <span class="comp-effective">{{
-                  componentEffective(draftWeights.components.performance, key)
-                }}</span>
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(draftWeights.components.performance.parse, "bestAverage")
+                  }}</span>
+                </div>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.parseMedianAverage.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.parseMedianAverage.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.parseMedianAverage.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.parse.medianAverage"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-parse-medianAverage"
+                    />
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(draftWeights.components.performance.parse, "medianAverage")
+                  }}</span>
+                </div>
+              </div>
+
+              <div class="comp-section" data-testid="perf-section-dps">
+                <h3 class="comp-section-title">DPS</h3>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.dpsDamageParse.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.dpsDamageParse.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.dpsDamageParse.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.roles.dps.damageParse"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-dps-damageParse"
+                    />
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(draftWeights.components.performance.roles.dps, "damageParse")
+                  }}</span>
+                </div>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.dpsCooldown.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.dpsCooldown.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.dpsCooldown.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.roles.dps.cooldown"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-dps-cooldown"
+                    />
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(draftWeights.components.performance.roles.dps, "cooldown")
+                  }}</span>
+                </div>
+              </div>
+
+              <div class="comp-section" data-testid="perf-section-tank">
+                <h3 class="comp-section-title">Tank</h3>
+                <div class="component-row component-row--readonly-signal">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.tankDamageParse.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.tankDamageParse.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.tankDamageParse.whatItMeans"
+                      />
+                    </span>
+                    <span class="tank-sole-signal" data-testid="comp-performance-tank-damageParse">
+                      Sole applicable signal
+                    </span>
+                  </label>
+                  <span class="comp-effective" data-testid="comp-performance-tank-effective">100%</span>
+                </div>
+              </div>
+
+              <div class="comp-section" data-testid="perf-section-healer">
+                <h3 class="comp-section-title">Healer</h3>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.healerHealingParse.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.healerHealingParse.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.healerHealingParse.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.roles.healer.healingParse"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-healer-healingParse"
+                    />
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(
+                      draftWeights.components.performance.roles.healer,
+                      "healingParse",
+                    )
+                  }}</span>
+                </div>
+                <div class="component-row">
+                  <label>
+                    <span class="comp-label">
+                      {{ COMPONENT_HELP.performance.healerDamageParse.label }}
+                      <FieldTooltip
+                        :label="`${COMPONENT_HELP.performance.healerDamageParse.label} help`"
+                        :what-it-means="COMPONENT_HELP.performance.healerDamageParse.whatItMeans"
+                      />
+                    </span>
+                    <input
+                      v-model.number="draftWeights.components.performance.roles.healer.damageParse"
+                      type="number"
+                      min="0"
+                      step="1"
+                      :disabled="!isEditable"
+                      data-testid="comp-performance-healer-damageParse"
+                    />
+                  </label>
+                  <span class="comp-effective">{{
+                    componentEffective(
+                      draftWeights.components.performance.roles.healer,
+                      "damageParse",
+                    )
+                  }}</span>
+                </div>
               </div>
             </template>
 
@@ -645,6 +788,39 @@ h1 {
 .components {
   display: grid;
   gap: var(--space-3);
+}
+
+.comp-section {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.comp-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.comp-section-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.comp-section-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.tank-sole-signal {
+  display: inline-block;
+  padding: 0.55rem 0.65rem;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
 }
 
 .component-row {
