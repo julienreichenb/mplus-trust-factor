@@ -1474,9 +1474,10 @@ async function main(): Promise<void> {
             bootstrapProviderCalls: report.bootstrapProviderCalls,
             graphqlRequestCount: report.graphqlRequestCount,
             eventPageRequestCount: report.eventPageRequestCount,
-            capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
-            participantDigestsCreated: report.participantDigestsCreated,
-            scoreCalculations: report.scoreCalculations,
+            capabilityPackageAcquisitions:
+              report.forbiddenEffects.capabilityPackageAcquisitions,
+            participantDigestsCreated: report.forbiddenEffects.participantDigestsCreated,
+            scoreCalculations: report.forbiddenEffects.scoreCalculations,
             publicationEnabled: report.publicationEnabled,
             publicScorePointerMutated: report.publicScorePointerMutated,
             rateAdmission: report.rateAdmission,

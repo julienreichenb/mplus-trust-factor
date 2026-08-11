@@ -16,11 +16,12 @@ import { LiveWarcraftLogsProvider } from "./live/live-provider.js";
 import { OPERATIONS } from "./operations/queries.js";
 import { DETAILED_EVENT_TYPES } from "./operations/queries.js";
 import { shouldQueryZoneRankings } from "./discovery/mplus-zone.js";
+import { ENCOUNTER_DUNGEON_MAP, mapRegionToWcl } from "./discovery/run-discovery.js";
+import { slugifyDungeonName } from "./discovery/dungeon-slug.js";
 import {
   DEFAULT_MATCHING_CONFIG,
   matchRunCandidate,
 } from "./discovery/run-matching.js";
-import { mapRegionToWcl } from "./discovery/run-discovery.js";
 import {
   assertWorkerWclPath,
   rejectionReasonFromMatch,
@@ -83,6 +84,49 @@ function buildCtx(identity: CharacterIdentityInput): ProviderFetchContext {
     forceRefresh: true,
     now: new Date().toISOString(),
     targetCharacter: identity,
+  };
+}
+
+/**
+ * Resolve dungeon encounter bindings from WorldDataZone for encounterRankings discovery.
+ * Plumbing only — does not change discovery algorithms.
+ */
+async function resolveDiscoveryDungeonBindings(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+): Promise<{
+  wclActiveDungeonSlugs: string[];
+  wclActiveDungeonEncounters: Array<{ dungeonSlug: string; encounterId: number }>;
+}> {
+  const zone = provider.getZoneConfig();
+  const client = provider.getGraphQlClient();
+  const zoneResult = await client.requestPermissive<{
+    worldData?: {
+      zone?: {
+        encounters?: Array<{ id: number; name?: string | null }> | null;
+      } | null;
+    };
+  }>({
+    operationName: OPERATIONS.WorldDataZone.operationName,
+    query: OPERATIONS.WorldDataZone.query,
+    variables: { id: zone.zoneId },
+    region: identity.region,
+  });
+  const encounters = zoneResult.response.data?.worldData?.zone?.encounters ?? [];
+  const bySlug = new Map<string, number>();
+  for (const e of encounters) {
+    const dungeonSlug =
+      ENCOUNTER_DUNGEON_MAP[e.id] ?? (e.name ? slugifyDungeonName(e.name) : null);
+    if (!dungeonSlug) continue;
+    const key = dungeonSlug.trim().toLowerCase();
+    if (!bySlug.has(key)) bySlug.set(key, e.id);
+  }
+  const wclActiveDungeonEncounters = [...bySlug.entries()]
+    .map(([dungeonSlug, encounterId]) => ({ dungeonSlug, encounterId }))
+    .sort((a, b) => a.dungeonSlug.localeCompare(b.dungeonSlug));
+  return {
+    wclActiveDungeonSlugs: wclActiveDungeonEncounters.map((r) => r.dungeonSlug),
+    wclActiveDungeonEncounters,
   };
 }
 
@@ -372,7 +416,7 @@ async function probeRankingsDiagnostics(
   }
 }
 
-async function probeRecentReportDetails(async function probeRecentReportDetails(
+async function probeSelectedReportDetails(
   provider: LiveWarcraftLogsProvider,
   identity: CharacterIdentityInput,
   reportCodes: string[],
@@ -701,11 +745,17 @@ async function runDeep(
 
   const zone = provider.getZoneConfig();
   const zoneQueried = shouldQueryZoneRankings(zone);
+  const dungeonBindings = await resolveDiscoveryDungeonBindings(provider, identity);
+  const discoveryCtx: ProviderFetchContext = {
+    ...ctx,
+    wclActiveDungeonSlugs: dungeonBindings.wclActiveDungeonSlugs,
+    wclActiveDungeonEncounters: dungeonBindings.wclActiveDungeonEncounters,
+  };
 
   let discovery: Awaited<ReturnType<LiveWarcraftLogsProvider["discoverCharacter"]>>;
   let discoveryError: string | null = null;
   try {
-    discovery = await provider.discoverCharacter(identity, ctx);
+    discovery = await provider.discoverCharacter(identity, discoveryCtx);
   } catch (error) {
     discoveryError = errorMessage(error);
     const details =
@@ -754,7 +804,7 @@ async function runDeep(
   const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity));
   const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
 
-  const runsResult = await provider.discoverCharacterRuns(identity, ctx);
+  const runsResult = await provider.discoverCharacterRuns(identity, discoveryCtx);
   const rankingsProbe = await probeRankingsDiagnostics(
     provider,
     identity,
@@ -764,7 +814,7 @@ async function runDeep(
   const reportCodes = [
     ...new Set(discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode)),
   ].slice(0, 5);
-  const selectedReportDetails = await probeRecentReportDetails(provider, identity, reportCodes);
+  const selectedReportDetails = await probeSelectedReportDetails(provider, identity, reportCodes);
 
   // Prefer fight-known candidates from encounterRankings / zoneRankings discovery.
   const matchCandidates =

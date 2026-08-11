@@ -162,7 +162,6 @@ import {
   ensureTargetParticipant,
   filterRunsToActiveWindow,
   fuseCrossProviderRuns,
-  mythicRunHasWclSource,
   sourceRefHasWcl,
 } from "./run-fusion.js";
 import {
@@ -1577,7 +1576,14 @@ export async function runRefreshPipeline(
   const nowMs = now.getTime();
   blizzardRuns = filterRunsToActiveWindow(blizzardRuns, { nowMs });
   const rioRuns = filterRunsToActiveWindow(rioRunsRaw, { nowMs });
-    const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
+
+  // Active-season dungeon pool for encounterRankings discovery (not hydration).
+  const preWclSeasonDungeonRows = await container.prisma.seasonDungeon.findMany({
+    where: { seasonId: preflightAuthority.seasonRowId },
+    include: { dungeon: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
     canonicalDungeonKey(row.dungeon.slug),
   );
   const wclActiveDungeonEncounters = preWclSeasonDungeonRows
@@ -1925,7 +1931,7 @@ export async function runRefreshPipeline(
     completedAt: run.completedAt.toISOString(),
     durationMs: run.durationMs,
     scoreValue: run.scoreValue,
-    hasWclSource: mythicRunHasWclSource(run),
+    hasWclSource: run.sources.some((s) => sourceRefHasWcl(s.provider)),
   }));
   const candidateFromFusion = fusedRuns
     .filter((run) => persistedByFingerprint.has(run.canonicalFingerprint))
@@ -2061,7 +2067,7 @@ export async function runRefreshPipeline(
           completedAt: run.completedAt.toISOString(),
           durationMs: run.durationMs,
           scoreValue: run.scoreValue,
-          hasWclSource: mythicRunHasWclSource(run),
+          hasWclSource: run.sources.some((s) => sourceRefHasWcl(s.provider)),
         })),
         {
           seasonSlug: season.slug,

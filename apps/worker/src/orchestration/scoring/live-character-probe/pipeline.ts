@@ -395,10 +395,21 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
   const seasonName =
     zoneResult.response.data?.worldData?.zone?.name ?? `wcl-zone-${zoneConfig.zoneId}`;
 
-  // Discovery only: encounterRankings / zoneRankings candidates with known fightId.
+  // Pass already-fetched zone encounter bindings into discovery (no listing fallback).
+  const wclActiveDungeonEncounters = [...liveEncounterSlugById.entries()]
+    .map(([encounterId, dungeonSlug]) => ({ dungeonSlug, encounterId }))
+    .filter((row) => activeDungeonSet.has(row.dungeonSlug.trim().toLowerCase()))
+    .sort((a, b) => a.dungeonSlug.localeCompare(b.dungeonSlug) || a.encounterId - b.encounterId);
+  const discoveryCtx: ProviderFetchContext = {
+    ...ctx,
+    wclActiveDungeonSlugs: [...activeDungeonSlugs],
+    wclActiveDungeonEncounters,
+  };
+
+  // Discovery only: encounterRankings candidates with known fightId.
   // Do not open reports for fightId<=0 stubs — detailed ReportWithFightAndMasterData
   // runs later for SELECTED slots only (post-selection acquisition).
-  const discovery = await provider.discoverCharacter(identity, ctx);
+  const discovery = await provider.discoverCharacter(identity, discoveryCtx);
   wclRequests += 5;
 
   const rankingByKey = new Map<string, WclRankingObservation>();
@@ -899,14 +910,16 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       reportCode: slot.identity.reportCode,
       fightId: slot.identity.fightId,
     });
-    const acquired = acquisitionByKey.get(key);
-    const acquired = Boolean(acquired?.result.reportRevision != null && acquired.bundle);
-    if (acquired) fullyAcquiredSlots += 1;
-    if (acquired?.datasetRows.some((r) => r.status === "FAILED")) datasetFailedSlots += 1;
+    const acquiredEntry = acquisitionByKey.get(key);
+    const fullyAcquired = Boolean(
+      acquiredEntry?.result.reportRevision != null && acquiredEntry.bundle,
+    );
+    if (fullyAcquired) fullyAcquiredSlots += 1;
+    if (acquiredEntry?.datasetRows.some((r) => r.status === "FAILED")) datasetFailedSlots += 1;
     if (
-      !acquired?.performanceFact &&
-      !acquired?.survivalFact &&
-      !acquired?.utilityFact
+      !acquiredEntry?.performanceFact &&
+      !acquiredEntry?.survivalFact &&
+      !acquiredEntry?.utilityFact
     ) {
       factExtractionFailedSlots += 1;
     }
@@ -918,34 +931,34 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       reportCode: slot.identity.reportCode,
       fightId: slot.identity.fightId,
       reportRevision: slot.identity.reportRevision,
-      actorId: acquired?.result.actorId ?? null,
-      fullyAcquired: acquired,
-      wclReportValid: acquired?.result.acquisitionStatus === "ACQUIRED",
-      missingReason: acquired ? null : "incomplete_acquisition",
+      actorId: acquiredEntry?.result.actorId ?? null,
+      fullyAcquired,
+      wclReportValid: acquiredEntry?.result.acquisitionStatus === "ACQUIRED",
+      missingReason: fullyAcquired ? null : "incomplete_acquisition",
     });
 
-    if (acquired) {
-      for (const row of acquired.datasetRows) datasetCoverage.push({ ...row });
-      if (acquired.performanceFact) {
+    if (acquiredEntry) {
+      for (const row of acquiredEntry.datasetRows) datasetCoverage.push({ ...row });
+      if (acquiredEntry.performanceFact) {
         const rebound: PerformanceFactDocumentV2 = {
-          ...acquired.performanceFact,
+          ...acquiredEntry.performanceFact,
           slotId,
           dungeonSlug: slot.dungeonSlug,
           identity: { ...slot.identity },
         };
         selectedPerfFacts.push(toPerformanceRunParseFactV2(rebound));
       }
-      if (acquired.survivalFact) {
+      if (acquiredEntry.survivalFact) {
         survivalDocs.push({
-          ...acquired.survivalFact,
+          ...acquiredEntry.survivalFact,
           dungeonSlug: slot.dungeonSlug,
           slotIndex: slot.slotIndex,
           identity: { ...slot.identity },
         });
       }
-      if (acquired.utilityFact) {
+      if (acquiredEntry.utilityFact) {
         utilityFacts.push({
-          ...acquired.utilityFact,
+          ...acquiredEntry.utilityFact,
           slotId,
           dungeonSlug: slot.dungeonSlug,
           slotIndex: slot.slotIndex as 0 | 1,
