@@ -140,7 +140,12 @@ export interface SelectedRunSummary {
   timed: boolean | null;
   completedAt: IsoDateTime | null;
   wclReportMatched: boolean;
-  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  selectionReason:
+    | "HIGHEST_KEY"
+    | "HIGHEST_SCORE_TIEBREAK"
+    | "LATEST_TIEBREAK"
+    | "WCL_PREFERRED_OVER_HIGHER_UNLOGGED"
+    | null;
   coverageRatio: number | null;
 }
 
@@ -172,7 +177,12 @@ export interface SelectedRunSummaryDTO {
   timed: boolean;
   wclReportMatched: boolean;
   wclCoverageRatio: number | null;
-  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  selectionReason:
+    | "HIGHEST_KEY"
+    | "HIGHEST_SCORE_TIEBREAK"
+    | "LATEST_TIEBREAK"
+    | "WCL_PREFERRED_OVER_HIGHER_UNLOGGED"
+    | null;
   parsePercentile: number | null;
   hasDetailedAnalysis: boolean;
   /**

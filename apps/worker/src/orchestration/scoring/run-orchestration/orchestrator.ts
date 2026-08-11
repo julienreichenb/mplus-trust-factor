@@ -1343,10 +1343,14 @@ export async function orchestrateScoringRuns(
         : fightFailures.length > 0
           ? "fight_processing_failed"
           : "zero_usable_digests";
-    blocked.push({
-      dimension: "PERFORMANCE",
-      reason: "performance_parse_missing",
-    });
+    const performanceFinite =
+      performance?.score != null && Number.isFinite(performance.score);
+    if (!performanceFinite) {
+      blocked.push({
+        dimension: "PERFORMANCE",
+        reason: "performance_parse_missing",
+      });
+    }
     blocked.push({
       dimension: "UTILITY",
       reason: actorUnresolved

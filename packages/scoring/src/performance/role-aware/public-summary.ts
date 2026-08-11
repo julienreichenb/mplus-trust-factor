@@ -189,7 +189,10 @@ export function buildRoleAwarePerformanceSummary(input: {
       consistencyScore: damageChannel.medianAverage,
       score: performanceScore,
       confidence,
-      dungeonCount: damageChannel.availableCells,
+      // Public DTO: `dungeonCount` is the number of represented active dungeons.
+      // `availableCells` remains Best/Median cell coverage inside roleAware.
+      dungeonCount: damageChannel.dungeons.length,
+      availableDungeonCount: damageChannel.availableCells,
       expectedDungeonCount,
       totalLoggedRuns: compact.damage.totalLoggedRuns,
       partition: compact.partition,

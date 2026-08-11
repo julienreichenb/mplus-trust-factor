@@ -152,9 +152,17 @@ function safeWclUrl(url: string | null | undefined): string | null {
   return sanitizeWarcraftLogsUrl(url);
 }
 
-function formatLoggedRuns(value: number | null | undefined): string {
-  if (value == null) return "—";
-  return String(value);
+function formatHealerLoggedRuns(
+  healing: number | null | undefined,
+  damage: number | null | undefined,
+): string {
+  const heal = healing != null && Number.isFinite(healing) ? healing : null;
+  const dmg = damage != null && Number.isFinite(damage) ? damage : null;
+  if (heal == null && dmg == null) return "—";
+  if (heal != null && dmg != null) {
+    return heal === dmg ? String(heal) : `${heal} · ${dmg}`;
+  }
+  return String(heal ?? dmg);
 }
 </script>
 
@@ -233,7 +241,7 @@ function formatLoggedRuns(value: number | null | undefined): string {
               <th scope="col" rowspan="2">Dungeon</th>
               <th scope="colgroup" colspan="2">Healing</th>
               <th scope="colgroup" colspan="2">Damage</th>
-              <th scope="colgroup" colspan="2">Logs</th>
+              <th scope="col" rowspan="2">Logs</th>
               <th scope="col" rowspan="2">Selected runs</th>
             </tr>
             <tr>
@@ -241,8 +249,6 @@ function formatLoggedRuns(value: number | null | undefined): string {
               <th scope="col">Median %</th>
               <th scope="col">Best %</th>
               <th scope="col">Median %</th>
-              <th scope="col">Healing</th>
-              <th scope="col">Damage</th>
             </tr>
           </thead>
           <tbody>
@@ -268,8 +274,9 @@ function formatLoggedRuns(value: number | null | undefined): string {
                   formatPct(row.damageMedian)
                 }}</span>
               </td>
-              <td class="mpts-data">{{ formatLoggedRuns(row.healingLoggedRuns) }}</td>
-              <td class="mpts-data">{{ formatLoggedRuns(row.damageLoggedRuns) }}</td>
+              <td class="mpts-data">{{
+                formatHealerLoggedRuns(row.healingLoggedRuns, row.damageLoggedRuns)
+              }}</td>
               <td>
                 <span
                   v-if="selectedRunEntries(row.legacyDungeon).length === 0"

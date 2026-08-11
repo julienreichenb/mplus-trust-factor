@@ -254,7 +254,13 @@ export function computeRoleAwarePerformance(
 
   if (!cooldownOk) {
     score = damageParse.score;
-    weights = { damageParse: 1, healingParse: 0, cooldown: 0 };
+    // Preserve configured weights (default 0.80/0.20) even when cooldown evidence is missing.
+    // This ensures confidence is not renormalized to 1.00 by the absence of cooldown data.
+    weights = {
+      damageParse: formulaWeights.dps.damageParse,
+      healingParse: 0,
+      cooldown: formulaWeights.dps.cooldown,
+    };
     state = "PARTIAL";
     causes.push("cooldown_evidence_unavailable");
     cooldownEvidenceConfidence = 0;
@@ -285,12 +291,11 @@ export function computeRoleAwarePerformance(
         : "AVAILABLE";
   }
 
+  // No renormalization: missing cooldown evidence must reduce final confidence
+  // according to the configured DPS weights.
   const confidence = clamp01(
-    weights.cooldown <= 0
-      ? weights.damageParse * damageParse.confidence
-      : (weights.damageParse * damageParse.confidence +
-          weights.cooldown * cooldownEvidenceConfidence) /
-          (weights.damageParse + weights.cooldown),
+    weights.damageParse * damageParse.confidence +
+      weights.cooldown * cooldownEvidenceConfidence,
   );
 
   const finalCauses = uniqueCauses(causes);
