@@ -42,6 +42,7 @@ import {
   countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
+import { TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "../discovery/bounds.js";
 import {
   buildAliasedEncounterRankingsQuery,
   encounterObservationsToZoneRankingsPayload,
@@ -1119,6 +1120,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
       .map((slug) => slug.trim().toLowerCase())
       .filter((slug) => slug.length > 0);
+
     let encounterTargets: ActiveDungeonEncounterBinding[] = [];
     try {
       encounterTargets = this.resolveEncounterBindingsFromContext(ctx);
@@ -1130,7 +1132,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       throw error;
     }
 
-    if (shouldQueryZoneRankings(this.zoneConfig) && encounterTargets.length > 0) {
+    const encounterTargetSlugs = new Set(
+      encounterTargets.map((e) => e.dungeonSlug.trim().toLowerCase()),
+    );
+    const coversAllActiveDungeons =
+      activeDungeonSlugs.length === 0 ||
+      activeDungeonSlugs.every((slug) => encounterTargetSlugs.has(slug));
+
+    if (
+      shouldQueryZoneRankings(this.zoneConfig) &&
+      encounterTargets.length > 0 &&
+      coversAllActiveDungeons
+    ) {
       // Preferred discovery: one aliased encounterRankings call for active dungeons.
       const aliased = buildAliasedEncounterRankingsQuery(encounterTargets);
       const erResult = await this.client.request<{
@@ -1298,7 +1311,16 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       warnings.push(
         `recentReports pagination: pagesFetched=${pagination.pagesFetched} stop=${pagination.stopReason} uniqueReports=${recentPublicCount}`,
       );
+
     }
+
+    const minRecentCandidates =
+      erCoverage?.fullCoverage === false && erCoverage.underCovered.length > 0
+        ? Math.min(
+            recentCandidates.length,
+            TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON * erCoverage.underCovered.length,
+          )
+        : 0;
 
     const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {
       privateSkipped: privateSkippedTotal,
@@ -1319,6 +1341,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       performance,
       rankingCandidates,
       recentCandidates,
+      minRecentCandidates,
       privateReportsSkipped: privateSkippedTotal,
     });
   }

@@ -486,7 +486,7 @@ export async function discoverShadowCanaryCandidates(input: {
 
     const dungeonSlugRaw =
       typeof raw.dungeonSlug === "string"
-        ? canonicalDungeonKey(raw.dungeonSlug)
+        ? canonicalDungeonKey(raw.dungeonSlug) ?? slugifyDungeonName(raw.dungeonSlug)
         : typeof raw.encounterId === "number"
           ? liveEncounterSlugById.get(raw.encounterId) ??
             ENCOUNTER_DUNGEON_MAP[raw.encounterId] ??

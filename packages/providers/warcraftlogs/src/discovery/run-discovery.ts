@@ -370,18 +370,63 @@ export function capDiscoveryCandidates(
   rankingCandidates: WclRunCandidate[],
   recentCandidates: WclRunCandidate[],
   max = MAX_DISCOVERY_CANDIDATES,
+  options?: {
+    /**
+     * When encounter coverage is incomplete, the cap must retain enough
+     * `fightUnknown` recent stubs so iterative hydration can discover
+     * missing dungeons. Otherwise the cap can truncate away all stubs,
+     * producing empty EvidenceManifest slots.
+     */
+    minRecentCandidates?: number;
+  },
 ): { candidates: WclRunCandidate[]; truncated: boolean } {
   const merged = dedupeCandidates([...rankingCandidates, ...recentCandidates]);
-  // Prefer zoneRankings rows; demote fightUnknown stubs
+  if (merged.length <= max) {
+    return { candidates: merged, truncated: false };
+  }
+
+  const minRecentCandidates = options?.minRecentCandidates ?? 0;
+  if (minRecentCandidates > 0) {
+    // Recent stubs are ordered by recency; taking the first N can cluster
+    // into just a couple dungeons (starving evidence for the rest).
+    // Prefer diversity by `zoneId` using round-robin selection.
+    const groups = new Map<number | null, WclRunCandidate[]>();
+    const groupOrder: Array<number | null> = [];
+    for (const c of recentCandidates) {
+      const key = c.zoneId ?? null;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        groupOrder.push(key);
+      }
+      groups.get(key)!.push(c);
+    }
+    const pickedRecent: WclRunCandidate[] = [];
+    let idx = 0;
+    while (pickedRecent.length < minRecentCandidates && idx < groupOrder.length * 50) {
+      let progressed = false;
+      for (const key of groupOrder) {
+        const bucket = groups.get(key);
+        if (!bucket || bucket.length === 0) continue;
+        pickedRecent.push(bucket.shift()!);
+        progressed = true;
+        if (pickedRecent.length >= minRecentCandidates) break;
+      }
+      if (!progressed) break;
+      idx += 1;
+    }
+    const remaining = max - pickedRecent.length;
+    const pickedRanking = rankingCandidates.slice(0, Math.max(0, remaining));
+    const candidates = dedupeCandidates([...pickedRanking, ...pickedRecent]);
+    return { candidates, truncated: true };
+  }
+
+  // Default behavior: prefer zoneRankings rows; demote fightUnknown stubs
   merged.sort((a, b) => {
     const aScore = a.incompleteness.fightUnknown ? 1 : 0;
     const bScore = b.incompleteness.fightUnknown ? 1 : 0;
     if (aScore !== bScore) return aScore - bScore;
     return 0;
   });
-  if (merged.length <= max) {
-    return { candidates: merged, truncated: false };
-  }
   return { candidates: merged.slice(0, max), truncated: true };
 }
 
@@ -390,6 +435,7 @@ export function buildCharacterDiscovery(input: {
   rankings: WclRankingObservation[];
   rankingCandidates: WclRunCandidate[];
   recentCandidates: WclRunCandidate[];
+  minRecentCandidates?: number;
   privateReportsSkipped?: number;
   dungeonAggregates?: WclDungeonPerformanceAggregate[];
   performance?: WclCharacterDiscoveryResult["performance"];
@@ -397,6 +443,8 @@ export function buildCharacterDiscovery(input: {
   const { candidates, truncated } = capDiscoveryCandidates(
     input.rankingCandidates,
     input.recentCandidates,
+    MAX_DISCOVERY_CANDIDATES,
+    { minRecentCandidates: input.minRecentCandidates },
   );
   const { latest, highest } = selectLatestAndHighest(candidates);
   const warnings = [...input.summary.warnings];

@@ -479,6 +479,10 @@ export function timedEligibleCoverageByDungeon(
     if (!slug || !seen.has(slug)) continue;
     if (c.fightId <= 0 || c.incompleteness.fightUnknown) continue;
     if (c.timed !== true) continue;
+    // Coverage must reflect candidates that can be turned into target-resolvable
+    // evidence. Runs flagged as rosterIncomplete may still be timed, but
+    // they cannot satisfy the target identity requirement during later steps.
+    if (c.incompleteness.rosterIncomplete) continue;
     if (c.keyLevel == null || c.keyLevel <= 0) continue;
     seen.get(slug)!.add(`${c.reportCode}:${c.fightId}`);
   }
