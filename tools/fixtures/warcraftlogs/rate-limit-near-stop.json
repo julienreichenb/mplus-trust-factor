@@ -1,8 +1,19 @@
 {
   "scenario": "rate-limit-near-stop",
-  "resolveCharacter": { "data": { "characterData": { "character": null } } },
-  "zoneRankings": { "data": { "characterData": { "character": null } } },
-  "recentReports": { "data": { "characterData": { "character": null } } },
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
   "rateLimitData": {
     "data": {
       "rateLimitData": {

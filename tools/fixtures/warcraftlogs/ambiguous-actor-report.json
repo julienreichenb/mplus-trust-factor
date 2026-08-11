@@ -10,15 +10,36 @@
           "level": 80,
           "classID": 8,
           "hidden": false,
-          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+          "server": {
+            "slug": "tarren-mill",
+            "region": {
+              "name": "EU"
+            }
+          }
         }
       }
     }
   },
-  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
-  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": {
+            "rankings": []
+          }
+        }
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 10, "pointsRemaining": 3590, "resetInSeconds": 3200 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 10,
+        "pointsRemaining": 3590,
+        "resetInSeconds": 3200
+      }
+    }
   },
   "report": {
     "data": {
@@ -30,7 +51,10 @@
           "startTime": 1751000000000,
           "endTime": 1751003600000,
           "visibility": "public",
-          "zone": { "id": 45, "name": "Mythic Season 15" },
+          "zone": {
+            "id": 45,
+            "name": "Mythic Season 15"
+          },
           "fights": [
             {
               "id": 1,
@@ -42,15 +66,39 @@
               "endTime": 1800000,
               "keystoneLevel": 10,
               "friendlyPlayers": [
-                { "id": 1, "name": "Twinplayer", "server": "Tarren Mill", "type": "Mage", "icon": null },
-                { "id": 2, "name": "Twinplayer", "server": "Tarren Mill", "type": "Mage", "icon": null }
+                {
+                  "id": 1,
+                  "name": "Twinplayer",
+                  "server": "Tarren Mill",
+                  "type": "Mage",
+                  "icon": null
+                },
+                {
+                  "id": 2,
+                  "name": "Twinplayer",
+                  "server": "Tarren Mill",
+                  "type": "Mage",
+                  "icon": null
+                }
               ]
             }
           ],
           "masterData": {
             "actors": [
-              { "id": 1, "name": "Twinplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" },
-              { "id": 2, "name": "Twinplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" }
+              {
+                "id": 1,
+                "name": "Twinplayer",
+                "type": "Player",
+                "subType": "Mage",
+                "server": "Tarren Mill"
+              },
+              {
+                "id": 2,
+                "name": "Twinplayer",
+                "type": "Player",
+                "subType": "Mage",
+                "server": "Tarren Mill"
+              }
             ],
             "abilities": []
           }
@@ -59,6 +107,8 @@
     }
   },
   "events": {
-    "Casts": { "data": [] }
+    "Casts": {
+      "data": []
+    }
   }
 }

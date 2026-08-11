@@ -273,33 +273,6 @@ export const zoneRankingsSchema = z.object({
   }),
 });
 
-export const recentReportsSchema = z.object({
-  characterData: z.object({
-    character: z
-      .object({
-        recentReports: z
-          .object({
-            data: z
-              .array(
-                z.object({
-                  code: z.string(),
-                  title: z.string().nullable().optional(),
-                  startTime: z.number(),
-                  endTime: z.number().nullable().optional(),
-                  visibility: z.string().nullable().optional(),
-                  zone: z.object({ id: z.number(), name: z.string().nullable().optional() }).nullable().optional(),
-                }),
-              )
-              .default([]),
-            total: z.number().nullable().optional(),
-            has_more_pages: z.boolean().nullable().optional(),
-          })
-          .nullable(),
-      })
-      .nullable(),
-  }),
-});
-
 export const reportFightSchema = z.object({
   reportData: z.object({
     report: z

@@ -74,8 +74,7 @@ export function buildSurvivalWclBindPool(
   }
 
   for (const rankingCandidate of rankingsToCandidates(rankings)) {
-    if (rankingCandidate.incompleteness.fightUnknown) continue;
-    if (rankingCandidate.fightId <= 0 || !rankingCandidate.reportCode) continue;
+        if (rankingCandidate.fightId <= 0 || !rankingCandidate.reportCode) continue;
     if (rankingCandidate.keyLevel == null) continue;
     if (!rankingCandidate.completedAt) continue;
     push({

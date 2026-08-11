@@ -11,7 +11,6 @@ import {
   buildEvidenceAcquisitionPlanV2,
   finalizeEvidenceManifestV2,
 } from "@mplus/scoring";
-import { prioritizeReportsForHydration } from "@mplus/provider-warcraftlogs";
 import {
   diagnoseIncompleteDungeonFromPersisted,
   isEligibleCounterDoubleCounted,
@@ -138,47 +137,6 @@ describe("incomplete dungeon diagnostics (provider-free)", () => {
     expect(diag.fights.every((f) => f.dedupeIdentity === "SAME:3" || f.sameSourceFightAsSelected)).toBe(
       true,
     );
-  });
-
-  it("missing-dungeon hydration is prioritized over covered dungeons", () => {
-    const stubs = [
-      {
-        reportCode: "COVERED1",
-        fightId: 0,
-        encounterId: 1,
-        zoneId: 47,
-        dungeonSlug: "pit-of-saron",
-        startTimeMs: 2_000,
-        incompleteness: {
-          dungeonUnknown: false,
-          seasonUnknown: true,
-          timedUnknown: true,
-          keyLevelUnknown: true,
-          rosterIncomplete: true,
-          fightUnknown: true,
-        },
-      },
-      {
-        reportCode: "SHORT1",
-        fightId: 0,
-        encounterId: 2,
-        zoneId: 47,
-        dungeonSlug: "windrunner-spire",
-        startTimeMs: 1_000,
-        incompleteness: {
-          dungeonUnknown: false,
-          seasonUnknown: true,
-          timedUnknown: true,
-          keyLevelUnknown: true,
-          rosterIncomplete: true,
-          fightUnknown: true,
-        },
-      },
-    ];
-    const ordered = prioritizeReportsForHydration(stubs as never, [], 10, {
-      underCoveredDungeonSlugs: new Set(["windrunner-spire"]),
-    });
-    expect(ordered[0]?.reportCode).toBe("SHORT1");
   });
 
   it("a real one-run dungeon remains explicitly incomplete", () => {

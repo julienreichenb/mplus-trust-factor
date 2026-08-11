@@ -8,7 +8,7 @@ export {
   type DimensionExecutable,
   type OverallVerdict,
   type ProbeClassificationInput,
-  type SlotHydrationSummary,
+  type SlotAcquisitionSummary,
 } from "./classify.js";
 
 export { buildSummaryMarkdown, type ProbeSummaryHeader } from "./report.js";

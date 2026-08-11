@@ -1,9 +1,7 @@
 /**
- * Discovery-only canary report + effect contracts.
+ * Discovery-only canary report + effect contracts (encounterRankings architecture).
  */
-import type {
-  EvidenceCandidateMetadataV2,
-} from "@mplus/contracts";
+import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
 import type {
   RankingParseEvidenceV2,
   WclRateLimitSnapshot,
@@ -28,54 +26,19 @@ export type CanaryDiscoveryRankingEvidence = Omit<
 export interface CanaryDiscoveryCandidateSource {
   candidates: EvidenceCandidateMetadataV2[];
   rankingEvidence: CanaryDiscoveryRankingEvidence[];
-  reportsListed: number;
-  reportsHydrated: number;
   fightsExamined: number;
   graphqlRequestCount: number;
   /** Detailed capability / combat event pages — must remain 0. */
   capabilityEventPageRequestCount: number;
   measuredPoints: number | null;
   estimatedPoints: number | null;
-  /** Reports listed but never hydrated, with exact omission reason. */
-  omittedReports?: Array<{
-    reportCode: string;
-    reason: string;
-    dungeonSlug: string | null;
-    listedOrderIndex?: number | null;
-  }>;
-  unhydratedReportCount?: number;
-  iterativeHydration?: {
-    initialHydrationBudget: number;
-    reportsHydratedInitial: number;
-    incrementalBatchCount: number;
-    reportsHydratedIncrementally: number;
-    totalReportsHydrated: number;
-    totalReportsListed: number;
-    reportsRemaining: number;
-    incrementalProviderCalls: number;
-    incrementalEstimatedPoints: number;
-    terminalHydrationReason: string;
-    listedReportOrder: string[];
-    initialHydrationOrder: string[];
-  } | null;
-  discoveryStrategy?:
-    | "encounter_rankings"
-    | "encounter_rankings_with_hydration_fallback"
-    | "recent_reports_hydration";
-  hydrationFallbackReason?: string | null;
+  discoveryStrategy?: "encounter_rankings";
   providerCallBreakdown?: {
     zoneCatalog: number;
     characterDiscovery: number;
-    reportHydration: number;
   };
-
-  /**
-   * Post-hydration diagnostics: where hydrated fights survive the
-   * normalization filters before becoming EvidenceCandidateMetadataV2.
-   */
-  hydratedFightCandidates?: {
+  candidateNormalization?: {
     total: number;
-    fightUnknown: number;
     invalidFightId: number;
     missingDungeonSlug: number;
     dungeonSlugNotInActivePool: number;
@@ -106,12 +69,11 @@ export interface CanaryDiscoveryReport {
   catalogVersion: string;
   dungeonPoolHash: string;
   dungeonSlugs: string[];
-  reportsListed: number;
-  reportsHydrated: number;
-  unhydratedReportCount: number;
   fightsExamined: number;
-  /** Unique discovery candidates observed (alias of historical candidateCount). */
+  /** Unique discovery candidates observed. */
   discoveredCandidateCount: number;
+  candidateCount: number;
+  eligibleCandidateCount: number;
   /** Unique eligible plan identities per dungeon (not summed across slots). */
   uniqueEligibleCandidateCount: number;
   selectedSourceFightCount: number;
@@ -122,68 +84,17 @@ export interface CanaryDiscoveryReport {
   selectedSlotCount: number;
   expectedSlotCount: number;
   missingSlots: Array<{ slotId: string; reason: string }>;
-  /**
-   * Counter definitions (unambiguous):
-   * - discoveredCandidateCount: unique discovery candidates observed
-   * - uniqueEligibleCandidateCount: unique eligible plan identities (not per-slot sum)
-   * - selectedSourceFightCount: SELECTED slots with distinct reportCode:fightId
-   * - rejectedCandidateCount: rejectedCandidates length
-   * - unhydratedReportCount: listed stubs never fetched
-   */
   counterDefinitions: {
     discoveredCandidateCount: "unique_discovered_candidates";
     uniqueEligibleCandidateCount: "unique_eligible_plan_identities";
     selectedSourceFightCount: "selected_distinct_source_fights";
     rejectedCandidateCount: "rejected_candidates";
-    unhydratedReportCount: "listed_not_hydrated_reports";
     candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon";
     eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon";
   };
-  omittedReports: Array<{
-    reportCode: string;
-    reason: string;
-    dungeonSlug: string | null;
-    listedOrderIndex?: number | null;
-  }>;
   analysisStatus: "EMPTY" | "PARTIAL" | "COMPLETE";
   supersedesManifestId: string | null;
-  /** Iterative hydration accounting (null when complete-manifest reuse skipped discovery). */
-  iterativeHydration: {
-    initialHydrationBudget: number;
-    reportsHydratedInitial: number;
-    incrementalBatchCount: number;
-    reportsHydratedIncrementally: number;
-    totalReportsHydrated: number;
-    totalReportsListed: number;
-    reportsRemaining: number;
-    incrementalProviderCalls: number;
-    incrementalEstimatedPoints: number;
-    terminalHydrationReason: string;
-  } | null;
-
-  /**
-   * Post-hydration diagnostics: where hydrated fights survive the
-   * normalization filters before becoming EvidenceCandidateMetadataV2.
-   */
-  hydratedFightCandidates?: {
-    total: number;
-    fightUnknown: number;
-    invalidFightId: number;
-    missingDungeonSlug: number;
-    dungeonSlugNotInActivePool: number;
-    invalidKeyLevel: number;
-    visibilityExcluded: number;
-    byDungeonSlug: Record<string, number>;
-  };
-  targetReportTrace: {
-    reportCode: string;
-    listed: boolean;
-    listedOrderIndex: number | null;
-    inInitialHydrationSet: boolean;
-    omitted: boolean;
-    omissionReason: string | null;
-    terminalState: string;
-  } | null;
+  candidateNormalization?: CanaryDiscoveryCandidateSource["candidateNormalization"];
   rankingEvidenceFound: number;
   rankingEvidenceFetched: number;
   rankingEvidencePersisted: number;
@@ -198,16 +109,12 @@ export interface CanaryDiscoveryReport {
   measuredWclPoints: number | null;
   estimatedWclPoints: number | null;
   rateLimitSnapshot: WclRateLimitSnapshot | null;
-  rateAdmission: "ALLOW" | "WARN_ALLOW" | "DEFER" | "STOP" | "NOT_EVALUATED";
+  rateAdmission: "ALLOW" | "WARN" | "DEFER" | "STOP" | "NOT_EVALUATED";
   rateAdmissionReasons: string[];
+  /** Null on complete-manifest reuse (provider path skipped). */
   bootstrap: CanaryRateSnapshotBootstrapReport | null;
   discoveryAdmission: CanaryDiscoveryAdmissionReport | null;
-  capabilityPackageAcquisitions: 0;
-  capabilityPackagesCreated: 0;
-  participantDigestsCreated: 0;
-  scoreCalculations: 0;
+  forbiddenEffects: CanaryDiscoveryForbiddenEffects;
   publicationEnabled: false;
   publicScorePointerMutated: false;
-  reusedExistingManifest: boolean;
-  providerCallsBeforeDiscovery: number;
 }

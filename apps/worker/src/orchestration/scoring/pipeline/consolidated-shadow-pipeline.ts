@@ -43,7 +43,7 @@ export interface ConsolidatedShadowPipelineReport {
   stages: ConsolidatedStageSummary[];
   season: Record<string, unknown> | null;
   discovery: Record<string, unknown> | null;
-  liveHydration: CanaryLiveReport | null;
+  liveCanaryReport: CanaryLiveReport | null;
   digestDiagnostic: Record<string, unknown> | null;
   replay: Record<string, unknown> | null;
   publicationEnabled: false;
@@ -88,7 +88,7 @@ export async function runConsolidatedShadowPipeline(input: {
 
   const stages: ConsolidatedStageSummary[] = [];
   let providerCalls = 0;
-  let liveHydration: CanaryLiveReport | null = null;
+  let liveCanaryReport: CanaryLiveReport | null = null;
   let discoverySummary: Record<string, unknown> | null = null;
   let digestSummary: Record<string, unknown> | null = null;
   let replaySummary: Record<string, unknown> | null = null;
@@ -204,7 +204,7 @@ export async function runConsolidatedShadowPipeline(input: {
       env: input.env,
       outputDir: input.outputDir,
     });
-    liveHydration = live.report;
+    liveCanaryReport = live.report;
     providerCalls += live.report.authoritativeProviderCalls ?? live.report.graphqlRequestCount ?? 0;
     stages.push({
       name: "digest_and_dimensions",
@@ -384,7 +384,7 @@ export async function runConsolidatedShadowPipeline(input: {
       outcome: "COMPLETE",
       providerCalls,
       discovery: discoverySummary,
-      liveHydration,
+      liveCanaryReport,
       digestDiagnostic: digestSummary,
       replay: replaySummary,
     }),
@@ -419,7 +419,7 @@ function finish(
       dungeonPoolHash: input.season.dungeonPoolHash,
     },
     discovery: extra.discovery ?? null,
-    liveHydration: extra.liveHydration ?? null,
+    liveCanaryReport: extra.liveCanaryReport ?? null,
     digestDiagnostic: extra.digestDiagnostic ?? null,
     replay: extra.replay ?? null,
     publicationEnabled: false,

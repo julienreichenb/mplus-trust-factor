@@ -318,7 +318,7 @@ describe("encounterRankings discovery → 16/16 selection", () => {
     }
 
     // No mass-hydration stubs required when encounter lists are complete.
-    expect(candidates.every((c) => !c.incompleteness.fightUnknown)).toBe(true);
+    expect(candidates.every((c) => c.fightId > 0)).toBe(true);
     expect(candidates.every((c) => c.source === "encounterRankings")).toBe(true);
 
     const zonePayload = encounterObservationsToZoneRankingsPayload(
@@ -743,3 +743,4 @@ describe("aliased payload isolation", () => {
     expect(candidates[0]!.incompleteness.dungeonUnknown).toBe(false);
   });
 });
+

@@ -1,8 +1,19 @@
 {
   "scenario": "public-mplus-report",
-  "resolveCharacter": { "data": { "characterData": { "character": null } } },
-  "zoneRankings": { "data": { "characterData": { "character": null } } },
-  "recentReports": { "data": { "characterData": { "character": null } } },
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
   "rateLimitData": {
     "data": {
       "rateLimitData": {
@@ -23,7 +34,10 @@
           "startTime": 1751000000000,
           "endTime": 1751003600000,
           "visibility": "public",
-          "zone": { "id": 45, "name": "Mythic Season 15" },
+          "zone": {
+            "id": 45,
+            "name": "Mythic Season 15"
+          },
           "fights": [
             {
               "id": 3,
@@ -35,21 +49,60 @@
               "endTime": 1943456,
               "keystoneLevel": 12,
               "friendlyPlayers": [
-                { "id": 1, "name": "Fixtureplayer", "server": "Tarren Mill", "type": "Mage", "icon": "Mage-Fire" },
-                { "id": 2, "name": "Healerone", "server": "Tarren Mill", "type": "Priest", "icon": "Priest-Holy" }
+                {
+                  "id": 1,
+                  "name": "Fixtureplayer",
+                  "server": "Tarren Mill",
+                  "type": "Mage",
+                  "icon": "Mage-Fire"
+                },
+                {
+                  "id": 2,
+                  "name": "Healerone",
+                  "server": "Tarren Mill",
+                  "type": "Priest",
+                  "icon": "Priest-Holy"
+                }
               ]
             }
           ],
           "masterData": {
             "actors": [
-              { "id": 1, "name": "Fixtureplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" },
-              { "id": 2, "name": "Healerone", "type": "Player", "subType": "Priest", "server": "Tarren Mill" },
-              { "id": 100, "name": "Trash Mob", "type": "NPC", "subType": null, "server": null }
+              {
+                "id": 1,
+                "name": "Fixtureplayer",
+                "type": "Player",
+                "subType": "Mage",
+                "server": "Tarren Mill"
+              },
+              {
+                "id": 2,
+                "name": "Healerone",
+                "type": "Player",
+                "subType": "Priest",
+                "server": "Tarren Mill"
+              },
+              {
+                "id": 100,
+                "name": "Trash Mob",
+                "type": "NPC",
+                "subType": null,
+                "server": null
+              }
             ],
             "abilities": [
-              { "gameID": 133, "type": 1 },
-              { "gameID": 2139, "type": 1 },
-              { "gameID": 47585, "type": 1 }
+              {
+                "gameID": 133,
+                "type": 1
+              },
+              {
+                "gameID": 2139,
+                "type": 1
+              },
+              {
+                "gameID": 47585,
+                "type": 1
+              }
             ]
           }
         }
@@ -59,8 +112,18 @@
   "events": {
     "Casts": {
       "data": [
-        { "timestamp": 125000, "abilityGameID": 133, "sourceID": 1, "targetID": 100 },
-        { "timestamp": 130000, "abilityGameID": 133, "sourceID": 1, "targetID": 100 }
+        {
+          "timestamp": 125000,
+          "abilityGameID": 133,
+          "sourceID": 1,
+          "targetID": 100
+        },
+        {
+          "timestamp": 130000,
+          "abilityGameID": 133,
+          "sourceID": 1,
+          "targetID": 100
+        }
       ]
     },
     "Interrupts": {
@@ -70,7 +133,9 @@
           "abilityGameID": 2139,
           "sourceID": 1,
           "targetID": 100,
-          "extraAbility": { "abilityGameID": 999001 }
+          "extraAbility": {
+            "abilityGameID": 999001
+          }
         }
       ]
     },
@@ -87,15 +152,29 @@
     },
     "DamageTaken": {
       "data": [
-        { "timestamp": 498000, "sourceID": 100, "targetID": 1, "abilityGameID": 888001, "amount": 450000 }
+        {
+          "timestamp": 498000,
+          "sourceID": 100,
+          "targetID": 1,
+          "abilityGameID": 888001,
+          "amount": 450000
+        }
       ]
     },
     "Buffs": {
       "data": [
-        { "timestamp": 499000, "type": "apply", "abilityGameID": 47585, "sourceID": 1, "targetID": 1 }
+        {
+          "timestamp": 499000,
+          "type": "apply",
+          "abilityGameID": 47585,
+          "sourceID": 1,
+          "targetID": 1
+        }
       ]
     },
-    "Debuffs": { "data": [] },
+    "Debuffs": {
+      "data": []
+    },
     "Dispels": {
       "data": [
         {
@@ -103,13 +182,22 @@
           "abilityGameID": 527,
           "sourceID": 2,
           "targetID": 1,
-          "extraAbility": { "abilityGameID": 777001 }
+          "extraAbility": {
+            "abilityGameID": 777001
+          }
         }
       ]
     },
     "Healing": {
       "data": [
-        { "timestamp": 501000, "abilityGameID": 17, "sourceID": 2, "targetID": 1, "amount": 120000, "overheal": 0 }
+        {
+          "timestamp": 501000,
+          "abilityGameID": 17,
+          "sourceID": 2,
+          "targetID": 1,
+          "amount": 120000,
+          "overheal": 0
+        }
       ]
     },
     "CombatantInfo": {
@@ -117,8 +205,16 @@
         {
           "sourceID": 1,
           "specID": 63,
-          "gear": [{ "id": 12345, "slot": 1, "itemLevel": 639 }],
-          "talents": { "loadout": "sample" },
+          "gear": [
+            {
+              "id": 12345,
+              "slot": 1,
+              "itemLevel": 639
+            }
+          ],
+          "talents": {
+            "loadout": "sample"
+          },
           "artifactTraits": null
         }
       ]

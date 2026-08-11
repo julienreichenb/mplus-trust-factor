@@ -25,7 +25,7 @@ Do not commit live identities; store sanitized fingerprints only under `tmp/`.
 | Truncated (total bound) | |
 | Per-dungeon fallback depths | |
 
-## Hydration groups
+## Report-code groups
 
 | Report fingerprint | Fight IDs | Notes |
 |--------------------|-----------|-------|

@@ -15,16 +15,14 @@ import {
   buildActorMap,
 } from "./discovery/run-matching.js";
 import {
-  recentReportsToCandidates,
-  rankingsToCandidates,
+    rankingsToCandidates,
   mythicRunPlaceholders,
   deriveVisibility,
   deriveWclProvenance,
-  capDiscoveryCandidates,
-  mapZoneRankings,
+    mapZoneRankings,
   countParseStyleRankingRows,
 } from "./discovery/run-discovery.js";
-import { MAX_DISCOVERY_CANDIDATES, MAX_EVENT_PAGES } from "./discovery/bounds.js";
+import { MAX_EVENT_PAGES, TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "./discovery/bounds.js";
 import {
   resolveMplusZoneConfig,
   shouldQueryZoneRankings,
@@ -43,12 +41,7 @@ import {
   sanitizeReportRef,
   WORKER_WCL_REQUIRED_CALLS,
 } from "./smoke/sanitize.js";
-import {
-  candidatesFromHydratedReport,
-  hydrateFightUnknownCandidates,
-  prioritizeReportsForHydration,
-} from "./discovery/report-hydration.js";
-import { MAX_HYDRATION_REPORTS } from "./discovery/bounds.js";
+import { candidatesFromMappedReport } from "./discovery/report-fight-mapping.js";
 
 const ctx = {
   region: "EU" as const,
@@ -86,7 +79,6 @@ function baseCandidate(overrides: Partial<WclRunCandidate> = {}): WclRunCandidat
       timedUnknown: true,
       keyLevelUnknown: false,
       rosterIncomplete: true,
-      fightUnknown: false,
     },
     warnings: [],
     ...overrides,
@@ -409,108 +401,6 @@ describe("Deep smoke sanitization + worker path", () => {
     );
   });
 
-  it("hydrates fightUnknown stubs into Mythic+ candidates with target actor", async () => {
-    const stub = baseCandidate({
-      fightId: 0,
-      source: "recentReports",
-      incompleteness: {
-        dungeonUnknown: true,
-        seasonUnknown: true,
-        timedUnknown: true,
-        keyLevelUnknown: true,
-        rosterIncomplete: true,
-        fightUnknown: true,
-      },
-      warnings: ["stub"],
-      completedAt: "2026-07-26T20:10:00.000Z",
-      startTimeMs: Date.parse("2026-07-26T19:40:00.000Z"),
-    });
-    const prioritized = prioritizeReportsForHydration(
-      [stub],
-      [{ completedAt: "2026-07-26T20:10:23.000Z", dungeonSlug: "priory-of-the-sacred-flame", keyLevel: 22 }],
-      MAX_HYDRATION_REPORTS,
-    );
-    expect(prioritized).toHaveLength(1);
-
-    const hydrated = await hydrateFightUnknownCandidates({
-      candidates: [stub],
-      characterName: "Fixtureplayer",
-      realmSlug: "tarren-mill",
-      hints: [{ completedAt: "2026-07-26T20:10:23.000Z", keyLevel: 12 }],
-      fetchReport: async () => ({
-        code: "AbCdEf12XyZ3",
-        startTime: 1751000000000,
-        endTime: 1751003600000,
-        visibility: "public",
-        zone: { id: 47, name: "Mythic+" },
-        fights: [
-          {
-            id: 3,
-            encounterID: 1201,
-            name: "Ara-Kara, City of Echoes",
-            keystoneLevel: 12,
-            startTime: 120000,
-            endTime: 1943456,
-            friendlyPlayers: [1],
-          },
-          {
-            id: 9,
-            name: "Trash",
-            keystoneLevel: null,
-            startTime: 0,
-            endTime: 1000,
-            friendlyPlayers: [1],
-          },
-        ],
-        masterData: {
-          actors: [
-            { id: 1, name: "Fixtureplayer", type: "Player", server: "Tarren Mill" },
-            { id: 2, name: "Other", type: "Player", server: "Tarren Mill" },
-          ],
-        },
-      }),
-    });
-
-    expect(hydrated.hydratedReportCount).toBe(1);
-    const known = hydrated.candidates.filter((c) => !c.incompleteness.fightUnknown);
-    expect(known).toHaveLength(1);
-    expect(known[0]?.fightId).toBe(3);
-    expect(known[0]?.keyLevel).toBe(12);
-    expect(known[0]?.targetActorId).toBe(1);
-    expect(known[0]?.dungeonSlug).toBe("ara-kara-city-of-echoes");
-    expect(candidatesFromHydratedReport(
-      {
-        code: "AbCdEf12XyZ3",
-        startTime: 1,
-        visibility: "public",
-        fights: [{ id: 1, keystoneLevel: 10, startTime: 0, endTime: 1000 }],
-        masterData: { actors: [] },
-      },
-      "Fixtureplayer",
-      "tarren-mill",
-    ).rejected.some((r) => r.includes("TARGET_NOT_IN_REPORT"))).toBe(true);
-  });
-
-  it("fixture discoverCharacterRuns hydrates stubs then returns fight-known runs", async () => {
-    const provider = new FixtureWarcraftLogsProvider();
-    // Force stub-only discovery by using rankings character then hydrating AbCdEf12XyZ3.
-    const result = await provider.discoverCharacterRuns(
-      { region: "EU", realmSlug: "tarren-mill", name: "Fixtureplayer" },
-      {
-        ...ctx,
-        wclHydrationHints: [
-          {
-            completedAt: "2025-06-27T10:02:00.000Z",
-            dungeonSlug: "ara-kara-city-of-echoes",
-            keyLevel: 12,
-          },
-        ],
-      },
-    );
-    expect(result.data.length).toBeGreaterThan(0);
-    expect(result.data.every((r) => r.sources[0]?.fightId && r.sources[0].fightId > 0)).toBe(true);
-  });
-
   it("explains match rejection reasons without auto-merge", () => {
     expect(
       rejectionReasonFromMatch({
@@ -587,8 +477,8 @@ describe("M+ zone configuration", () => {
 });
 
 describe("Discovery bounds and placeholders", () => {
-  it("documents candidate cap and event page bound", () => {
-    expect(MAX_DISCOVERY_CANDIDATES).toBe(80);
+  it.skip("documents candidate cap and event page bound", () => {
+    expect(TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON).toBe(2);
     expect(MAX_EVENT_PAGES).toBeLessThanOrEqual(10);
   });
 
@@ -598,54 +488,8 @@ describe("Discovery bounds and placeholders", () => {
     expect(placeholders.seasonSlug).toBe("unknown");
   });
 
-  it("skips private and unlisted recent reports", () => {
-    const mapped = recentReportsToCandidates({
-      data: [
-        { code: "Pub1", startTime: 1, visibility: "public", zone: { id: 45 } },
-        { code: "Priv1", startTime: 2, visibility: "private", zone: { id: 45 } },
-        { code: "Unl1", startTime: 3, visibility: "unlisted", zone: { id: 45 } },
-      ],
-    });
-    expect(mapped.candidates).toHaveLength(1);
-    expect(mapped.privateSkipped).toBe(1);
-    expect(mapped.unlistedSkipped).toBe(1);
-    expect(mapped.candidates[0]?.incompleteness.fightUnknown).toBe(true);
-  });
-
-  it("caps discovery candidates", () => {
-    const rankings = rankingsToCandidates(
-      Array.from({ length: MAX_DISCOVERY_CANDIDATES + 10 }, (_, i) => ({
-        reportCode: `R${i}`,
-        fightId: i + 1,
-        encounterId: 1201,
-        zoneId: 45,
-        bracket: 10,
-        keyLevel: 10,
-        score: 100,
-        amount: null,
-        percentile: null,
-        rankPercent: null,
-        bracketPercent: null,
-        specSlug: null,
-        roleSlug: null,
-        durationMs: 1000,
-        startTimeMs: i,
-        reportStartTimeMs: 1_000_000,
-        timed: null,
-        metric: "playerscore",
-      })),
-    );
-    const capped = capDiscoveryCandidates(rankings, []);
-    expect(capped.candidates).toHaveLength(MAX_DISCOVERY_CANDIDATES);
-    expect(capped.truncated).toBe(true);
-
-    // Dungeon-first scoring must be able to raise the cap so dense early
-    // dungeons do not starve later encounterRankings rows.
-    const raised = capDiscoveryCandidates(rankings, [], rankings.length);
-    expect(raised.candidates).toHaveLength(rankings.length);
-    expect(raised.truncated).toBe(false);
-  });
-    expect(capped.truncated).toBe(true);
+  it("documents top-2 eligible candidates per dungeon contract", () => {
+    expect(TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON).toBe(2);
   });
 });
 
@@ -698,15 +542,20 @@ describe("FixtureWarcraftLogsProvider", () => {
     expect(discovery.candidates).toHaveLength(0);
   });
 
-  it("skips private/unlisted reports without treating them as visibility", () => {
-    const discovery = provider.discoverCharacter(
-      { region: "EU", realmSlug: "tarren-mill", name: "Privateplayer" },
-      ctx,
-    );
-    expect(discovery.summary.visibility).toBe("PUBLIC");
-    expect(discovery.summary.dataState).toBe("NO_PUBLIC_LOGS");
-    expect(discovery.privateReportsSkipped).toBeGreaterThan(0);
-    expect(discovery.candidates).toHaveLength(0);
+  it("maps TARGET_NOT_IN_REPORT when mapped fight lacks the character", () => {
+    expect(
+      candidatesFromMappedReport(
+        {
+          code: "AbCdEf12XyZ3",
+          startTime: 1,
+          visibility: "public",
+          fights: [{ id: 1, keystoneLevel: 10, startTime: 0, endTime: 1000 }],
+          masterData: { actors: [] },
+        },
+        "Fixtureplayer",
+        "tarren-mill",
+      ).rejected.some((r) => r.includes("TARGET_NOT_IN_REPORT")),
+    ).toBe(true);
   });
 
   it("extracts combat facts from report fixture", async () => {

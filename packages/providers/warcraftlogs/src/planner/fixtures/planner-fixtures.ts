@@ -89,7 +89,7 @@ export function fixtureDiscoveryRows(): {
         fightDurationMs: 2_100_000,
         actorId: null,
         reportRevision: null,
-        source: "recent_reports",
+        source: "persisted_wcl",
         visibility: "public",
       },
       // Duplicate of zone ranking row — should merge, prefer zone_rankings.
@@ -104,7 +104,7 @@ export function fixtureDiscoveryRows(): {
         fightDurationMs: 1_800_000,
         actorId: 7,
         reportRevision: 2,
-        source: "recent_reports",
+        source: "persisted_wcl",
         visibility: "public",
       },
     ],

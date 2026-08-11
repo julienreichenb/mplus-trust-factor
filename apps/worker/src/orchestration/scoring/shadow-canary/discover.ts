@@ -1,16 +1,13 @@
 /**
- * Shadow Canary discovery — public timed candidates via production WCL path.
+ * Shadow Canary discovery — public timed candidates via encounterRankings only.
  *
- * Preferred cold path (when SeasonDungeon encounter bindings exist):
+ * Cold path:
  *   active season → aliased Character.encounterRankings → timed selection
- * Mass recentReports hydration runs only as a narrow, diagnosed fallback.
+ * No recentReports listing and no mass report hydration for run discovery.
  */
 import type { EvidenceCandidateMetadataV2, ProviderFetchContext } from "@mplus/contracts";
 import {
   ENCOUNTER_DUNGEON_MAP,
-  hydrateFightUnknownCandidatesIterative,
-  INCREMENTAL_HYDRATION_BATCH_SIZE,
-  INITIAL_HYDRATION_BUDGET,
   OPERATIONS,
   planCandidateDiscovery,
   requireActiveDungeonEncounters,
@@ -19,8 +16,6 @@ import {
   timedEligibleCoverageByDungeon,
   toCandidateMetadataV2,
   type DiscoverySourceRow,
-  type HydrationCoverageDiagnostics,
-  type IterativeHydrationDiagnostics,
   type RankingParseEvidenceV2,
   type WclRunCandidate,
 } from "@mplus/provider-warcraftlogs";
@@ -49,36 +44,14 @@ export interface ShadowCanaryDiscoveryResult {
     timedUnknownExclusions: number;
     inaccessibleExclusions: number;
     dungeonPoolSource: string;
-    discoveryStrategy:
-      | "encounter_rankings"
-      | "encounter_rankings_with_hydration_fallback"
-      | "recent_reports_hydration";
-    hydrationFallbackReason: string | null;
+    discoveryStrategy: "encounter_rankings";
     providerCalls: number;
     providerCallBreakdown: {
       zoneCatalog: number;
       characterDiscovery: number;
-      reportHydration: number;
     };
-    hydration: HydrationCoverageDiagnostics | null;
-    iterativeHydration: IterativeHydrationDiagnostics | null;
-    reportsListed: number;
-    reportsHydrated: number;
-    unhydratedReportCount: number;
-    omittedReports: Array<{
-      reportCode: string;
-      reason: string;
-      dungeonSlug: string | null;
-      listedOrderIndex?: number | null;
-    }>;
-
-    /**
-     * Post-hydration diagnostics: how many hydrated fights survive the
-     * sourceRow normalization filters before becoming EvidenceCandidateMetadataV2.
-     */
-    hydratedFightCandidates: {
+    candidateNormalization: {
       total: number;
-      fightUnknown: number;
       invalidFightId: number;
       missingDungeonSlug: number;
       dungeonSlugNotInActivePool: number;
@@ -142,28 +115,6 @@ export async function discoverShadowCanaryCandidates(input: {
     encounterId: number | null;
   }>;
   dungeonPoolSource?: string;
-  /**
-   * Gate each incremental hydration batch after the initial budget.
-   * Defaults to always allow (tests / fixture paths).
-   */
-  evaluateIncrementalAdmission?: (input: {
-    batchSize: number;
-    projectedIncrementalPoints: number;
-    reportsHydratedSoFar: number;
-    reportsRemaining: number;
-  }) =>
-    | Promise<{
-        allow: boolean;
-        action: "OK" | "WARN" | "DEFER" | "STOP";
-        reasons: string[];
-        projectedIncrementalPoints: number;
-      }>
-    | {
-        allow: boolean;
-        action: "OK" | "WARN" | "DEFER" | "STOP";
-        reasons: string[];
-        projectedIncrementalPoints: number;
-      };
 }): Promise<ShadowCanaryDiscoveryResult> {
   const season = await input.container.prisma.season.findFirst({
     where: { isCurrent: true },
@@ -377,7 +328,7 @@ export async function discoverShadowCanaryCandidates(input: {
     rankingEvidenceFromDiscovery.push({
       reportCode,
       fightId,
-      // Never invent revision from rankings; selected-fight resolve / hydration supplies it.
+      // Never invent revision from rankings; selected-fight resolve supplies it.
       reportRevision:
         revisionRaw != null && Number.isFinite(revisionRaw) ? revisionRaw : null,
       dungeonSlug,
@@ -396,105 +347,12 @@ export async function discoverShadowCanaryCandidates(input: {
     });
   }
 
-  const preCoverage =
-    activeDungeonSlugs.length > 0
-      ? timedEligibleCoverageByDungeon(
-          asWclCandidates(discovery.candidates),
-          activeDungeonSlugs,
-        )
-      : null;
-  const fightUnknownRemaining = discovery.candidates.some((c) => {
-    const incompleteness = c.incompleteness as { fightUnknown?: boolean } | undefined;
-    return incompleteness?.fightUnknown === true;
-  });
-  const usedEncounterRankings = encounterBindings.length > 0;
-  // Scoring detailed-evidence discovery is dungeon-first and must not
-  // perform mass hydration (no `recentReports` stubs, no iterative report hydration).
-  const skipMassHydration = true;
-
-  let hydratedCandidates = discovery.candidates;
-  let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
-  let iterativeHydration: IterativeHydrationDiagnostics | null = null;
-  let reportHydrationCalls = 0;
-  let discoveryStrategy: ShadowCanaryDiscoveryResult["diagnostics"]["discoveryStrategy"] =
-    usedEncounterRankings ? "encounter_rankings" : "recent_reports_hydration";
-  let hydrationFallbackReason: string | null = null;
-
-  if (skipMassHydration) {
-    // Production parity with discoverCharacterRuns: ER timed coverage is enough.
-    hydratedCandidates = discovery.candidates;
-    iterativeHydration = null;
-    hydrationDiagnostics = null;
-  } else if (typeof wcl.getGraphQlClient === "function") {
-    if (usedEncounterRankings) {
-      discoveryStrategy = "encounter_rankings_with_hydration_fallback";
-      hydrationFallbackReason =
-        encounterBindingsError ??
-        (preCoverage && !preCoverage.fullCoverage
-          ? `under_covered_dungeons:${preCoverage.underCovered.join(",")}`
-          : fightUnknownRemaining
-            ? "fight_unknown_candidates_remain"
-            : "coverage_incomplete");
-    } else {
-      discoveryStrategy = "recent_reports_hydration";
-      hydrationFallbackReason =
-        encounterBindingsError ??
-        (authorityEncounters.length === 0
-          ? "no_season_dungeon_encounter_bindings"
-          : "encounter_bindings_unavailable");
-    }
-
-    const client = wcl.getGraphQlClient();
-    const hydrationHints = rankingEvidenceFromDiscovery.map((r) => ({
-      completedAt: new Date().toISOString(),
-      dungeonSlug: r.dungeonSlug,
-      keyLevel: r.keyLevel,
-      reportCode: r.reportCode,
-    }));
-    const admit =
-      input.evaluateIncrementalAdmission ??
-      ((args: {
-        batchSize: number;
-        projectedIncrementalPoints: number;
-      }) => ({
-        allow: true,
-        action: "OK" as const,
-        reasons: ["incremental_admission_default_allow"],
-        projectedIncrementalPoints: args.projectedIncrementalPoints,
-      }));
-    const hydrated = await hydrateFightUnknownCandidatesIterative({
-      candidates: discovery.candidates as never,
-      characterName: input.characterName,
-      realmSlug: input.realmSlug,
-      hints: hydrationHints,
-      activeDungeonSlugs,
-      initialBudget: INITIAL_HYDRATION_BUDGET,
-      incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
-      evaluateIncrementalAdmission: admit,
-      fetchReport: async (code: string) => {
-        reportHydrationCalls += 1;
-        const reportResult = await client.requestPermissive<{
-          reportData?: {
-            report?: Record<string, unknown> | null;
-          };
-        }>({
-          operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
-          query: OPERATIONS.ReportWithFightAndMasterData.query,
-          variables: { code },
-          region: input.region,
-        });
-        return (reportResult.response.data?.reportData?.report ?? null) as never;
-      },
-    });
-    hydratedCandidates = hydrated.candidates as unknown as Array<Record<string, unknown>>;
-    hydrationDiagnostics = hydrated.diagnostics.coverage;
-    iterativeHydration = hydrated.diagnostics;
-  }
+  const rankingCandidates = discovery.candidates;
 
   const sourceRows: DiscoverySourceRow[] = [];
-  const hydratedFightCandidates = {
-    total: hydratedCandidates.length,
-    fightUnknown: 0,
+
+  const candidateNormalization = {
+    total: rankingCandidates.length,
     invalidFightId: 0,
     missingDungeonSlug: 0,
     dungeonSlugNotInActivePool: 0,
@@ -502,15 +360,10 @@ export async function discoverShadowCanaryCandidates(input: {
     visibilityExcluded: 0,
     byDungeonSlug: {} as Record<string, number>,
   };
-  for (const raw of hydratedCandidates) {
+  for (const raw of rankingCandidates) {
     const fightId = Number(raw.fightId ?? 0);
     if (!Number.isFinite(fightId) || fightId <= 0) {
-      hydratedFightCandidates.invalidFightId += 1;
-      continue;
-    }
-    const incompleteness = raw.incompleteness as { fightUnknown?: boolean } | undefined;
-    if (incompleteness?.fightUnknown) {
-      hydratedFightCandidates.fightUnknown += 1;
+      candidateNormalization.invalidFightId += 1;
       continue;
     }
 
@@ -525,19 +378,19 @@ export async function discoverShadowCanaryCandidates(input: {
           : null;
     const dungeonSlug = dungeonSlugRaw?.trim().toLowerCase() ?? null;
     if (!dungeonSlug) {
-      hydratedFightCandidates.missingDungeonSlug += 1;
+      candidateNormalization.missingDungeonSlug += 1;
       continue;
     }
     if (!activeDungeonSet.has(dungeonSlug)) {
-      hydratedFightCandidates.dungeonSlugNotInActivePool += 1;
+      candidateNormalization.dungeonSlugNotInActivePool += 1;
       continue;
     }
 
-    hydratedFightCandidates.byDungeonSlug[dungeonSlug] =
-      (hydratedFightCandidates.byDungeonSlug[dungeonSlug] ?? 0) + 1;
+    candidateNormalization.byDungeonSlug[dungeonSlug] =
+      (candidateNormalization.byDungeonSlug[dungeonSlug] ?? 0) + 1;
     const keyLevel = typeof raw.keyLevel === "number" ? raw.keyLevel : null;
     if (keyLevel == null || keyLevel <= 0) {
-      hydratedFightCandidates.invalidKeyLevel += 1;
+      candidateNormalization.invalidKeyLevel += 1;
       continue;
     }
 
@@ -576,12 +429,7 @@ export async function discoverShadowCanaryCandidates(input: {
             ? raw.actorId
             : null,
       reportRevision: typeof raw.reportRevision === "number" ? raw.reportRevision : null,
-      source:
-        raw.source === "recentReports"
-          ? "recent_reports"
-          : raw.source === "encounterRankings" || usedEncounterRankings
-            ? "zone_rankings"
-            : "zone_rankings",
+      source: "zone_rankings",
       visibility,
       fightAccessible: visibility === "public",
       hardError: false,
@@ -660,8 +508,7 @@ export async function discoverShadowCanaryCandidates(input: {
     });
   }
 
-  const providerCalls =
-    zoneCatalogCalls + characterDiscoveryCalls + reportHydrationCalls;
+  const providerCalls = zoneCatalogCalls + characterDiscoveryCalls;
 
   return {
     seasonId: season.id,
@@ -678,45 +525,13 @@ export async function discoverShadowCanaryCandidates(input: {
       timedUnknownExclusions,
       inaccessibleExclusions,
       dungeonPoolSource,
-      discoveryStrategy,
-      hydrationFallbackReason,
+      discoveryStrategy: "encounter_rankings",
       providerCalls,
       providerCallBreakdown: {
         zoneCatalog: zoneCatalogCalls,
         characterDiscovery: characterDiscoveryCalls,
-        reportHydration: reportHydrationCalls,
       },
-      hydration: hydrationDiagnostics,
-      iterativeHydration,
-      reportsListed:
-        iterativeHydration?.totalReportsListed ??
-        hydrationDiagnostics?.recentReportsDiscovered ??
-        0,
-      reportsHydrated:
-        iterativeHydration?.totalReportsHydrated ??
-        hydrationDiagnostics?.reportsHydrated ??
-        0,
-      unhydratedReportCount:
-        iterativeHydration?.reportsRemaining ??
-        hydrationDiagnostics?.reportsLeftUnhydratedBudget ??
-        0,
-      omittedReports: (
-        iterativeHydration?.omittedReports ??
-        hydrationDiagnostics?.omittedReports ??
-        []
-      ).map((o) => {
-        const fromOrder =
-          iterativeHydration?.listedReportOrder.indexOf(o.reportCode) ?? -1;
-        return {
-          reportCode: o.reportCode,
-          reason: o.reason,
-          dungeonSlug: o.dungeonSlug,
-          listedOrderIndex:
-            o.listedOrderIndex ?? (fromOrder >= 0 ? fromOrder : null),
-        };
-      }),
-
-      hydratedFightCandidates,
+      candidateNormalization,
     },
   };
 }

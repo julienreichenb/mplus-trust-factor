@@ -169,11 +169,11 @@ export function extractAggregateDungeonHints(rawZoneRankings: unknown): Map<
 }
 
 /**
- * Merge hydrated fight candidates with aggregate dungeon score/spec hints,
+ * Merge mapped fight candidates with aggregate dungeon score/spec hints,
  * filtered to the active-season pool (never Icecrown).
  */
-export function buildSurvivalCandidateQueuesFromHydrated(
-  hydrated: Array<{
+export function buildSurvivalCandidateQueuesFromMapped(
+  mapped: Array<{
     reportCode: string;
     fightId: number;
     encounterId: number;
@@ -195,7 +195,7 @@ export function buildSurvivalCandidateQueuesFromHydrated(
   const allowed = new Set(activeSeasonDungeonPool(allowedDungeonSlugs));
   const byDungeon = new Map<string, SurvivalRunCandidate[]>();
 
-  for (const row of hydrated) {
+  for (const row of mapped) {
     const dungeonSlug = row.dungeonSlug?.toLowerCase() ?? null;
     if (!dungeonSlug || !allowed.has(dungeonSlug)) continue;
     if (!row.fightId || row.fightId <= 0) continue;

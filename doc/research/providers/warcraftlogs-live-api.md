@@ -40,9 +40,9 @@ Use a bounded sequence:
 
 Relevant GraphQL surfaces include:
 
-- Character `recentReports(limit, page)`; documented maximum limit is 100 — we use 20.
+- Character `encounterRankings` per active-season dungeon (preferred scoring discovery); `zoneRankings` Parses as legacy fallback.
 - Character hidden/public state and server identity.
-- Report fights, master data/actors, player details and events.
+- Report fights, master data/actors, player details and events (post-selection detailed acquisition only).
 - `rateLimitData` with hourly allowance, points spent and `pointsResetIn` (seconds until reset).
 
 ## Privacy and visibility
@@ -87,7 +87,7 @@ Do not run live WCL calls in CI.
 ## Current-season discovery
 
 Live mode requires an explicit zone ID via constructor `zoneId` or `WCL_MPLUS_ZONE_ID`.  
-Optional `WCL_MPLUS_ZONE_EXPIRES_AT` (ISO) alarms stale mappings; expired zones **skip** `zoneRankings` and fall back to bounded `recentReports` only.
+Optional `WCL_MPLUS_ZONE_EXPIRES_AT` (ISO) alarms stale mappings; expired zones **skip** `zoneRankings` (no `recentReports` discovery fallback).
 
 Agent 11 should formalize these env vars in `@mplus/config`. Fixture mode may use `FIXTURE_MPLUS_ZONE_ID` only.
 
@@ -98,7 +98,7 @@ Candidate mapping no longer uses optimistic placeholders:
 - `timed` is `null` until timer evidence exists; MythicRunDTO mapping uses `false` (never claims timed);
 - `seasonSlug` stays `null` / sentinel `unknown` until season metadata is wired;
 - unknown dungeons stay `null` / sentinel `unknown`;
-- recentReports stubs mark `fightUnknown` and are excluded from MythicRunDTO export until fight metadata exists;
+- candidates without a known `fightId` are not discovery-eligible (no recentReports / fightUnknown mass-hydration path);
 - roster incompleteness is explicit; match confidence is attached when `matchRunCandidate` is used;
 - do not attach combat facts below documented confidence thresholds (worker/scoring).
 

@@ -10,7 +10,7 @@ Warcraft Logs scopes that matter for Mythic+ ownership:
 | **ReportFight** | For Mythic+, one fight is one entire keystone dungeon. `fight.friendlyPlayers` is **fight-specific**. |
 | **DungeonPull** | Individual dungeon pulls are **not** separate fights. |
 
-Canonical run identity after hydration:
+Canonical run identity after selection / detailed acquisition:
 
 ```text
 reportCode + fightId + reportRevision
@@ -39,11 +39,16 @@ Structured rejection reasons (do not collapse into `FALLBACK_EXHAUSTED`):
 
 Confirmed regression: report `8WawmdrjbYtRFPqy` fight `1` — Wallidrixe is report-local actor `317` in masterData but `friendlyPlayers` is `[3,7,4,1,5]` (Coomerhabile=`1`). Wallidrixe must be rejected as `TARGET_NOT_IN_FIGHT` with **zero** `ReportEvents` calls.
 
-## Discovery paths
+## Discovery paths (scoring)
 
-1. **encounterRankings** (preferred) — one aliased GraphQL call per active-season dungeon encounter ID. Each `ranks[]` row can supply `report.code` + `report.fightID`, `bracketData` (key), `medal` → timed, `duration`/`startTime`, and fight-local `rankPercent`. When every active dungeon has ≥2 timed log-backed identities, **skip** `recentReports` pagination and mass report hydration.
-2. **zoneRankings** (`compare: Parses`) — legacy whole-zone fallback when active encounter IDs are unavailable.
-3. **recentReports** — fallback stubs only when encounter/zone rankings cannot fill timed coverage; hydration then opens only remaining fightUnknown stubs.
+Production scoring discovery is rankings-only. There is **no** `recentReports` pagination and **no** mass fightUnknown report opening during discovery.
+
+1. **SeasonDungeon / active dungeon pool** — resolve the current M+ season dungeon set (Blizzard season + WCL zone encounters).
+2. **encounterRankings** (preferred) — one aliased GraphQL call per active-season dungeon encounter ID. Each `ranks[]` row can supply `report.code` + `report.fightID`, `bracketData` (key), `medal` → timed, `duration`/`startTime`, and fight-local `rankPercent`.
+3. **zoneRankings** (`compare: Parses`) — legacy whole-zone fallback when active encounter IDs are unavailable. Aggregate-only rows without report/fight IDs do **not** trigger a listing fallback; those dungeons stay empty.
+4. **Top 2 per dungeon** — retain up to two timed log-backed identities per active dungeon for the evidence plan.
+5. **Evidence manifest** — freeze selected `(reportCode, fightId)` slots.
+6. **Detailed acquisition** — `ReportWithFightAndMasterData` (+ events) only for **SELECTED** fights after manifest finalization. Never open every discovered report during discovery.
 
 ## Selection policy
 
@@ -85,7 +90,7 @@ Never auto-merge below `MEDIUM` confidence.
 
 | State | Meaning |
 |-------|---------|
-| `PUBLIC` | Rankings or recent public reports available |
+| `PUBLIC` | Rankings or public report detail available |
 | `HIDDEN` | `character.hidden === true` |
 | `NO_PUBLIC_LOGS` | Character exists but no public data |
 | `PRIVATE_SKIPPED` | Only private/unlisted reports observed (never probed) |
@@ -98,17 +103,15 @@ Scoring V2 evidence selection (see `doc/scoring/v2/03_WCL_EVIDENCE_SELECTION_CON
 
 | Bound | Value |
 |-------|-------|
-| Rankings queries | 1 (skipped if zone expired) |
-| recentReports page size | 20 (`MAX_RECENT_REPORTS_LIMIT`) |
-| recentReports max pages | 5 (`MAX_RECENT_REPORT_PAGES`) — stops earlier on `has_more_pages=false` or when unique-report bounds are satisfied |
+| Rankings queries | encounterRankings per active dungeon (zoneRankings Parses as legacy fallback) |
 | Candidate retention | up to 10 per active dungeon, 80 total |
 | Selected slots | `activeDungeonCount × 2` distinct `(reportCode, fightId)` identities |
 | Event pages / type | ≤10 |
 | Events retained / type | ≤2000 |
 
-Pagination must never blindly hydrate every report. Discovery stays metadata-first; fight/masterData hydration is lazy for selected/fallback candidates only.
+Discovery stays metadata-first (rankings rows with known `fightId`). Fight/masterData/event fetch is **post-selection** for manifest slots only — never open every character report during discovery.
 
-Discovery retains timer tri-state (`timed: true | false | null`) on candidate metadata. Hydration coverage early-stop and scoring plan eligibility both require `timed === true` (2 distinct timed identities per active dungeon). Untimed and timer-unknown runs remain discoverable but do not fill coverage targets and are rejected at plan construction (`UNTIMED_RUN` / `TIMED_STATE_UNKNOWN`); they are never detailed-fetched for scoring.
+Discovery retains timer tri-state (`timed: true | false | null`) on candidate metadata. Coverage targets and scoring plan eligibility both require `timed === true` (2 distinct timed identities per active dungeon). Untimed and timer-unknown runs remain discoverable but do not fill coverage targets and are rejected at plan construction (`UNTIMED_RUN` / `TIMED_STATE_UNKNOWN`); they are never detailed-fetched for scoring.
 
 Ownership is proven **before** any `ReportEvents` call. Candidate-level rejection reasons are preserved through acquisition fallback and must not collapse solely into `FALLBACK_EXHAUSTED`.
 

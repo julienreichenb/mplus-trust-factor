@@ -18,10 +18,10 @@ import { buildPlannerCompatibilityKey } from "../dataset-plan.js";
 import { estimateDatasetCost } from "../cost-plan.js";
 import {
   buildDiscoveryPlan,
-  groupCandidatesForHydration,
+  groupCandidatesByReportCode,
   type DiscoverySourceRow,
   type PlannedDiscoveryCandidate,
-  type ReportHydrationGroup,
+  type ReportCodeFightGroup,
 } from "../discovery-plan.js";
 import { planDetailedEvidence } from "../index.js";
 import type { EvidenceDatasetKind } from "@mplus/contracts";
@@ -89,13 +89,13 @@ export function probeMetadataBatchingByFightIds(
     zoneRankingCandidates: rows,
     activeDungeonSlugs: [...new Set(rows.map((r) => r.dungeonSlug).filter(Boolean))] as string[],
   });
-  const groups = groupCandidatesForHydration(plan.candidates);
-  const multi = groups.filter((g: ReportHydrationGroup) => g.fightIds.length > 1);
+  const groups = groupCandidatesByReportCode(plan.candidates);
+  const multi = groups.filter((g: ReportCodeFightGroup) => g.fightIds.length > 1);
   return {
     caseId: "metadata-batching-multi-fight",
     ok: multi.length > 0 || plan.candidates.length <= 1,
     sanitized: {
-      groups: groups.map((g: ReportHydrationGroup) => ({
+      groups: groups.map((g: ReportCodeFightGroup) => ({
         reportFingerprint: reportCodeFingerprint(g.reportCode),
         maskedReportCode: sanitizeReportCode(g.reportCode),
         fightIds: g.fightIds,

@@ -8,8 +8,7 @@ import {
   mapRegionToWcl,
   mapZoneRankings,
   classifyReportVisibility,
-  recentReportsToCandidates,
-  countParseStyleRankingRows,
+    countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
 import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
@@ -17,12 +16,6 @@ import {
   resolveActorSourceIdStrict,
   resolveOwnedPetActorIds,
 } from "../discovery/run-matching.js";
-import {
-  candidatesFromHydratedReport,
-  prioritizeReportsForHydration,
-  type HydrationReportPayload,
-} from "../discovery/report-hydration.js";
-import { MAX_RECENT_REPORTS_LIMIT } from "../discovery/bounds.js";
 import { OPERATIONS, type EventDataType } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
@@ -38,7 +31,6 @@ import type {
 } from "./types.js";
 import {
   activeSeasonDungeonPool,
-  buildSurvivalCandidateQueuesFromHydrated,
   classSlugFromWclClassId,
   emptyRejection,
   extractAggregateDungeonHints,
@@ -67,7 +59,6 @@ import type {
 
 const DEFAULT_MAX_RUNS_PER_DUNGEON = 3;
 const DEFAULT_MAX_REPORTS_PER_DUNGEON = 8;
-const PROBE_MAX_HYDRATION_REPORTS = 40;
 const PROBE_MAX_EVENT_PAGES = 200;
 const PROBE_EVENT_PAGE_LIMIT = 1000;
 
@@ -82,13 +73,6 @@ export interface UtilityProbeOptions {
   maxReportsInspectedPerDungeon?: number;
   maxEventPages?: number;
   eventPageLimit?: number;
-  /**
-   * Maximum number of recentReports pages to fetch when zoneRankings returns
-   * no direct report links. WCL returns up to 100 reports per page.
-   * Defaults to 1 (first page only). Set higher when a PARTIAL run needs more
-   * report coverage to find missing dungeons.
-   */
-  maxRecentReportPages?: number;
   /**
    * When set, the probe will only attempt to collect runs for these dungeon
    * slugs. Dungeons not in this list are skipped entirely (no event fetching).
@@ -587,7 +571,6 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
   const maxRuns = options.maxRunsPerDungeon ?? DEFAULT_MAX_RUNS_PER_DUNGEON;
   const maxReportsPerDungeon =
     options.maxReportsInspectedPerDungeon ?? DEFAULT_MAX_REPORTS_PER_DUNGEON;
-  const maxRecentReportPages = Math.max(1, options.maxRecentReportPages ?? 1);
   const focusDungeons = options.focusDungeons?.length ? new Set(options.focusDungeons) : null;
   const zoneConfig =
     options.zoneConfig ??
@@ -669,7 +652,7 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
   );
   if (parseCounts.totalRows > 0 && parseCounts.parseRows === 0) {
     schemaWarnings.push(
-      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — hydrating recentReports`,
+      `zoneRankings returned ${parseCounts.totalRows} aggregate row(s) without report/fightID — skipping (recentReports discovery removed; encounterRankings-only)`,
     );
   }
 
@@ -677,186 +660,20 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
     (rawZoneRankings as { rankings?: unknown[] } | null) ?? null,
     zoneConfig.zoneId,
   );
-  let byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
+  const byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
   const aggregateHints = extractAggregateDungeonHints(rawZoneRankings);
 
-  // Determine if we need to fall back to recentReports discovery.
-  // When focusDungeons is set, only lack of candidates for those specific dungeons triggers it.
-  // When all queues are empty (full run), always trigger.
+  // Rankings-only discovery: no recentReports / fightUnknown mass-hydration fallback.
   const allQueuesEmpty = [...byDungeon.values()].every((b) => b.length === 0);
   const focusDungeonsNeedingCandidates = focusDungeons
     ? [...focusDungeons].filter((d) => (byDungeon.get(d) ?? []).length === 0)
     : null;
-  const needsRecentReports =
-    allQueuesEmpty || (focusDungeonsNeedingCandidates != null && focusDungeonsNeedingCandidates.length > 0);
-
-  if (needsRecentReports) {
-    type RecentReportsResponse = {
-      characterData?: {
-        character?: {
-          recentReports?: {
-            data?: Array<{
-              code: string;
-              title?: string | null;
-              startTime: number;
-              endTime?: number | null;
-              visibility?: string | null;
-              zone?: { id: number; name?: string | null } | null;
-            }>;
-            total?: number | null;
-            has_more_pages?: boolean | null;
-          } | null;
-        } | null;
-      };
-    };
-
-    const allRecentCandidates: ReturnType<typeof recentReportsToCandidates>["candidates"] = [];
-    let hasMore = true;
-    let page = 0;
-
-    while (hasMore && page < maxRecentReportPages) {
-      page += 1;
-      bumpOpCount(opCounts, OPERATIONS.CharacterRecentReports.operationName);
-      const recentResult = await options.client.requestPermissive<RecentReportsResponse>({
-        operationName: OPERATIONS.CharacterRecentReports.operationName,
-        query: OPERATIONS.CharacterRecentReports.query,
-        variables: {
-          name: options.identity.name,
-          serverSlug: options.identity.realmSlug,
-          serverRegion: mapRegionToWcl(options.identity.region),
-          limit: MAX_RECENT_REPORTS_LIMIT,
-          page,
-        },
-        region: options.identity.region,
-      });
-      collectGraphQlErrors(
-        graphqlErrors,
-        OPERATIONS.CharacterRecentReports.operationName,
-        recentResult.response.errors,
-      );
-      perOperation.push({
-        operationName: OPERATIONS.CharacterRecentReports.operationName,
-        costUnits: recentResult.costUnits,
-        durationMs: recentResult.durationMs,
-        snapshot: rateLimitFromExtensions(recentResult.response.extensions),
-      });
-
-      const pageData = recentResult.response.data?.characterData?.character?.recentReports;
-      const recentMapped = recentReportsToCandidates(pageData);
-      allRecentCandidates.push(...recentMapped.candidates);
-
-      hasMore = pageData?.has_more_pages === true;
-      // If we already have candidates for all focus dungeons, stop paging early
-      if (focusDungeonsNeedingCandidates != null) {
-        const tempQueues = buildSurvivalCandidateQueuesFromHydrated(
-          allRecentCandidates.map((c) => ({
-            reportCode: c.reportCode,
-            fightId: 0,
-            encounterId: 0,
-            dungeonSlug: null,
-            keyLevel: null,
-            score: null,
-            durationMs: null,
-            startTimeMs: null,
-            completedAt: null,
-          })),
-          aggregateHints,
-          dungeonPool,
-        );
-        // allRecentCandidates are stubs without dungeonSlug yet — can't early-exit here
-        // so we rely on maxRecentReportPages as the stop condition
-        void tempQueues; // unused check; keep loop for pagination
-      }
-    }
-
-    if (allRecentCandidates.length > 0) {
-      schemaWarnings.push(
-        `recentReports discovery: ${allRecentCandidates.length} stubs collected across ${page} page(s)` +
-        (page < maxRecentReportPages && hasMore ? ` (more pages available — increase maxRecentReportPages beyond ${maxRecentReportPages})` : "") +
-        (!hasMore && page < maxRecentReportPages ? ` (all pages exhausted after ${page})` : ""),
-      );
-    }
-
-    const prioritized = prioritizeReportsForHydration(
-      allRecentCandidates,
-      [],
-      PROBE_MAX_HYDRATION_REPORTS,
-    );
-
-    const hydratedCandidates: Array<{
-      reportCode: string;
-      fightId: number;
-      encounterId: number;
-      dungeonSlug: string | null;
-      keyLevel: number | null;
-      score: number | null;
-      durationMs: number | null;
-      startTimeMs: number | null;
-      completedAt: string | null;
-    }> = [];
-
-    for (const stub of prioritized) {
-      reportsInspected.add(stub.reportCode);
-      const fetched = await fetchAndCacheReport(
-        options.client,
-        options.identity,
-        stub.reportCode,
-        reportCache,
-        graphqlErrors,
-        perOperation,
-        opCounts,
-        cacheStats,
-      );
-      if (!fetched.ok) {
-        runsRejected.push({
-          reportCode: stub.reportCode,
-          fightId: 0,
-          dungeonSlug: null,
-          reason: `hydrate_${fetched.reason}`,
-        });
-        continue;
-      }
-      const mapped = candidatesFromHydratedReport(
-        {
-          code: fetched.data.code,
-          startTime: fetched.data.startTime,
-          endTime: fetched.data.endTime,
-          visibility: fetched.data.visibility,
-          zone: fetched.data.zone,
-          fights: fetched.data.fights,
-          masterData: { actors: fetched.data.actors },
-        } satisfies HydrationReportPayload,
-        options.identity.name,
-        options.identity.realmSlug,
-      );
-      for (const reason of mapped.rejected) {
-        runsRejected.push({
-          reportCode: stub.reportCode,
-          fightId: 0,
-          dungeonSlug: null,
-          reason: `hydrate_${reason}`,
-        });
-      }
-      for (const c of mapped.candidates) {
-        fightsInspected.push({ reportCode: c.reportCode, fightId: c.fightId });
-        hydratedCandidates.push({
-          reportCode: c.reportCode,
-          fightId: c.fightId,
-          encounterId: c.encounterId,
-          dungeonSlug: c.dungeonSlug,
-          keyLevel: c.keyLevel,
-          score: c.score,
-          durationMs: c.durationMs,
-          startTimeMs: c.startTimeMs,
-          completedAt: c.completedAt,
-        });
-      }
-    }
-
-    byDungeon = buildSurvivalCandidateQueuesFromHydrated(
-      hydratedCandidates,
-      aggregateHints,
-      dungeonPool,
+  if (
+    allQueuesEmpty ||
+    (focusDungeonsNeedingCandidates != null && focusDungeonsNeedingCandidates.length > 0)
+  ) {
+    schemaWarnings.push(
+      "No zoneRankings parse-linked candidates for required dungeons; recentReports fallback removed — empty queues skipped",
     );
   }
 

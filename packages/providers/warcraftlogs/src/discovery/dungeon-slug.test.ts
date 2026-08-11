@@ -1,8 +1,15 @@
 /**
- * resolveDungeonSlug must not treat generic Mythic+ zone names as dungeon slugs.
+ * resolveDungeonSlug / slugifyDungeonName — generic dungeon slug helpers.
  */
 import { describe, expect, it } from "vitest";
-import { resolveDungeonSlug } from "./report-hydration.js";
+import { slugifyDungeonName } from "./dungeon-slug.js";
+import { resolveDungeonSlug } from "./report-fight-mapping.js";
+
+describe("slugifyDungeonName", () => {
+  it("slugifies possessive dungeon names", () => {
+    expect(slugifyDungeonName("Maisara's Caverns")).toBe("maisara-caverns");
+  });
+});
 
 describe("resolveDungeonSlug", () => {
   it("prefers fight.name when report.zone.name is the generic Mythic+ container", () => {

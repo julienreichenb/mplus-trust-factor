@@ -372,55 +372,7 @@ async function probeRankingsDiagnostics(
   }
 }
 
-async function probeRecentReportsList(
-  provider: LiveWarcraftLogsProvider,
-  identity: CharacterIdentityInput,
-): Promise<{
-  total: number | null;
-  codes: string[];
-  graphqlErrors: string[];
-}> {
-  const client = provider.getGraphQlClient();
-  try {
-    const result = await client.request({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: identity.name,
-        serverSlug: identity.realmSlug,
-        serverRegion: mapRegionToWcl(identity.region),
-        limit: 10,
-        page: 1,
-      },
-      region: identity.region,
-    });
-    const page = (
-      result.response.data as {
-        characterData?: {
-          character?: {
-            recentReports?: {
-              total?: number | null;
-              data?: Array<{ code?: string; visibility?: string }>;
-            } | null;
-          } | null;
-        };
-      }
-    )?.characterData?.character?.recentReports;
-    const codes = (page?.data ?? [])
-      .filter((r) => r.code && (r.visibility ?? "public").toLowerCase() === "public")
-      .map((r) => r.code!)
-      .slice(0, 5);
-    return {
-      total: typeof page?.total === "number" ? page.total : null,
-      codes,
-      graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
-    };
-  } catch (error) {
-    return { total: null, codes: [], graphqlErrors: [errorMessage(error)] };
-  }
-}
-
-async function probeRecentReportDetails(
+async function probeRecentReportDetails(async function probeRecentReportDetails(
   provider: LiveWarcraftLogsProvider,
   identity: CharacterIdentityInput,
   reportCodes: string[],
@@ -520,7 +472,7 @@ function bestCandidateForExternal(
   let best: ReturnType<typeof matchRunCandidate> | null = null;
   let bestCandidate: WclRunCandidate | null = null;
   for (const candidate of candidates) {
-    if (candidate.incompleteness.fightUnknown) continue;
+    if (candidate.fightId <= 0) continue;
     const match = matchRunCandidate(candidate, external, [], DEFAULT_MATCHING_CONFIG);
     if (
       !best ||
@@ -802,36 +754,25 @@ async function runDeep(
   const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity));
   const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
 
-  const runsResult = await provider.discoverCharacterRuns(identity, {
-    ...ctx,
-    wclHydrationHints: selectedExternals.map((run) => ({
-      completedAt: run.completedAt,
-      dungeonSlug: run.dungeonSlug,
-      keyLevel: run.keyLevel,
-    })),
-  });
+  const runsResult = await provider.discoverCharacterRuns(identity, ctx);
   const rankingsProbe = await probeRankingsDiagnostics(
     provider,
     identity,
     zone.zoneId,
     zoneQueried,
   );
-  const recentList = await probeRecentReportsList(provider, identity);
   const reportCodes = [
-    ...new Set([
-      ...recentList.codes,
-      ...discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode),
-    ]),
+    ...new Set(discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode)),
   ].slice(0, 5);
-  const recentDetails = await probeRecentReportDetails(provider, identity, reportCodes);
+  const selectedReportDetails = await probeRecentReportDetails(provider, identity, reportCodes);
 
-  // Prefer hydrated fight-known candidates for matching (discoverCharacterRuns already hydrated).
+  // Prefer fight-known candidates from encounterRankings / zoneRankings discovery.
   const matchCandidates =
     runsResult.data.length > 0
       ? discovery.candidates
-          .filter((c) => !c.incompleteness.fightUnknown)
+          .filter((c) => c.fightId > 0)
           .concat(
-            // Synthesize matchable candidates from discoverCharacterRuns DTOs when discovery stubs were hydrated.
+            // Synthesize matchable candidates from discoverCharacterRuns DTOs.
             runsResult.data.map((run) => ({
               reportCode: run.sources[0]?.reportCode ?? run.id,
               fightId: run.sources[0]?.fightId ?? 0,
@@ -846,7 +787,7 @@ async function runDeep(
               durationMs: run.durationMs,
               timed: run.timed,
               selectionTags: [] as Array<"LATEST" | "HIGHEST">,
-              source: "recentReports" as const,
+              source: "encounterRankings" as const,
               matchConfidence: null,
               targetActorId: null,
               incompleteness: {
@@ -855,7 +796,6 @@ async function runDeep(
                 timedUnknown: false,
                 keyLevelUnknown: run.keyLevel <= 0,
                 rosterIncomplete: true,
-                fightUnknown: false,
               },
               warnings: [],
             })),
@@ -879,7 +819,7 @@ async function runDeep(
             dungeonSlug: best.candidate.dungeonSlug,
             keyLevel: best.candidate.keyLevel,
             completedAt: best.candidate.completedAt,
-            fightUnknown: best.candidate.incompleteness.fightUnknown,
+            fightIdKnown: best.candidate.fightId > 0,
           }
         : null,
       confidence: best.confidence,
@@ -893,7 +833,7 @@ async function runDeep(
     (m) => m.confidence === "HIGH" || m.confidence === "MEDIUM",
   )?.bestWclCandidate;
   const analyzableCandidate =
-    matchCandidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
+    matchCandidates.find((c) => c.fightId > 0) ?? null;
 
   let reportCode: string | null = null;
   let fightId = 0;
@@ -956,7 +896,7 @@ async function runDeep(
       skipped: true,
       reason: "no_candidate_with_known_fight_id",
       hint:
-        "discoverCharacterRuns filters fightUnknown stubs; empty zoneRankings leaves only recentReports stubs and blocks getReportFightDetails.",
+        "No encounterRankings/zoneRankings candidate with fightId > 0; recentReports discovery is removed.",
     };
   }
 
@@ -972,7 +912,7 @@ async function runDeep(
       requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
       missingFromRefreshPipeline: missingWorkerCalls,
       note:
-        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO, passes hydration hints, then discoverCharacterRuns hydrates fightUnknown stubs before filtering.",
+        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO; discovery is encounterRankings-first, then detailed acquisition of selected fights only.",
     },
     characterDiscovery: {
       characterId: discovery.summary.wclCharacterId,
@@ -993,16 +933,13 @@ async function runDeep(
       graphqlErrors: rankingsProbe.graphqlErrors,
       zoneWarning: zone.warning,
     },
-    recentReports: {
-      total: recentList.total,
-      listGraphqlErrors: recentList.graphqlErrors,
-      candidateStubCount: discovery.candidates.filter((c) => c.source === "recentReports").length,
-      probedReports: recentDetails,
-      note: "recentReports stubs are hydrated (bounded) before discoverCharacterRuns filtering; probed rows show masterData target presence.",
+    selectedReportDetails: {
+      probedReports: selectedReportDetails,
+      note: "Optional ReportWithFightAndMasterData for already-discovered report codes (not recentReports listing).",
     },
     normalizedCandidates: {
       total: matchCandidates.length,
-      withKnownFight: matchCandidates.filter((c) => !c.incompleteness.fightUnknown).length,
+      withKnownFight: matchCandidates.filter((c) => c.fightId > 0).length,
       returnedByDiscoverCharacterRuns: runsResult.data.length,
       candidatesTruncated: discovery.candidatesTruncated,
       privateReportsSkipped: discovery.privateReportsSkipped,
@@ -1015,11 +952,10 @@ async function runDeep(
         startTimeMs: c.startTimeMs,
         targetActorId: c.targetActorId ?? null,
         source: c.source,
-        fightUnknown: c.incompleteness.fightUnknown,
         dungeonUnknown: c.incompleteness.dungeonUnknown,
         warnings: c.warnings.slice(0, 3),
       })),
-      note: "Fight-known candidates come from zoneRankings Parses rows and/or bounded recentReports hydration.",
+      note: "Fight-known candidates come from encounterRankings and/or zoneRankings Parses rows only.",
     },
     matching: {
       externalRunCount: selectedExternals.length,

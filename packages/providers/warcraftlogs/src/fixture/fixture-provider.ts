@@ -17,9 +17,7 @@ import {
   mapRegionToWcl,
   mapZoneRankings,
   mythicRunPlaceholders,
-  rankingsToCandidates,
-  recentReportsToCandidates,
-  type ZoneRankingsPayload,
+  rankingsToCandidates,  type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
 import {
   adaptPointsAndDamagePerformance,
@@ -39,16 +37,13 @@ import { FIXTURE_MPLUS_ZONE_ID, resolveMplusZoneConfig } from "../discovery/mplu
 import {
   characterResolveSchema,
   parseWithSchema,
-  rateLimitDataSchema,
-  recentReportsSchema,
-  reportFightSchema,
+  rateLimitDataSchema,  reportFightSchema,
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
 import { wclError } from "../client/errors.js";
 import { buildRunCombatFacts } from "../analysis/combat-facts.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot } from "../rate/rate-budget.js";
-import { hydrateFightUnknownCandidates } from "../discovery/report-hydration.js";
 import {
   fightOwnershipRejectionDetail,
   resolveFightOwnership,
@@ -120,54 +115,8 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = this.discoverCharacter(identity, ctx);
-    const hydrated = await hydrateFightUnknownCandidates({
-      candidates: discovery.candidates,
-      characterName: identity.name,
-      realmSlug: identity.realmSlug,
-      hints: ctx.wclHydrationHints,
-      fetchReport: async (code) => {
-        const fixture = loadReportFixture(code);
-        const raw = (fixture.report as { data: unknown } | undefined)?.data;
-        if (!raw) return null;
-        const parsed = parseWithSchema(reportFightSchema, raw, "Report");
-        const report = parsed.reportData.report;
-        if (!report) return null;
-        return {
-          code: report.code,
-          revision: report.revision,
-          startTime: report.startTime,
-          endTime: report.endTime,
-          visibility: report.visibility,
-          zone: report.zone ?? null,
-          fights: report.fights.map((f) => ({
-            id: f.id,
-            encounterID: f.encounterID,
-            name: f.name,
-            difficulty: f.difficulty,
-            kill: f.kill,
-            startTime: f.startTime,
-            endTime: f.endTime,
-        keystoneLevel: f.keystoneLevel,
-        keystoneBonus: f.keystoneBonus,
-        keystoneTime: f.keystoneTime,
-        inProgress: f.inProgress ?? false,
-        friendlyPlayers: f.friendlyPlayers ?? undefined,
-          })),
-          masterData: report.masterData
-            ? {
-                actors: (report.masterData.actors ?? []).map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  type: a.type,
-                  server: a.server,
-                })),
-              }
-            : null,
-        };
-      },
-    });
-    const runs = hydrated.candidates
-      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
+    const runs = discovery.candidates
+      .filter((c) => c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = emptyProviderResult(
       runs,
@@ -511,21 +460,13 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
           "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
         );
 
-    const recentRaw = (fixture.recentReports as { data: unknown }).data;
-    const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
-    const recentMapped = recentReportsToCandidates(
-      recentParsed.characterData.character?.recentReports,
-    );
-
-    const provenance = deriveWclProvenance(character, rankings, recentMapped.candidates.length, {
-      privateSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
-    });
+    const provenance = deriveWclProvenance(character, rankings, rankings.length);
     const summary = mapCharacterSummary(
       character,
       identity.region,
       ctx.now,
       provenance.visibility,
-      performance.state === "OK" ? [] : [performance.diagnostics.errorMessage ?? "Performance unavailable"],
+      [],
       provenance.dataState,
     );
 
@@ -535,8 +476,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
       performance,
       rankingCandidates: rankingsToCandidates(rankings),
-      recentCandidates: recentMapped.candidates,
-      privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
+      privateReportsSkipped: 0,
     });
   }
 

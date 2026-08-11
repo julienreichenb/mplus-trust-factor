@@ -1,8 +1,7 @@
 /**
  * Character.encounterRankings — per-dungeon M+ run lists for discovery.
  *
- * Preferred over recentReports → mass report hydration when active-season
- * encounter IDs are known. Payload is a JSON scalar with `ranks[]`.
+ * Preferred when active-season encounter IDs are known. Payload is a JSON scalar with `ranks[]`.
  */
 import type { WclRankingObservation, WclRunCandidate } from "../types.js";
 import {
@@ -385,7 +384,6 @@ export function rankingsToEncounterCandidates(
         timedUnknown: r.timed == null,
         keyLevelUnknown: r.keyLevel == null,
         rosterIncomplete: true,
-        fightUnknown: false,
       },
       warnings,
     };
@@ -477,13 +475,13 @@ export function timedEligibleCoverageByDungeon(
   for (const c of candidates) {
     const slug = c.dungeonSlug?.trim().toLowerCase();
     if (!slug || !seen.has(slug)) continue;
-    if (c.fightId <= 0 || c.incompleteness.fightUnknown) continue;
+    if (c.fightId <= 0) continue;
     if (c.timed !== true) continue;
     // Coverage must reflect candidates that can be turned into target-resolvable
     // evidence, but `encounterRankings` candidates frequently have
     // `rosterIncomplete=true` (target ownership is resolved later).
-    // Only exclude rosterIncomplete candidates for `recentReports` stubs.
-    if (c.source === "recentReports" && c.incompleteness.rosterIncomplete) continue;
+    // Roster may be incomplete on ranking rows; still retain fight-known identities.
+    if (c.incompleteness.rosterIncomplete && c.fightId <= 0) continue;
     if (c.keyLevel == null || c.keyLevel <= 0) continue;
     seen.get(slug)!.add(`${c.reportCode}:${c.fightId}`);
   }

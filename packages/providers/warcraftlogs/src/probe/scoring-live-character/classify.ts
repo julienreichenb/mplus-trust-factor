@@ -34,7 +34,7 @@ export interface DatasetCoverageRow {
   failureReasonCode: string | null;
 }
 
-export interface SlotHydrationSummary {
+export interface SlotAcquisitionSummary {
   dungeonSlug: string;
   slotIndex: 0 | 1;
   state: string;
@@ -42,7 +42,7 @@ export interface SlotHydrationSummary {
   fightId: number | null;
   reportRevision: number | null;
   actorId: number | null;
-  fullyHydrated: boolean;
+  fullyAcquired: boolean;
   wclReportValid: boolean;
   missingReason: string | null;
 }
@@ -59,7 +59,7 @@ export interface ProbeClassificationInput {
   dungeonCount: number;
   selectedSlotCount: number;
   expectedSlotCount: number;
-  fullyHydratedSlots: number;
+  fullyAcquiredSlots: number;
   discoveryFailed: boolean;
   datasetFailedSlots: number;
   factExtractionFailedSlots: number;
@@ -119,7 +119,7 @@ export function classifyOverallVerdict(input: ProbeClassificationInput): Overall
     return "BLOCKED_BY_DISCOVERY";
   }
 
-  if (input.datasetFailedSlots > 0 && input.fullyHydratedSlots === 0) {
+  if (input.datasetFailedSlots > 0 && input.fullyAcquiredSlots === 0) {
     return "BLOCKED_BY_DATASET_COLLECTION";
   }
 
@@ -144,7 +144,7 @@ export function classifyOverallVerdict(input: ProbeClassificationInput): Overall
     ),
   );
 
-  if (allNo && anyFactBlocked && input.fullyHydratedSlots > 0) {
+  if (allNo && anyFactBlocked && input.fullyAcquiredSlots > 0) {
     return "BLOCKED_BY_FACT_EXTRACTION";
   }
   if (allNo && anyInputBlocked) {
@@ -156,9 +156,9 @@ export function classifyOverallVerdict(input: ProbeClassificationInput): Overall
     input.survival.executable !== "NO" &&
     input.utility.executable !== "NO";
   const fullSlots = input.selectedSlotCount >= input.expectedSlotCount;
-  const allHydrated = input.fullyHydratedSlots >= input.selectedSlotCount && input.selectedSlotCount > 0;
+  const allAcquired = input.fullyAcquiredSlots >= input.selectedSlotCount && input.selectedSlotCount > 0;
 
-  if (wclReady && fullSlots && allHydrated && input.experience.executable !== "NO") {
+  if (wclReady && fullSlots && allAcquired && input.experience.executable !== "NO") {
     return "READY_FOR_SINGLE_CHARACTER_SHADOW";
   }
 
@@ -166,7 +166,7 @@ export function classifyOverallVerdict(input: ProbeClassificationInput): Overall
     return "PARTIAL_DATA — FIXABLE";
   }
 
-  if (input.datasetFailedSlots > 0 && input.fullyHydratedSlots < input.selectedSlotCount) {
+  if (input.datasetFailedSlots > 0 && input.fullyAcquiredSlots < input.selectedSlotCount) {
     return "BLOCKED_BY_DATASET_COLLECTION";
   }
 

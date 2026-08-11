@@ -1,10 +1,28 @@
 {
   "scenario": "paginated-events",
-  "resolveCharacter": { "data": { "characterData": { "character": null } } },
-  "zoneRankings": { "data": { "characterData": { "character": null } } },
-  "recentReports": { "data": { "characterData": { "character": null } } },
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": null
+      }
+    }
+  },
   "rateLimitData": {
-    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 150, "pointsRemaining": 3450, "resetInSeconds": 1500 } }
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 150,
+        "pointsRemaining": 3450,
+        "resetInSeconds": 1500
+      }
+    }
   },
   "report": {
     "data": {
@@ -16,7 +34,10 @@
           "startTime": 1751000000000,
           "endTime": 1751003600000,
           "visibility": "public",
-          "zone": { "id": 45, "name": "Mythic Season 15" },
+          "zone": {
+            "id": 45,
+            "name": "Mythic Season 15"
+          },
           "fights": [
             {
               "id": 1,
@@ -28,13 +49,32 @@
               "endTime": 2000000,
               "keystoneLevel": 10,
               "friendlyPlayers": [
-                { "id": 1, "name": "Fixtureplayer", "server": "Tarren Mill", "type": "Mage", "icon": "Mage-Fire" }
+                {
+                  "id": 1,
+                  "name": "Fixtureplayer",
+                  "server": "Tarren Mill",
+                  "type": "Mage",
+                  "icon": "Mage-Fire"
+                }
               ]
             }
           ],
           "masterData": {
-            "actors": [{ "id": 1, "name": "Fixtureplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" }],
-            "abilities": [{ "gameID": 133, "type": 1 }]
+            "actors": [
+              {
+                "id": 1,
+                "name": "Fixtureplayer",
+                "type": "Player",
+                "subType": "Mage",
+                "server": "Tarren Mill"
+              }
+            ],
+            "abilities": [
+              {
+                "gameID": 133,
+                "type": 1
+              }
+            ]
           }
         }
       }
@@ -43,17 +83,37 @@
   "events": {
     "Casts": {
       "data": [
-        { "timestamp": 61000, "abilityGameID": 133, "sourceID": 1, "targetID": 100 },
-        { "timestamp": 62000, "abilityGameID": 133, "sourceID": 1, "targetID": 100 }
+        {
+          "timestamp": 61000,
+          "abilityGameID": 133,
+          "sourceID": 1,
+          "targetID": 100
+        },
+        {
+          "timestamp": 62000,
+          "abilityGameID": 133,
+          "sourceID": 1,
+          "targetID": 100
+        }
       ],
       "_truncated": true,
       "_pages": [
-        { "nextPageTimestamp": 62000 },
-        { "nextPageTimestamp": null }
+        {
+          "nextPageTimestamp": 62000
+        },
+        {
+          "nextPageTimestamp": null
+        }
       ]
     },
-    "Interrupts": { "data": [] },
-    "Deaths": { "data": [] },
-    "DamageTaken": { "data": [] }
+    "Interrupts": {
+      "data": []
+    },
+    "Deaths": {
+      "data": []
+    },
+    "DamageTaken": {
+      "data": []
+    }
   }
 }

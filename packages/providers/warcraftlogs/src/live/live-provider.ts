@@ -21,7 +21,6 @@ import {
   characterResolveSchema,
   parseWithSchema,
   rateLimitDataSchema,
-  recentReportsSchema,
   reportFightSchema,
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
@@ -38,14 +37,9 @@ import {
   mapZoneRankings,
   mythicRunPlaceholders,
   rankingsToCandidates,
-  recentReportsToCandidates,
-  countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import {
-  MAX_DISCOVERY_CANDIDATES,
-  TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON,
-} from "../discovery/bounds.js";
+import { TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "../discovery/bounds.js";
 import {
   buildAliasedEncounterRankingsQuery,
   encounterObservationsToZoneRankingsPayload,
@@ -70,17 +64,6 @@ import {
   buildRoleAwarePerformanceAggregateRequestFingerprint,
 } from "../discovery/role-aware-performance-aggregate.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
-import {
-  INCREMENTAL_HYDRATION_BATCH_SIZE,
-  INITIAL_HYDRATION_BUDGET,
-  MAX_HYDRATION_REPORTS,
-} from "../discovery/bounds.js";
-import {
-  hydrateFightUnknownCandidates,
-  type HydrationReportPayload,
-} from "../discovery/report-hydration.js";
-import { hydrateFightUnknownCandidatesIterative } from "../discovery/iterative-report-hydration.js";
-import { collectBoundedRecentReportCodes } from "../discovery/recent-reports-pagination.js";
 import {
   extractFriendlyPlayerActorIds,
   fightOwnershipRejectionDetail,
@@ -121,8 +104,6 @@ export interface LiveWarcraftLogsProviderConfig {
   /** Explicit current M+ zone ID (preferred over WCL_MPLUS_ZONE_ID env). */
   zoneId?: number;
   zoneExpiresAt?: string | null;
-  /** Override MAX_HYDRATION_REPORTS bound. */
-  maxHydrationReports?: number;
   processEnv?: NodeJS.ProcessEnv;
   logger?: Pick<Console, "info" | "warn" | "error">;
 }
@@ -231,7 +212,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   private readonly revisionCache = new ReportRevisionCache();
   private readonly zoneConfig: MplusZoneConfig;
   private readonly logger: Pick<Console, "info" | "warn" | "error">;
-  private readonly maxHydrationReports: number;
 
   constructor(private readonly config: LiveWarcraftLogsProviderConfig) {
     const tokenManager = new WclTokenManager({
@@ -245,10 +225,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       logger: config.logger,
     });
     this.logger = config.logger ?? console;
-    const envMax = Number((config.processEnv ?? process.env).WCL_MAX_HYDRATION_REPORTS);
-    this.maxHydrationReports =
-      config.maxHydrationReports ??
-      (Number.isInteger(envMax) && envMax > 0 ? envMax : MAX_HYDRATION_REPORTS);
     this.zoneConfig = resolveMplusZoneConfig({
       zoneId: config.zoneId,
       expiresAt: config.zoneExpiresAt,
@@ -269,117 +245,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
-      .map((slug) => slug.trim().toLowerCase())
-      .filter((slug) => slug.length > 0);
-    const fetchReport = (code: string) => this.fetchReportPayloadForHydration(code);
-
-    // Coverage-aware iterative path (V2 cold production): open reports until each
-    // active dungeon has TARGET candidates or stubs/rate budget are exhausted.
-    // Legacy fixed budget (MAX_HYDRATION_REPORTS=5) is insufficient for 2×8 slots.
-    const scoringDungeonFirstMode =
-      ctx.wclActiveDungeonEncounters != null && ctx.wclActiveDungeonEncounters.length > 0;
-
-    let hydratedCandidates = discovery.candidates;
-    let hydratedReportCount = 0;
-    let terminalHydrationReason: string | null = null;
-    let totalReportsHydrated: number | null = null;
-    let reportsRemaining: number | null = null;
-
-    const preCoverage =
-      activeDungeonSlugs.length > 0
-        ? timedEligibleCoverageByDungeon(discovery.candidates, activeDungeonSlugs)
-        : null;
-    const fightUnknownRemaining = discovery.candidates.some((c) => c.incompleteness.fightUnknown);
-
-    if (scoringDungeonFirstMode) {
-      hydratedCandidates = discovery.candidates;
-      hydratedReportCount = 0;
-      terminalHydrationReason = "dungeon_first_no_hydration";
-      totalReportsHydrated = 0;
-      reportsRemaining = 0;
-    } else if (
-      activeDungeonSlugs.length > 0 &&
-      preCoverage?.fullCoverage &&
-      !fightUnknownRemaining
-    ) {
-      // encounterRankings already supplied timed fight-known candidates — skip mass hydration.
-      hydratedCandidates = discovery.candidates;
-      hydratedReportCount = 0;
-      terminalHydrationReason = "full_coverage";
-      totalReportsHydrated = 0;
-      reportsRemaining = 0;
-      this.logger.info(
-        {
-          identity,
-          activeDungeonCount: activeDungeonSlugs.length,
-          distinctTimedPerDungeon: preCoverage.distinctTimedPerDungeon,
-          terminalHydrationReason,
-        },
-        "wcl.discovery.hydration_skipped_encounter_rankings_coverage",
-      );
-    } else if (activeDungeonSlugs.length > 0) {
-      const iterative = await hydrateFightUnknownCandidatesIterative({
-        candidates: discovery.candidates,
-        characterName: identity.name,
-        realmSlug: identity.realmSlug,
-        hints: ctx.wclHydrationHints,
-        activeDungeonSlugs,
-        initialBudget:
-          this.maxHydrationReports > MAX_HYDRATION_REPORTS
-            ? this.maxHydrationReports
-            : INITIAL_HYDRATION_BUDGET,
-        incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
-        fetchReport,
-        evaluateIncrementalAdmission: (args) => ({
-          allow: true,
-          action: "OK" as const,
-          reasons: ["live_discover_incremental_default_allow"],
-          projectedIncrementalPoints: args.projectedIncrementalPoints,
-        }),
-      });
-      hydratedCandidates = iterative.candidates;
-      hydratedReportCount = iterative.hydratedReportCount;
-      terminalHydrationReason = iterative.diagnostics.terminalHydrationReason;
-      totalReportsHydrated = iterative.diagnostics.totalReportsHydrated;
-      reportsRemaining = iterative.diagnostics.reportsRemaining;
-    } else {
-      const legacy = await hydrateFightUnknownCandidates({
-        candidates: discovery.candidates,
-        characterName: identity.name,
-        realmSlug: identity.realmSlug,
-        hints: ctx.wclHydrationHints,
-        maxReports: this.maxHydrationReports,
-        fetchReport,
-      });
-      hydratedCandidates = legacy.candidates;
-      hydratedReportCount = legacy.hydratedReportCount;
-    }
-
-    const knownFightCandidates = hydratedCandidates.filter(
-      (c) => !c.incompleteness.fightUnknown,
-    ).length;
-    if (hydratedReportCount > 0) {
-      this.logger.info(
-        {
-          identity,
-          hydratedReportCount,
-          knownFightCandidates,
-          coverageAware: activeDungeonSlugs.length > 0,
-          activeDungeonCount: activeDungeonSlugs.length,
-          ...(terminalHydrationReason != null
-            ? {
-                terminalHydrationReason,
-                totalReportsHydrated,
-                reportsRemaining,
-              }
-            : {}),
-        },
-        "wcl.discovery.hydration",
-      );
-    }
-    const runs = hydratedCandidates
-      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
+    const runs = discovery.candidates
+      .filter((c) => c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = providerEnvelope(
       runs,
@@ -417,51 +284,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       activeDungeonSlugs: slugs,
       authoritativeEncounters: authoritative,
     });
-  }
-
-  private async fetchReportPayloadForHydration(
-    reportCode: string,
-  ): Promise<HydrationReportPayload | null> {
-    const reportResult = await this.client.request({
-      operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
-      query: OPERATIONS.ReportWithFightAndMasterData.query,
-      variables: { code: reportCode },
-    });
-    const parsed = parseWithSchema(reportFightSchema, reportResult.response.data, "Report");
-    const report = parsed.reportData.report;
-    if (!report) return null;
-    return {
-      code: report.code,
-      revision: report.revision,
-      startTime: report.startTime,
-      endTime: report.endTime,
-      visibility: report.visibility,
-      zone: report.zone ?? null,
-      fights: report.fights.map((f) => ({
-        id: f.id,
-        encounterID: f.encounterID,
-        name: f.name,
-        difficulty: f.difficulty,
-        kill: f.kill,
-        startTime: f.startTime,
-        endTime: f.endTime,
-        keystoneLevel: f.keystoneLevel,
-        keystoneBonus: f.keystoneBonus,
-        keystoneTime: f.keystoneTime,
-        inProgress: f.inProgress ?? false,
-        friendlyPlayers: f.friendlyPlayers ?? undefined,
-      })),
-      masterData: report.masterData
-        ? {
-            actors: (report.masterData.actors ?? []).map((a) => ({
-              id: a.id,
-              name: a.name,
-              type: a.type,
-              server: a.server,
-            })),
-          }
-        : null,
-    };
   }
 
   async discoverCharacterSummary(
@@ -514,7 +336,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   /**
    * Dedicated Character.zoneRankings role-aware throughput aggregate.
    * DPS/Tank: one points_and_damage field. Healer: aliased healing + damage in one HTTP call.
-   * Does not resolve character, query recent reports, hydrate fights, or fetch events.
+   * Does not resolve character or fetch combat events.
    */
   async fetchCharacterPerformanceAggregate(input: {
     character: CharacterIdentityInput;
@@ -1133,11 +955,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       "points_and_damage not queried",
     );
 
-    // Scoring detailed-evidence discovery must be dungeon-scoped and must
-    // never fall back to arbitrary `recentReports` scan/hydration.
-    const scoringDungeonFirstMode =
-      ctx.wclActiveDungeonEncounters != null && ctx.wclActiveDungeonEncounters.length > 0;
-
     const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
       .map((slug) => slug.trim().toLowerCase())
       .filter((slug) => slug.length > 0);
@@ -1165,7 +982,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       encounterTargets.length > 0 &&
       coversAllActiveDungeons
     ) {
-      // Preferred discovery: one aliased encounterRankings call for active dungeons.
       const aliased = buildAliasedEncounterRankingsQuery(encounterTargets);
       const erResult = await this.client.request<{
         characterData: { character: Record<string, unknown> | null };
@@ -1189,7 +1005,6 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         encounterTargets.map((e) => [e.encounterId, e.dungeonSlug] as const),
       );
       rankingCandidates = rankingsToEncounterCandidates(rankings, slugByEncounter);
-      usedEncounterRankings = true;
       const coverage = timedEligibleCoverageByDungeon(rankingCandidates, activeDungeonSlugs);
       warnings.push(
         `encounterRankings aliased: dungeons=${encounterTargets.length} logBackedRanks=${rankings.length} timedCoverage=${JSON.stringify(coverage.distinctTimedPerDungeon)} full=${coverage.fullCoverage}`,
@@ -1209,146 +1024,28 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       } else if (performance.state === "ERROR") {
         warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage ERROR");
       }
-    } else if (shouldQueryZoneRankings(this.zoneConfig)) {
-      // Legacy: zone-wide Parses when active encounter IDs are unavailable.
-      const rankingsResult = await this.client.request({
-        operationName: OPERATIONS.CharacterZoneRankings.operationName,
-        query: OPERATIONS.CharacterZoneRankings.query,
-        variables: {
-          name: identity.name,
-          serverSlug: identity.realmSlug,
-          serverRegion,
-          zoneID: this.zoneConfig.zoneId,
-        },
-        region: identity.region,
-      });
-      const rankingsParsed = parseWithSchema(
-        zoneRankingsSchema,
-        rankingsResult.response.data,
-        "ZoneRankings",
-      );
-      const zonePayload = (rankingsParsed.characterData.character?.zoneRankings ??
-        null) as ZoneRankingsPayload | null;
-      const rowCounts = countParseStyleRankingRows(zonePayload);
-      if (rowCounts.totalRows > 0 && rowCounts.parseRows === 0) {
-        warnings.push(
-          `zoneRankings returned ${rowCounts.totalRows} aggregate row(s) without report/fightID — Parses compare payload unavailable; falling back to recentReports stubs`,
-        );
-      }
-      rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
-      rankingCandidates = rankingsToCandidates(rankings);
-
-      const perf = await this.fetchPointsAndDamageForDiscovery({
-        character: identity,
-        zoneId: this.zoneConfig.zoneId,
-        partition: null,
-        ctx,
-      });
-      performance = perf;
-      if (performance.state === "SCHEMA_UNSUPPORTED") {
-        warnings.push(
-          performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
-        );
-      } else if (performance.state === "ERROR") {
-        warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage ERROR");
-      }
-    } else {
+    } else if (!shouldQueryZoneRankings(this.zoneConfig)) {
       warnings.push(
-        `Skipped zoneRankings/encounterRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
+        `Skipped encounterRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
       );
       performance = pointsAndDamageErrorRecord(
         "SKIPPED",
         null,
         `Skipped points_and_damage — configured zone ${this.zoneConfig.zoneId} is expired`,
       );
-    }
-
-    // recentReports → mass hydration only when encounter lists cannot fill timed slots.
-    type RecentCandidate = ReturnType<typeof recentReportsToCandidates>["candidates"][number];
-    let recentCandidates: RecentCandidate[] = [];
-    let privateSkippedTotal = 0;
-    let recentPublicCount = 0;
-
-    const erCoverage =
-      usedEncounterRankings && activeDungeonSlugs.length > 0
-        ? timedEligibleCoverageByDungeon(rankingCandidates, activeDungeonSlugs)
-        : null;
-
-    if (scoringDungeonFirstMode) {
-      warnings.push("recentReports pagination disabled (dungeon-first scoring mode)");
-    } else if (erCoverage?.fullCoverage) {
-      warnings.push(
-        "recentReports pagination skipped — encounterRankings already provide timed coverage for every active dungeon",
-      );
     } else {
-      const candidatesByCode = new Map<string, RecentCandidate>();
-      const pagination = await collectBoundedRecentReportCodes({
-        fetchPage: async (page, limit) => {
-          const recentResult = await this.client.request({
-            operationName: OPERATIONS.CharacterRecentReports.operationName,
-            query: OPERATIONS.CharacterRecentReports.query,
-            variables: {
-              name: identity.name,
-              serverSlug: identity.realmSlug,
-              serverRegion,
-              limit,
-              page,
-            },
-            region: identity.region,
-          });
-          const recentParsed = parseWithSchema(
-            recentReportsSchema,
-            recentResult.response.data,
-            "RecentReports",
-          );
-          const pagePayload = recentParsed.characterData.character?.recentReports;
-          const recentMapped = recentReportsToCandidates(pagePayload);
-          for (const candidate of recentMapped.candidates) {
-            if (!candidatesByCode.has(candidate.reportCode)) {
-              candidatesByCode.set(candidate.reportCode, candidate);
-            }
-          }
-          return {
-            reportCodes: recentMapped.candidates.map((c) => c.reportCode),
-            hasMorePages: pagePayload?.has_more_pages === true,
-            privateSkipped: recentMapped.privateSkipped,
-            unlistedSkipped: recentMapped.unlistedSkipped,
-          };
-        },
-      });
-
-      recentCandidates = pagination.reportCodes
-        .map((code) => candidatesByCode.get(code))
-        .filter((c): c is RecentCandidate => c != null);
-      privateSkippedTotal = pagination.privateSkipped + pagination.unlistedSkipped;
-      recentPublicCount = recentCandidates.length;
-
-      if (pagination.unlistedSkipped > 0) {
-        warnings.push(
-          `Skipped ${pagination.unlistedSkipped} unlisted report(s) — never probed with allowUnlisted`,
-        );
-      }
-      if (pagination.privateSkipped > 0) {
-        warnings.push(`Skipped ${pagination.privateSkipped} private report(s)`);
-      }
       warnings.push(
-        `recentReports pagination: pagesFetched=${pagination.pagesFetched} stop=${pagination.stopReason} uniqueReports=${recentPublicCount}`,
+        "encounterRankings discovery requires complete wclActiveDungeonEncounters — no fallback discovery",
+      );
+      performance = pointsAndDamageErrorRecord(
+        "SKIPPED",
+        null,
+        "points_and_damage skipped — missing active dungeon encounter bindings",
       );
     }
 
-    // When encounter coverage is incomplete, the capped candidate set must
-    // retain enough `fightUnknown` recentReports stubs so hydration can
-    // actually discover the missing dungeons. Using a small minRecent
-    // value can still cluster into only a couple dungeons (leading to a
-    // persistent 2-slot manifest shortfall).
-    const minRecentCandidates = scoringDungeonFirstMode
-      ? 0
-      : erCoverage?.fullCoverage === false && erCoverage.underCovered.length > 0
-        ? Math.min(recentCandidates.length, MAX_DISCOVERY_CANDIDATES)
-        : 0;
-
-    const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {
-      privateSkipped: privateSkippedTotal,
+    const provenance = deriveWclProvenance(character, rankings, rankingCandidates.length, {
+      privateSkipped: 0,
     });
     const summary = mapCharacterSummary(
       character,
@@ -1359,23 +1056,13 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       provenance.dataState,
     );
 
-    // Dungeon-first: never apply the legacy 80-candidate global cap to
-    // encounterRankings rows — that truncates dense early dungeons and drops
-    // later dungeons that already have timed fight identities in rankings.
-    const maxCandidates = scoringDungeonFirstMode
-      ? Math.max(rankingCandidates.length, MAX_DISCOVERY_CANDIDATES)
-      : MAX_DISCOVERY_CANDIDATES;
-
     return buildCharacterDiscovery({
       summary,
       rankings,
       dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
       performance,
       rankingCandidates,
-      recentCandidates,
-      minRecentCandidates,
-      maxCandidates,
-      privateReportsSkipped: privateSkippedTotal,
+      privateReportsSkipped: 0,
     });
   }
 

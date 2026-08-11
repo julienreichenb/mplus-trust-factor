@@ -1281,7 +1281,6 @@ export async function runRefreshPipeline(
   };
 
   const enrichWarcraftLogs = async (
-    hydrationHints: NonNullable<ProviderFetchContext["wclHydrationHints"]>,
     activeDungeonSlugs: readonly string[],
     activeDungeonEncounters: ReadonlyArray<{ dungeonSlug: string; encounterId: number }> = [],
   ): Promise<WclEnrichment> => {
@@ -1330,7 +1329,6 @@ export async function runRefreshPipeline(
 
     const wclCtx: ProviderFetchContext = {
       ...ctx,
-      wclHydrationHints: hydrationHints,
       ...(activeDungeonSlugs.length > 0
         ? { wclActiveDungeonSlugs: [...activeDungeonSlugs] }
         : {}),
@@ -1464,7 +1462,6 @@ export async function runRefreshPipeline(
         metadata: {
           wclDataState: dataState,
           discoveredRunCount: runsResult.data.length,
-          hydrationHintCount: hydrationHints.length,
           activeDungeonSlugCount: activeDungeonSlugs.length,
           dungeonAggregateCount: dungeonAggregates.length,
           performanceState: performance?.state ?? null,
@@ -1482,7 +1479,6 @@ export async function runRefreshPipeline(
           discoveryOutcome,
           discoveryDetail,
           discoveredRunCount: runsResult.data.length,
-          hydrationHintCount: hydrationHints.length,
           activeDungeonSlugCount: activeDungeonSlugs.length,
         },
         "wcl_run_discovery_outcome",
@@ -1567,7 +1563,7 @@ export async function runRefreshPipeline(
     }
   };
 
-  // Raider.IO first so current-season run hints can prioritize WCL report hydration.
+  // Raider.IO before WCL so current-season run hints are available for fusion/matching.
   await assertNotCancelled("pre_raiderio");
   const rioEnrichment = await enrichRaiderIo();
   raiderIoProfile = rioEnrichment.profile;
@@ -1581,20 +1577,7 @@ export async function runRefreshPipeline(
   const nowMs = now.getTime();
   blizzardRuns = filterRunsToActiveWindow(blizzardRuns, { nowMs });
   const rioRuns = filterRunsToActiveWindow(rioRunsRaw, { nowMs });
-  const hydrationHints = [...blizzardRuns, ...rioRuns].map((run) => ({
-    completedAt: run.completedAt,
-    dungeonSlug: run.dungeonSlug,
-    keyLevel: run.keyLevel,
-  }));
-
-  // Resolve active-season dungeon pool before WCL discovery so cold
-  // discoverCharacterRuns can use coverage-aware iterative hydration (2×N).
-  const preWclSeasonDungeonRows = await container.prisma.seasonDungeon.findMany({
-    where: { seasonId: preflightAuthority.seasonRowId },
-    include: { dungeon: true },
-    orderBy: { sortOrder: "asc" },
-  });
-  const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
+    const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
     canonicalDungeonKey(row.dungeon.slug),
   );
   const wclActiveDungeonEncounters = preWclSeasonDungeonRows
@@ -1613,7 +1596,6 @@ export async function runRefreshPipeline(
 
   await assertNotCancelled("pre_warcraftlogs");
   const wclEnrichment = await enrichWarcraftLogs(
-    hydrationHints,
     wclActiveDungeonSlugs,
     wclActiveDungeonEncounters,
   );
@@ -2229,7 +2211,7 @@ export async function runRefreshPipeline(
         });
       } catch (error) {
         if (isEnrichmentSoftSkip(error)) {
-          // Soft-skip must not drop Survival: hydrate actor/revision from persisted combat facts.
+          // Soft-skip must not drop Survival: restore actor/revision from persisted combat facts.
           const persistedCombat = await repositories.run.findRunAnalysis(
             run.id,
             character.id,

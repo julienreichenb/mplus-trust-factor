@@ -4,9 +4,9 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  candidatesFromHydratedReport,
-  type HydrationReportPayload,
-} from "./report-hydration.js";
+  candidatesFromMappedReport,
+  type ReportFightPayload,
+} from "./report-fight-mapping.js";
 import {
   nameRealmMatches,
   normalizeWclRealmSlug,
@@ -17,7 +17,7 @@ import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
 import { buildEvidenceDatasetScopeFingerprint } from "@mplus/contracts";
 
 /** Confirmed regression fixture: Wallidrixe in masterData, absent from fight 1 roster. */
-export const WALLIDRIXE_POISON_REPORT: HydrationReportPayload = {
+export const WALLIDRIXE_POISON_REPORT: ReportFightPayload = {
   code: "8WawmdrjbYtRFPqy",
   startTime: 1_700_000_000_000,
   visibility: "public",
@@ -86,14 +86,14 @@ describe("WCL fight ownership invariant", () => {
       expect(ownership.fightFriendlyPlayerActorIds).toEqual([3, 7, 4, 1, 5]);
     }
 
-    const hydrated = candidatesFromHydratedReport(
+    const mapped = candidatesFromMappedReport(
       WALLIDRIXE_POISON_REPORT,
       "Wallidrixe",
       "archimonde",
     );
-    expect(hydrated.candidates.some((c) => c.fightId === 1)).toBe(false);
+    expect(mapped.candidates.some((c) => c.fightId === 1)).toBe(false);
     expect(
-      hydrated.rejected.some((r) => r.includes("fight_1_TARGET_NOT_IN_FIGHT")),
+      mapped.rejected.some((r) => r.includes("fight_1_TARGET_NOT_IN_FIGHT")),
     ).toBe(true);
   });
 
@@ -132,23 +132,23 @@ describe("WCL fight ownership invariant", () => {
       expect(ownership.targetInFight).toBe(true);
     }
 
-    const hydrated = candidatesFromHydratedReport(
+    const mapped = candidatesFromMappedReport(
       WALLIDRIXE_POISON_REPORT,
       "Coomerhabile",
       "archimonde",
     );
-    const fight1 = hydrated.candidates.find((c) => c.fightId === 1);
+    const fight1 = mapped.candidates.find((c) => c.fightId === 1);
     expect(fight1?.targetActorId).toBe(1);
   });
 
   it("C: multi-fight report — Wallidrixe only becomes candidate for fight 2", () => {
-    const hydrated = candidatesFromHydratedReport(
+    const mapped = candidatesFromMappedReport(
       WALLIDRIXE_POISON_REPORT,
       "Wallidrixe",
       "archimonde",
     );
-    expect(hydrated.candidates.map((c) => c.fightId)).toEqual([2]);
-    expect(hydrated.candidates[0]?.targetActorId).toBe(317);
+    expect(mapped.candidates.map((c) => c.fightId)).toEqual([2]);
+    expect(mapped.candidates[0]?.targetActorId).toBe(317);
   });
 
   it("D: actor-scoped dataset pages have different scope fingerprints", () => {

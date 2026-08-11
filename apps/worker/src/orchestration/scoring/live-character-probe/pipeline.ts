@@ -34,10 +34,8 @@ import {
   extractPerformanceRunParseFactV2,
   extractSurvivalFactDocumentV2FromSharedEvidence,
   extractUtilityV2RunFactSetFromSharedEvidence,
-  hydrateFightUnknownCandidates,
   InMemorySharedEvidenceStore,
   ingestSharedEvidenceBundle,
-  MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
   PERFORMANCE_V2_EXTRACTOR_FAMILY,
   PERFORMANCE_V2_EXTRACTOR_VERSION,
   PERFORMANCE_V2_FACT_SCHEMA_VERSION,
@@ -58,7 +56,7 @@ import {
   type PerformanceFactDocumentV2,
   type RankingParseEvidenceV2,
   type SharedEvidenceDatasetKey,
-  type SlotHydrationSummary,
+  type SlotAcquisitionSummary,
   type WclRankingObservation,
   type WclRunEvidenceBundle,
 } from "@mplus/provider-warcraftlogs";
@@ -397,53 +395,11 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
   const seasonName =
     zoneResult.response.data?.worldData?.zone?.name ?? `wcl-zone-${zoneConfig.zoneId}`;
 
-  // Single discovery + hydration pass (avoid double WCL character queries).
+  // Discovery only: encounterRankings / zoneRankings candidates with known fightId.
+  // Do not open reports for fightId<=0 stubs — detailed ReportWithFightAndMasterData
+  // runs later for SELECTED slots only (post-selection acquisition).
   const discovery = await provider.discoverCharacter(identity, ctx);
   wclRequests += 5;
-  const hydrated = await hydrateFightUnknownCandidates({
-    candidates: discovery.candidates,
-    characterName: args.name,
-    realmSlug: args.realm,
-    activeDungeonSlugs,
-    maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
-    fetchReport: async (code) => {
-      const reportResult = await client.requestPermissive<{
-        reportData?: {
-          report?: {
-            code: string;
-            startTime: number;
-            endTime?: number | null;
-            visibility?: string | null;
-            zone?: { id: number; name?: string | null } | null;
-            fights: Array<{
-              id: number;
-              encounterID?: number | null;
-              name?: string | null;
-              difficulty?: number | null;
-              kill?: boolean | null;
-              startTime: number;
-              endTime: number;
-              keystoneLevel?: number | null;
-              friendlyPlayers?: Array<number | { id: number; name?: string; server?: string }>;
-            }>;
-            masterData?: {
-              actors?: Array<{ id: number; name: string; type: string; server?: string | null }>;
-            } | null;
-          } | null;
-        };
-      }>({
-        operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
-        query: OPERATIONS.ReportWithFightAndMasterData.query,
-        variables: { code },
-        region: args.region,
-      });
-      wclRequests += 1;
-      estimatedPoints += reportResult.costUnits ?? 1;
-      // Return provider report payload as-is (same shape hydrateFightUnknownCandidates expects).
-      return (reportResult.response.data?.reportData?.report as never) ?? null;
-    },
-  });
-  wclRequests += hydrated.hydratedReportCount;
 
   const rankingByKey = new Map<string, WclRankingObservation>();
   for (const r of discovery.rankings) {
@@ -469,8 +425,8 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
   }
 
   const sourceRows: DiscoverySourceRow[] = [];
-  for (const c of hydrated.candidates) {
-    if (c.incompleteness.fightUnknown || c.fightId <= 0) continue;
+  for (const c of discovery.candidates) {
+    if (c.fightId <= 0) continue;
     const dungeonSlug = resolveCandidateDungeonSlug({
       encounterId: c.encounterId,
       dungeonSlug: c.dungeonSlug,
@@ -489,13 +445,13 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       fightDurationMs: c.durationMs,
       actorId: c.targetActorId ?? null,
       reportRevision: null,
-      source: c.source === "zoneRankings" ? "zone_rankings" : "recent_reports",
+      source: c.source === "zoneRankings" ? "zone_rankings" : "parse_row",
       parsePercentile:
         ranking?.bracketPercent ?? ranking?.percentile ?? ranking?.rankPercent ?? null,
       visibility: "public",
       fightAccessible: true,
       hardError: false,
-      // Fight + dungeon + actor resolved via hydration — eligible for WS02 planning.
+      // Fight + dungeon + actor known from encounterRankings — eligible for WS02 planning.
       identityResolution: "RESOLVED",
     });
   }
@@ -916,8 +872,9 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
   const survivalDocs: SurvivalFactDocumentV2[] = [];
   const utilityFacts: UtilityV2RunFactSet[] = [];
   const datasetCoverage: DatasetCoverageRow[] = [];
-  const slotSummaries: SlotHydrationSummary[] = [];
-  let fullyHydratedSlots = 0;
+  const slotSummaries: SlotAcquisitionSummary[] = [];
+  // Post-selection acquisition completeness (selected-fight detail loaded).
+  let fullyAcquiredSlots = 0;
   let datasetFailedSlots = 0;
   let factExtractionFailedSlots = 0;
 
@@ -932,7 +889,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
         fightId: null,
         reportRevision: null,
         actorId: null,
-        fullyHydrated: false,
+        fullyAcquired: false,
         wclReportValid: false,
         missingReason: slot.state === "SELECTED" ? "missing_identity" : "not_selected",
       });
@@ -943,8 +900,8 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       fightId: slot.identity.fightId,
     });
     const acquired = acquisitionByKey.get(key);
-    const hydrated = Boolean(acquired?.result.reportRevision != null && acquired.bundle);
-    if (hydrated) fullyHydratedSlots += 1;
+    const acquired = Boolean(acquired?.result.reportRevision != null && acquired.bundle);
+    if (acquired) fullyAcquiredSlots += 1;
     if (acquired?.datasetRows.some((r) => r.status === "FAILED")) datasetFailedSlots += 1;
     if (
       !acquired?.performanceFact &&
@@ -962,9 +919,9 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       fightId: slot.identity.fightId,
       reportRevision: slot.identity.reportRevision,
       actorId: acquired?.result.actorId ?? null,
-      fullyHydrated: hydrated,
+      fullyAcquired: acquired,
       wclReportValid: acquired?.result.acquisitionStatus === "ACQUIRED",
-      missingReason: hydrated ? null : "incomplete_hydration",
+      missingReason: acquired ? null : "incomplete_acquisition",
     });
 
     if (acquired) {
@@ -1163,7 +1120,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
     dungeonCount: activeDungeonSlugs.length,
     selectedSlotCount: manifest.selectedSlotCount,
     expectedSlotCount: manifest.expectedSlotCount,
-    fullyHydratedSlots,
+    fullyAcquiredSlots,
     discoveryFailed: metadataCandidates.length === 0,
     datasetFailedSlots,
     factExtractionFailedSlots,
@@ -1279,7 +1236,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
     activeDungeonSlugs,
     selectedSlotCount: manifest.selectedSlotCount,
     expectedSlotCount: manifest.expectedSlotCount,
-    fullyHydratedSlots,
+    fullyAcquiredSlots,
     missingDungeonSlots,
     performanceExecutable: performanceReady,
     survivalExecutable: survivalReady,
@@ -1307,7 +1264,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
       dungeonCount: activeDungeonSlugs.length,
       selectedSlotCount: manifest.selectedSlotCount,
       expectedSlotCount: manifest.expectedSlotCount,
-      fullyHydratedSlots,
+      fullyAcquiredSlots,
       performanceExecutable: performanceReady,
       survivalExecutable: survivalReady,
       utilityExecutable: utilityReady,

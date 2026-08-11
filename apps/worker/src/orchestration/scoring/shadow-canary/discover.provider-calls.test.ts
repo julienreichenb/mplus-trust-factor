@@ -1,6 +1,6 @@
 /**
  * Shadow Canary discovery must use dungeon-first encounterRankings only.
- * Scoring discovery never performs recentReports pagination or report hydration.
+ * Scoring discovery never lists character recentReports or opens reports for discovery.
  */
 import { describe, expect, it, vi } from "vitest";
 import { OPERATIONS } from "@mplus/provider-warcraftlogs";
@@ -17,11 +17,7 @@ function encounterCandidate(
   reportCode: string,
   fightId: number,
   keyLevel: number,
-  overrides?: Partial<{
-    timed: boolean;
-    source: string;
-    incompleteness: { fightUnknown: boolean };
-  }>,
+  overrides?: Partial<{ timed: boolean; source: string }>,
 ) {
   return {
     reportCode,
@@ -30,17 +26,18 @@ function encounterCandidate(
     keyLevel,
     timed: overrides?.timed ?? true,
     source: overrides?.source ?? "encounterRankings",
-    incompleteness: overrides?.incompleteness ?? { fightUnknown: false },
   };
 }
 
-function fightUnknownStub(reportCode: string, startTime: number) {
+function invalidFightStub(reportCode: string, startTime: number) {
   return {
     reportCode,
     fightId: 0,
     startTime,
-    source: "recentReports",
-    incompleteness: { fightUnknown: true },
+    source: "encounterRankings",
+    dungeonSlug: "skyreach",
+    keyLevel: 10,
+    timed: true,
   };
 }
 
@@ -91,15 +88,13 @@ function mockContainer(
 }
 
 describe("discoverShadowCanaryCandidates dungeon-first providerCalls", () => {
-  it("never hydrates reports when encounter bindings are present", async () => {
+  it("never issues ReportWithFightAndMasterData during discovery", async () => {
     const timedCandidates = ACTIVE.flatMap((slug, di) =>
-      [1, 2].map((fi) =>
-        encounterCandidate(slug, `ER${di}${fi}`, fi, 10 + fi),
-      ),
+      [1, 2].map((fi) => encounterCandidate(slug, `ER${di}${fi}`, fi, 10 + fi)),
     );
     const requestPermissive = vi.fn(async (args: { operationName: string }) => {
       if (args.operationName === OPERATIONS.ReportWithFightAndMasterData.operationName) {
-        throw new Error("unexpected_report_hydration");
+        throw new Error("unexpected_selected_report_fetch_during_discovery");
       }
       throw new Error(`unexpected_operation:${args.operationName}`);
     });
@@ -120,19 +115,19 @@ describe("discoverShadowCanaryCandidates dungeon-first providerCalls", () => {
     });
 
     expect(result.diagnostics.discoveryStrategy).toBe("encounter_rankings");
-    expect(result.diagnostics.iterativeHydration).toBeNull();
-    expect(result.diagnostics.hydration).toBeNull();
-    expect(result.diagnostics.providerCallBreakdown.reportHydration).toBe(0);
-    expect(result.diagnostics.reportsListed).toBe(0);
-    expect(result.diagnostics.reportsHydrated).toBe(0);
+    expect(result.diagnostics.providerCallBreakdown).toEqual({
+      zoneCatalog: 0,
+      characterDiscovery: 0,
+    });
     expect(requestPermissive).not.toHaveBeenCalled();
     expect(result.candidates.length).toBeGreaterThanOrEqual(4);
+    expect(result.diagnostics.candidateNormalization.total).toBe(timedCandidates.length);
   });
 
-  it("ignores fightUnknown recentReports stubs and does not hydrate them", async () => {
+  it("ignores invalid fightId<=0 candidates and does not open reports", async () => {
     const stubCount = 30;
     const stubs = Array.from({ length: stubCount }, (_, i) =>
-      fightUnknownStub(`STUB${i + 1}`, 1_000_000 - i),
+      invalidFightStub(`STUB${i + 1}`, 1_000_000 - i),
     );
     let reportFetchInvocations = 0;
     const requestPermissive = vi.fn(async (args: { operationName: string }) => {
@@ -156,30 +151,22 @@ describe("discoverShadowCanaryCandidates dungeon-first providerCalls", () => {
         encounterId: 12_532 + i,
       })),
       dungeonPoolSource: "season_dungeon_bindings",
-      evaluateIncrementalAdmission: () => ({
-        allow: true,
-        action: "OK" as const,
-        reasons: ["ok"],
-        projectedIncrementalPoints: 18,
-      }),
     });
 
     expect(reportFetchInvocations).toBe(0);
-    expect(result.diagnostics.providerCallBreakdown.reportHydration).toBe(0);
-    expect(result.diagnostics.iterativeHydration).toBeNull();
-    expect(result.diagnostics.reportsListed).toBe(0);
+    expect(requestPermissive).not.toHaveBeenCalled();
     expect(result.candidates).toHaveLength(0);
-    expect(result.diagnostics.hydratedFightCandidates.fightUnknown).toBe(0);
+    expect(result.diagnostics.candidateNormalization.invalidFightId).toBe(stubCount);
     expect(result.diagnostics.discoveryStrategy).toBe("encounter_rankings");
   });
 
-  it("under-covered dungeon leaves missing slots without hydration fallback", async () => {
+  it("under-covered dungeon leaves empty candidates for missing dungeon", async () => {
     const skyreachOnly = [
       encounterCandidate("skyreach", "SR1", 1, 18),
       encounterCandidate("skyreach", "SR2", 2, 17),
     ];
     const requestPermissive = vi.fn(async () => {
-      throw new Error("unexpected_hydration_call");
+      throw new Error("unexpected_provider_call_during_discovery");
     });
     const container = mockContainer(requestPermissive, skyreachOnly);
 
@@ -197,14 +184,12 @@ describe("discoverShadowCanaryCandidates dungeon-first providerCalls", () => {
       dungeonPoolSource: "season_dungeon_bindings",
     });
 
-    expect(result.diagnostics.providerCallBreakdown.reportHydration).toBe(0);
+    expect(requestPermissive).not.toHaveBeenCalled();
     expect(result.candidates.filter((c) => c.dungeonSlug === "skyreach")).toHaveLength(2);
-    expect(result.candidates.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(
-      0,
-    );
-    expect(result.diagnostics.hydratedFightCandidates.byDungeonSlug["skyreach"]).toBe(2);
-    expect(result.diagnostics.hydratedFightCandidates.byDungeonSlug["windrunner-spire"]).toBe(
-      undefined,
-    );
+    expect(result.candidates.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(0);
+    expect(result.diagnostics.candidateNormalization.byDungeonSlug["skyreach"]).toBe(2);
+    expect(
+      result.diagnostics.candidateNormalization.byDungeonSlug["windrunner-spire"],
+    ).toBeUndefined();
   });
 });

@@ -8,7 +8,6 @@ import type {
 
 export type IncompleteDungeonClassification =
   | "SECOND_DISTINCT_RUN_EXISTS_BUT_WAS_INCORRECTLY_EXCLUDED"
-  | "SECOND_RUN_NOT_HYDRATED_DUE_TO_DISCOVERY_CAP"
   | "ONLY_ONE_DISTINCT_CHARACTER_RUN_EXISTS"
   | "DISCOVERY_COUNTER_ACCOUNTING_BUG"
   | "CHARACTER_OR_SPEC_IDENTITY_MISMATCH";
@@ -26,8 +25,7 @@ export interface WindrunnerFightDiagnostic {
   identityResolution: string | null;
   accessState: string | null;
   fightAccessible: boolean | null;
-  reportHydrated: boolean | null;
-  excludedByHydrationCap: boolean | null;
+
   dungeonSlug: string;
   eligibility: "SELECTED" | "DUPLICATE_OF_SELECTED" | "ELIGIBLE_UNSELECTED" | "REJECTED" | "UNKNOWN";
   rejectionReason: string | null;
@@ -60,8 +58,6 @@ export function diagnoseIncompleteDungeonFromPersisted(input: {
   manifest: CharacterSeasonEvidenceManifestV2;
   /** Optional candidates from a discovery report replay (not live WCL). */
   discoveredCandidates?: readonly EvidenceCandidateMetadataV2[];
-  /** When true, discovery hydrated to the report cap with this dungeon still short. */
-  hydrationBudgetExhaustedWhileShort?: boolean;
 }): IncompleteDungeonDiagnosis {
   const slug = input.dungeonSlug.trim().toLowerCase();
   const slots = input.manifest.slots.filter(
@@ -91,8 +87,7 @@ export function diagnoseIncompleteDungeonFromPersisted(input: {
       identityResolution: "RESOLVED",
       accessState: "PUBLIC",
       fightAccessible: true,
-      reportHydrated: true,
-      excludedByHydrationCap: false,
+
       dungeonSlug: slug,
       eligibility: "SELECTED",
       rejectionReason: null,
@@ -116,8 +111,7 @@ export function diagnoseIncompleteDungeonFromPersisted(input: {
       identityResolution: null,
       accessState: null,
       fightAccessible: null,
-      reportHydrated: same ? true : null,
-      excludedByHydrationCap: false,
+
       dungeonSlug: slug,
       eligibility: same
         ? "DUPLICATE_OF_SELECTED"
@@ -147,8 +141,6 @@ export function diagnoseIncompleteDungeonFromPersisted(input: {
         identityResolution: c.identityResolution ?? null,
         accessState: c.accessState ?? null,
         fightAccessible: c.fightAccessible ?? null,
-        reportHydrated: true,
-        excludedByHydrationCap: false,
         dungeonSlug: slug,
         eligibility: "ELIGIBLE_UNSELECTED",
         rejectionReason: null,
@@ -176,18 +168,10 @@ export function diagnoseIncompleteDungeonFromPersisted(input: {
     notes.push(
       `Found ${distinctRejectedOther.size} distinct rejected identities that are not the selected fight`,
     );
-  } else if (
-    input.hydrationBudgetExhaustedWhileShort === true &&
-    uniqueCandidateIdentities <= 1
-  ) {
-    classification = "SECOND_RUN_NOT_HYDRATED_DUE_TO_DISCOVERY_CAP";
-    notes.push(
-      "Hydration budget exhausted while dungeon still short of two identities — do not infer the second run does not exist",
-    );
   } else if (uniqueCandidateIdentities <= 1 && selectedIdentities.size <= 1) {
     classification = "ONLY_ONE_DISTINCT_CHARACTER_RUN_EXISTS";
     notes.push(
-      "Selector saw a single distinct reportCode/fightId among persisted candidates; verify unhydrated reports before concluding history is insufficient",
+      "Selector saw a single distinct reportCode/fightId among persisted candidates; no second distinct eligible identity among persisted discovery candidates",
     );
   } else if (
     uniqueCandidateIdentities >= 2 &&

@@ -1,4 +1,4 @@
-import { slugifyDungeonName } from "../discovery/report-hydration.js";
+import { slugifyDungeonName } from "../discovery/dungeon-slug.js";
 import { ENCOUNTER_DUNGEON_MAP } from "../discovery/run-discovery.js";
 import type {
   PerformanceDungeonSummary,
@@ -549,3 +549,4 @@ export function resolveCurrentPartition(
   const sorted = [...rows].sort((a, b) => b.id - a.id);
   return sorted[0]?.id ?? null;
 }
+

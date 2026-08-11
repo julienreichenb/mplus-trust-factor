@@ -397,7 +397,7 @@ export async function acquireCandidateWithFallback(input: {
    */
   excludeDiscoveryKeys?: ReadonlySet<string>;
   /**
-   * Concurrency-safe reservation for reportCode:fightId before hydration.
+   * Concurrency-safe reservation for reportCode:fightId before detailed acquisition.
    * Return false when a sibling already holds the identity.
    */
   reserveDiscoveryIdentity?: (discoveryKey: string) => Promise<boolean>;

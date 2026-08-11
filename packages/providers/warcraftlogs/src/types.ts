@@ -68,7 +68,6 @@ export interface WclRunCandidateIncompleteness {
   timedUnknown: boolean;
   keyLevelUnknown: boolean;
   rosterIncomplete: boolean;
-  fightUnknown: boolean;
 }
 
 export type RunMatchConfidence = "HIGH" | "MEDIUM" | "LOW" | "NONE";
@@ -93,13 +92,13 @@ export interface WclRunCandidate {
    */
   timed: boolean | null;
   selectionTags: Array<"LATEST" | "HIGHEST">;
-  source: "zoneRankings" | "encounterRankings" | "recentReports";
+  source: "zoneRankings" | "encounterRankings";
   /** Cross-provider match confidence when an external run was compared; else null. */
   matchConfidence: RunMatchConfidence | null;
-  /** Resolved during report hydration; null until masterData/friendlyPlayers resolve the target. */
+  /** Resolved when report masterData proves target ownership; null until then. */
   targetActorId?: number | null;
   /**
-   * Authoritative WCL report revision when known from hydration/metadata.
+   * Authoritative WCL report revision when known from report metadata.
    * Null means unresolved — never invent `1`.
    */
   reportRevision?: number | null;
@@ -333,9 +332,9 @@ export interface WclCharacterDiscoveryResult {
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;
-  /** True when candidate list was capped by MAX_DISCOVERY_CANDIDATES. */
+  /** Always false under encounterRankings discovery (no global candidate cap). */
   candidatesTruncated: boolean;
-  /** Private/unlisted reports observed and skipped (never probed). */
+  /** Reserved; recentReports private-skip bookkeeping removed with listing discovery. */
   privateReportsSkipped: number;
 }
 

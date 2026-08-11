@@ -250,7 +250,7 @@ export function classifyMissingDungeonReason(
   );
   const hasPrivate = dungeonRejections.some((r) => r.includes("private") || r.includes("unauthorized"));
   const hasOutsideWindow = dungeonRejections.some((r) =>
-    r.includes("outside") || r.includes("hydrate_report_too_old"),
+    r.includes("outside") || r.includes("report_too_old"),
   );
   if (hasPrivate) return "report_private";
   if (hasOutsideWindow && !hasActorAbsent) return "outside_report_window";

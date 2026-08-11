@@ -8,7 +8,6 @@ import { isWclSnapshotFresh } from "@mplus/config";
 import {
   evaluateRateBudget,
   fetchRateLimitSnapshot,
-  MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
   type RateBudgetConfig,
   type WclGraphQlClient,
   type WclRateLimitSnapshot,
@@ -29,10 +28,8 @@ export const CONSERVATIVE_RATE_LIMIT_SNAPSHOT_POINTS = 1;
 /** Conservative discovery-only overhead (excludes capability event pages). */
 export const DISCOVERY_COST_ASSUMPTIONS = {
   zoneEncounterGraphqlRequests: 1,
-  characterDiscoveryFlatGraphqlRequests: 5,
-  maxHydrationReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
-  /** Aligns with getReportMaster-class metadata hydration, not event pages. */
-  pointsPerHydrationReport: 3,
+  /** ResolveCharacter + aliased encounterRankings (+ optional points_and_damage). */
+  characterDiscoveryFlatGraphqlRequests: 3,
   characterDiscoveryFlatPoints: 8,
   zoneEncounterPoints: 1,
   capabilityEventPageAcquisitions: 0,
@@ -111,11 +108,7 @@ export function resolveBootstrapPointCost(input: {
 
 export function projectDiscoveryOnlyPoints(): number {
   const a = DISCOVERY_COST_ASSUMPTIONS;
-  return (
-    a.zoneEncounterPoints +
-    a.characterDiscoveryFlatPoints +
-    a.maxHydrationReports * a.pointsPerHydrationReport
-  );
+  return a.zoneEncounterPoints + a.characterDiscoveryFlatPoints;
 }
 
 export async function readPersistedCanaryRateSnapshot(
@@ -371,84 +364,4 @@ export function assertDiscoveryAdmissionAllows(report: CanaryDiscoveryAdmissionR
       },
     );
   }
-}
-
-/**
- * Gate an incremental hydration batch after the initial budget.
- * Uses current snapshot + points already attributed to this discovery + batch cost.
- */
-export function evaluateIncrementalHydrationAdmission(input: {
-  snapshot: WclRateLimitSnapshot;
-  rateBudgetConfig: RateBudgetConfig;
-  /** Points already counted for this discovery (bootstrap + hydrations so far). */
-  pointsAlreadyProjected: number;
-  incrementalBatchPoints: number;
-}): {
-  allow: boolean;
-  action: "OK" | "WARN" | "DEFER" | "STOP";
-  reasons: string[];
-  projectedIncrementalPoints: number;
-} {
-  const decision = evaluateRateBudget(input.snapshot, input.rateBudgetConfig);
-  const projectedSpend =
-    input.snapshot.pointsSpentThisHour +
-    input.pointsAlreadyProjected +
-    input.incrementalBatchPoints;
-  const hourlyLimit = input.snapshot.limitPerHour;
-  const projectedUtilization =
-    hourlyLimit > 0 ? (projectedSpend / hourlyLimit) * 100 : null;
-  const reasons: string[] = ["incremental_hydration_batch", "capability_event_pages_excluded"];
-
-  if (decision.action === "STOP") {
-    return {
-      allow: false,
-      action: "STOP",
-      reasons: [...reasons, "rate_budget_STOP"],
-      projectedIncrementalPoints: input.incrementalBatchPoints,
-    };
-  }
-  if (decision.action === "DEFER") {
-    return {
-      allow: false,
-      action: "DEFER",
-      reasons: [...reasons, "rate_budget_DEFER"],
-      projectedIncrementalPoints: input.incrementalBatchPoints,
-    };
-  }
-  if (
-    projectedUtilization != null &&
-    projectedUtilization >= input.rateBudgetConfig.stopPercent
-  ) {
-    return {
-      allow: false,
-      action: "STOP",
-      reasons: [...reasons, "projected_utilization_STOP"],
-      projectedIncrementalPoints: input.incrementalBatchPoints,
-    };
-  }
-  if (
-    projectedUtilization != null &&
-    projectedUtilization >= input.rateBudgetConfig.deferPercent
-  ) {
-    return {
-      allow: false,
-      action: "DEFER",
-      reasons: [...reasons, "projected_utilization_DEFER"],
-      projectedIncrementalPoints: input.incrementalBatchPoints,
-    };
-  }
-  if (decision.action === "WARN") {
-    return {
-      allow: true,
-      action: "WARN",
-      reasons: [...reasons, "rate_budget_WARN_allow"],
-      projectedIncrementalPoints: input.incrementalBatchPoints,
-    };
-  }
-  return {
-    allow: true,
-    action: "OK",
-    reasons: [...reasons, "rate_budget_OK"],
-    projectedIncrementalPoints: input.incrementalBatchPoints,
-  };
 }

@@ -316,7 +316,7 @@ export interface UtilityGlobalSummary {
     /**
      * Per-dungeon classification for missing dungeons.
      * Possible values:
-     *  - "no_candidates": zoneRankings had no entry and recentReports found none
+     *  - "no_candidates": zoneRankings/encounterRankings had no parse-linked entry
      *  - "actor_absent": candidates found but player actor absent from friendlyPlayers
      *  - "report_cap_reached": candidates existed but per-dungeon report cap exhausted
      *  - "report_private": report fetch returned private/unauthorized

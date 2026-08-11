@@ -3,7 +3,7 @@ import type { EvidenceV2SlotRecord } from "./types.js";
 /**
  * Discovery identities already claimed by sibling slots in the same batch.
  * Includes acquired winners and in-flight reservations so parallel slot jobs
- * never hydrate the same reportCode+fightId for typed fact persistence.
+ * never acquire the same reportCode+fightId for typed fact persistence.
  */
 export function collectOccupiedDiscoveryKeys(
   slots: ReadonlyArray<

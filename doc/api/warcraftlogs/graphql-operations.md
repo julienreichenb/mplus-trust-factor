@@ -93,28 +93,16 @@ Each `ranks[]` row (log-backed) includes:
 
 Aliasing all active encounters in one operation is supported and is the production discovery path when `wclActiveDungeonSlugs` map to encounter IDs.
 
-## CharacterRecentReports
+## CharacterRecentReports (REMOVED)
 
-```graphql
-query CharacterRecentReports($name: String!, $serverSlug: String!, $serverRegion: String!, $limit: Int!, $page: Int!) {
-  characterData {
-    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-      recentReports(limit: $limit, page: $page) {
-        data { code startTime visibility zone { id name } }
-        has_more_pages
-      }
-    }
-  }
-}
-```
+`CharacterRecentReports` / `character.recentReports` is **deleted** from scoring run discovery.
+Do not restore it. Git history retains the old operation if needed for archaeology.
 
-**Observed cost:** ~2–5 points per page.
-
-**Scoring V2 pagination:** page size 20, up to 5 pages, stopping early when `has_more_pages` is false or unique-report discovery bounds are satisfied. Report codes are deduplicated across pages. This replaces the obsolete V1 single-page discovery bound.
+Scoring discovery is **SeasonDungeon → encounterRankings → top 2 timed identities → evidence manifest → detailed acquisition of SELECTED fights only**. See [`run-discovery-and-matching.md`](./run-discovery-and-matching.md).
 
 ## ReportWithFightAndMasterData
 
-Combined report metadata + fights + masterData (`translate: false`).
+Combined report metadata + fights + masterData (`translate: false`). Used for **post-selection** detailed acquisition of known `(reportCode, fightId)` identities — not for run discovery.
 
 Fight fields required for V2 candidate identity / ownership / timer tri-state:
 
@@ -125,7 +113,7 @@ Fight fields required for V2 candidate identity / ownership / timer tri-state:
 
 Report fields: `code`, `startTime`, `revision`, `visibility`, `zone { id name }`, `masterData.actors`.
 
-These fields must survive GraphQL → Zod parse → hydration/normalization. Do not assume a requested GraphQL field is present on the candidate unless a mapper assigns it.
+These fields must survive GraphQL → Zod parse → normalization. Do not assume a requested GraphQL field is present on the candidate unless a mapper assigns it.
 
 **Observed cost:** ~5–15 points per report.
 

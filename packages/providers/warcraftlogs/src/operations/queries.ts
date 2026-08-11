@@ -66,28 +66,6 @@ export const OPERATIONS = {
 }`,
   },
 
-  CharacterRecentReports: {
-    operationName: "CharacterRecentReports",
-    query: `query CharacterRecentReports($name: String!, $serverSlug: String!, $serverRegion: String!, $limit: Int!, $page: Int!) {
-  characterData {
-    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-      recentReports(limit: $limit, page: $page) {
-        data {
-          code
-          title
-          startTime
-          endTime
-          visibility
-          zone { id name }
-        }
-        total
-        has_more_pages
-      }
-    }
-  }
-}`,
-  },
-
   WorldDataZone: {
     operationName: "WorldDataZone",
     query: `query WorldDataZone($id: Int!) {
