@@ -78,18 +78,17 @@ import {
   buildWclSummaryRequestFingerprint,
   isCompatiblePointsAndDamageSummary,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
-  resolveMplusZoneConfig,
 } from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
 import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
 import { ensurePersistedSeasonDungeonBindings } from "./active-mplus-season/synchronize.js";
+import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import {
-  allowFixtureZoneDefaultsForProviderMode,
   resolveActiveRefreshContract,
 } from "./build-refresh-contract.js";
 import {
@@ -674,7 +673,8 @@ export async function runRefreshPipeline(
   // ── Contract preflight barrier (fail-fast, before any provider work) ─────
   // Guarantees zero Blizzard / Raider.IO / WCL calls, zero run/metric/
   // provider-state/snapshot writes, and zero WCL budget on mismatch.
-  let preflightAuthority: Awaited<ReturnType<typeof runRefreshContractPreflight>>["authority"];
+  let preflightEffective: Awaited<ReturnType<typeof runRefreshContractPreflight>>["effective"];
+  let preflightAuthority: VerifiedSeasonAuthority;
   try {
     const preflight = await runRefreshContractPreflight(
       {
@@ -683,6 +683,7 @@ export async function runRefreshPipeline(
         logger,
         env: container.env,
         getActiveModel: (key) => repositories.score.getActiveModel(key),
+        warcraftlogs: providers.warcraftlogs,
       },
       jobPayload,
       {
@@ -690,7 +691,18 @@ export async function runRefreshPipeline(
         correlationId: ctx.correlationId ?? ctx.requestId,
       },
     );
-    preflightAuthority = preflight.authority;
+    preflightEffective = preflight.effective;
+    // Eligibility + SeasonDungeon queries use the EFFECTIVE scoring season.
+    preflightAuthority = {
+      regionCode: preflightEffective.detected.regionCode,
+      regionId: preflightEffective.detected.regionId,
+      seasonRowId: preflightEffective.applicationSeasonId,
+      blizzardSeasonId: preflightEffective.blizzardSeasonId,
+      slug: preflightEffective.seasonSlug,
+      authoritySource: preflightEffective.detected.authoritySource,
+      authorityVerifiedAt: preflightEffective.detected.authorityVerifiedAt,
+      resolution: preflightEffective.detected.resolution,
+    };
   } catch (preflightError) {
     if (preflightError instanceof RefreshContractPreflightError) {
       job = await repositories.job.markFailed(job.id, preflightError.toJobError());
@@ -1328,6 +1340,7 @@ export async function runRefreshPipeline(
 
     const wclCtx: ProviderFetchContext = {
       ...ctx,
+      wclZoneId: preflightEffective.wclZoneId,
       ...(activeDungeonSlugs.length > 0
         ? { wclActiveDungeonSlugs: [...activeDungeonSlugs] }
         : {}),
@@ -1347,10 +1360,7 @@ export async function runRefreshPipeline(
         OBS_EVENTS.refreshProviderPhaseStarted,
       );
 
-      const zoneId = resolveMplusZoneConfig({
-        env: process.env,
-        allowFixtureDefault: allowFixtureZoneDefaultsForProviderMode(container.env.PROVIDER_MODE),
-      }).zoneId;
+      const zoneId = preflightEffective.wclZoneId;
       const summaryFingerprint = buildWclSummaryRequestFingerprint({
         region: identity.region,
         realmSlug: identity.realmSlug,

@@ -5,11 +5,23 @@ import {
   listPersistedRegionsForAuthority,
   repairSeasonAuthority,
   syncRealmCatalog,
+  getScoringSeasonSelection,
+  updateScoringSeasonSelection,
+  evaluateSeasonCatalogReadiness,
+  ScoringSeasonSelectionConflictError,
+  ScoringSeasonNotPinnableError,
 } from "@mplus/worker";
-import type { AdminRealmSyncResponse, RegionCode } from "@mplus/contracts";
+import type {
+  AdminRealmSyncResponse,
+  RegionCode,
+  ScoringSeasonOptionDTO,
+  ScoringSeasonSelectionStatusDTO,
+  UpdateScoringSeasonSelectionBody,
+} from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { toAdminRealmSyncResponse } from "./admin-realm-sync-response.js";
+import { writeAuditEvent } from "../iam/audit.js";
 
 const REGION_SET = new Set<string>(RETAIL_REGION_CODES);
 
@@ -101,6 +113,163 @@ export class AdminMiscService {
     }
 
     return { ok: true, results };
+  }
+
+  /**
+   * Platform scoring season selection status for Admin Misc.
+   * Does not call Blizzard/WCL — uses persisted Season rows + RuntimeSetting.
+   */
+  async getScoringSeasonSelectionStatus(input: {
+    regionCode?: string | null;
+  } = {}): Promise<ScoringSeasonSelectionStatusDTO> {
+    const prisma = this.container.worker.prisma;
+    const regionCode = (input.regionCode ?? "EU").trim().toUpperCase();
+    const region = await prisma.region.findFirst({
+      where: { code: { equals: regionCode, mode: "insensitive" } },
+    });
+    if (!region) {
+      throw HttpError.badRequest("REGION_NOT_FOUND", `Region ${regionCode} not found`);
+    }
+
+    const selectionRow = await getScoringSeasonSelection(prisma);
+    const seasons = await prisma.season.findMany({
+      where: { regionId: region.id },
+      orderBy: [{ isCurrent: "desc" }, { blizzardSeasonId: "desc" }, { updatedAt: "desc" }],
+    });
+
+    const options: ScoringSeasonOptionDTO[] = [];
+    for (const season of seasons) {
+      if (season.slug === "auto-current" || season.slug.startsWith("placeholder")) {
+        continue;
+      }
+      const readiness = await evaluateSeasonCatalogReadiness(prisma, season);
+      options.push({
+        id: season.id,
+        slug: season.slug,
+        name: season.name,
+        blizzardSeasonId: season.blizzardSeasonId,
+        regionCode: region.code.toUpperCase(),
+        isBlizzardCurrent: season.isCurrent,
+        catalogReady: readiness.ready,
+        wclZoneId: readiness.wclZoneId,
+        startsAt: season.startsAt?.toISOString() ?? null,
+        endsAt: season.endsAt?.toISOString() ?? null,
+        pinnable: readiness.ready && season.blizzardSeasonId != null,
+      });
+    }
+
+    const detected = options.find((s) => s.isBlizzardCurrent) ?? null;
+    let effectiveBlizzardId: number | null = null;
+    if (selectionRow.selection.mode === "PINNED") {
+      effectiveBlizzardId = selectionRow.selection.blizzardSeasonId;
+    } else {
+      effectiveBlizzardId = detected?.blizzardSeasonId ?? null;
+    }
+    const effective =
+      effectiveBlizzardId != null
+        ? (options.find((s) => s.blizzardSeasonId === effectiveBlizzardId) ?? null)
+        : null;
+
+    return {
+      selection: selectionRow.selection,
+      version: selectionRow.version === 0 ? 1 : selectionRow.version,
+      updatedAt: selectionRow.updatedAt?.toISOString() ?? null,
+      updatedByUserId: selectionRow.updatedByUserId,
+      regionCode: region.code.toUpperCase(),
+      detectedCurrentSeason: detected
+        ? {
+            id: detected.id,
+            slug: detected.slug,
+            name: detected.name,
+            blizzardSeasonId: detected.blizzardSeasonId,
+          }
+        : null,
+      effectiveScoringSeason: effective
+        ? {
+            id: effective.id,
+            slug: effective.slug,
+            name: effective.name,
+            blizzardSeasonId: effective.blizzardSeasonId,
+            wclZoneId: effective.wclZoneId,
+            catalogReady: effective.catalogReady,
+          }
+        : null,
+      pinnedDiffersFromDetected:
+        selectionRow.selection.mode === "PINNED" &&
+        detected?.blizzardSeasonId != null &&
+        selectionRow.selection.blizzardSeasonId !== detected.blizzardSeasonId,
+      seasons: options,
+    };
+  }
+
+  async setScoringSeasonSelection(input: {
+    body: UpdateScoringSeasonSelectionBody;
+    actor: {
+      userId: string | null;
+      actorType: string;
+      ip?: string | null;
+      userAgent?: string | null;
+    };
+    regionCode?: string | null;
+  }): Promise<ScoringSeasonSelectionStatusDTO> {
+    const prisma = this.container.worker.prisma;
+    const regionCode = (input.regionCode ?? "EU").trim().toUpperCase();
+
+    if (input.body.mode === "PINNED") {
+      const region = await prisma.region.findFirst({
+        where: { code: { equals: regionCode, mode: "insensitive" } },
+      });
+      if (!region) {
+        throw HttpError.badRequest("REGION_NOT_FOUND", `Region ${regionCode} not found`);
+      }
+      const season = await prisma.season.findFirst({
+        where: { regionId: region.id, blizzardSeasonId: input.body.blizzardSeasonId },
+      });
+      if (!season) {
+        throw HttpError.badRequest(
+          "SCORING_SEASON_NOT_FOUND",
+          `No Season row for Blizzard season ${input.body.blizzardSeasonId} in ${regionCode}`,
+        );
+      }
+      const readiness = await evaluateSeasonCatalogReadiness(prisma, season);
+      if (!readiness.ready) {
+        throw HttpError.badRequest(
+          "SCORING_SEASON_NOT_PINNABLE",
+          `Season ${input.body.blizzardSeasonId} is not pinnable: ${readiness.reasons.join(",")}`,
+        );
+      }
+    }
+
+    try {
+      await updateScoringSeasonSelection(prisma, input.body, input.actor.userId);
+    } catch (error) {
+      if (error instanceof ScoringSeasonSelectionConflictError) {
+        throw HttpError.conflict("SCORING_SEASON_SELECTION_VERSION_CONFLICT", error.message);
+      }
+      if (error instanceof ScoringSeasonNotPinnableError) {
+        throw HttpError.badRequest("SCORING_SEASON_NOT_PINNABLE", error.message);
+      }
+      throw error;
+    }
+
+    await writeAuditEvent(prisma, {
+      userId: input.actor.userId ?? undefined,
+      actorType: input.actor.actorType as "user" | "admin_key" | "system" | "anonymous",
+      action: "admin.misc.scoring_season_selection.update",
+      resourceType: "runtime_setting",
+      resourceId: "scoring_season_selection",
+      ip: input.actor.ip,
+      userAgent: input.actor.userAgent,
+      sessionSecret: this.container.env.SESSION_SECRET,
+      metadata: {
+        mode: input.body.mode,
+        blizzardSeasonId: input.body.mode === "PINNED" ? input.body.blizzardSeasonId : null,
+        expectedVersion: input.body.expectedVersion,
+        regionCode,
+      },
+    });
+
+    return this.getScoringSeasonSelectionStatus({ regionCode });
   }
 
   private normalizeRegions(raw: string[] | null | undefined): RegionCode[] | undefined {

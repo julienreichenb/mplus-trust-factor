@@ -10,8 +10,8 @@ import { MINIMAL_SEED_CATALOG } from "@mplus/mechanics";
 import { SCHEMA_VERSION as BLIZZARD_ADAPTER_VERSION } from "@mplus/provider-blizzard";
 import { RAIDERIO_SCHEMA_VERSION } from "@mplus/provider-raiderio";
 import {
+  FIXTURE_MPLUS_ZONE_ID,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
-  resolveMplusZoneConfig,
 } from "@mplus/provider-warcraftlogs";
 
 export type ProviderModeForRefreshContract = "fixture" | "live" | string;
@@ -20,6 +20,10 @@ export interface BuildRefreshContractInput {
   scoringModelKey: string;
   scoringModelVersion: number;
   activeSeasonId: string;
+  /**
+   * Effective scoring season WCL zone. Required for live.
+   * Fixture mode may omit and use FIXTURE_MPLUS_ZONE_ID when allowFixtureZoneDefault.
+   */
   zoneId?: number | null;
   partition?: number | null;
   observationSchemaVersion?: string;
@@ -54,7 +58,10 @@ export interface ResolveActiveRefreshContractInput {
   /** Canonical gate — never infer fixture defaults from APP_ENV/NODE_ENV alone. */
   providerMode: ProviderModeForRefreshContract;
   env?: NodeJS.ProcessEnv;
-  /** Prefer explicit values to avoid divergent process.env interpretation. */
+  /**
+   * Effective scoring season WCL zone from persisted catalog.
+   * Required for live provider mode — never resolved from process.env.
+   */
   zoneId?: number | null;
   partition?: number | null;
   observationSchemaVersion?: string;
@@ -72,24 +79,38 @@ export interface ResolvedActiveRefreshContract {
   allowFixtureZoneDefault: boolean;
 }
 
+function resolveContractZoneId(input: {
+  zoneId?: number | null;
+  allowFixtureZoneDefault: boolean;
+}): number {
+  if (input.zoneId != null) {
+    if (!Number.isInteger(input.zoneId) || input.zoneId <= 0) {
+      throw new Error(`Invalid refresh-contract zoneId: ${input.zoneId}`);
+    }
+    return input.zoneId;
+  }
+  if (input.allowFixtureZoneDefault) {
+    return FIXTURE_MPLUS_ZONE_ID;
+  }
+  throw new Error(
+    "Refresh contract zoneId is required (effective scoring season catalog). " +
+      "Env WCL_MPLUS_ZONE_* is not authoritative.",
+  );
+}
+
 /**
  * Canonical active refresh-contract resolution for API, worker, discovery, and recalculation.
  * Callers must not re-implement PROVIDER_MODE / APP_ENV fixture branching.
+ * zoneId must come from effective scoring season — never from env.
  */
 export function resolveActiveRefreshContract(
   input: ResolveActiveRefreshContractInput,
 ): ResolvedActiveRefreshContract {
   const allowFixtureZoneDefault = allowFixtureZoneDefaultsForProviderMode(input.providerMode);
-  const env = input.env ?? process.env;
-
-  const zoneId =
-    input.zoneId !== undefined
-      ? input.zoneId
-      : resolveMplusZoneConfig({
-          env,
-          allowFixtureDefault: allowFixtureZoneDefault,
-        }).zoneId;
-
+  const zoneId = resolveContractZoneId({
+    zoneId: input.zoneId,
+    allowFixtureZoneDefault,
+  });
   const partition = input.partition === undefined ? null : input.partition;
 
   const contract = buildRefreshContract({
@@ -105,7 +126,6 @@ export function resolveActiveRefreshContract(
     runSelectionVersion: input.runSelectionVersion,
     abilityCatalogVersion: input.abilityCatalogVersion,
     mechanicCatalogVersion: input.mechanicCatalogVersion,
-    env,
     allowFixtureZoneDefault,
   });
 
@@ -119,13 +139,10 @@ export function resolveActiveRefreshContract(
 /** Assemble the active refresh contract from package version pins + runtime season/zone. */
 export function buildRefreshContract(input: BuildRefreshContractInput): RefreshContractVersions {
   const allowFixtureDefault = input.allowFixtureZoneDefault ?? false;
-  const zoneId =
-    input.zoneId !== undefined
-      ? input.zoneId
-      : resolveMplusZoneConfig({
-          env: input.env ?? process.env,
-          allowFixtureDefault,
-        }).zoneId;
+  const zoneId = resolveContractZoneId({
+    zoneId: input.zoneId,
+    allowFixtureZoneDefault: allowFixtureDefault,
+  });
 
   return normalizeRefreshContract({
     scoringModelKey: input.scoringModelKey,

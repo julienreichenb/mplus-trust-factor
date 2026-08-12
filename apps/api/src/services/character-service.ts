@@ -34,7 +34,8 @@ import {
   supersedeDuplicateRefreshJob,
   resolveActiveRefreshContract,
   SeasonAuthorityUnavailableError,
-  requireVerifiedSeasonAuthority,
+  resolveEffectiveScoringSeason,
+  tryGetActiveMplusCatalogDiscoverer,
   loadCharacterRefreshEligibilitySignals,
   persistRefreshEligibilityEvidence,
   fetchBlizzardPublicBootstrap,
@@ -326,15 +327,20 @@ export class CharacterService {
       throw new SeasonAuthorityUnavailableError("UNKNOWN", "Character region is missing");
     }
 
-    const authority = await requireVerifiedSeasonAuthority(
-      this.seasonAuthorityDeps(),
-      region.code,
-      region.id,
-      {
-        allowProviderSync: opts.allowProviderSync ?? false,
-        correlationId: opts.correlationId,
-      },
+    const discoverActiveMplusCatalog = tryGetActiveMplusCatalogDiscoverer(
+      this.container.worker.providers.warcraftlogs,
     );
+
+    const effective = await resolveEffectiveScoringSeason({
+      prisma: this.container.worker.prisma,
+      blizzard: this.container.worker.providers.blizzard,
+      logger: this.container.logger,
+      regionCode: region.code,
+      regionId: region.id,
+      allowProviderSync: opts.allowProviderSync ?? false,
+      correlationId: opts.correlationId,
+      discoverActiveMplusCatalog,
+    });
 
     const activeModel =
       (await this.repositories.score.getActiveModel()) ?? {
@@ -344,15 +350,26 @@ export class CharacterService {
     const resolved = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
-      activeSeasonId: authority.slug,
+      activeSeasonId: effective.activeSeasonId,
       providerMode: this.container.env.PROVIDER_MODE,
-      env: process.env,
+      zoneId: effective.wclZoneId,
     });
     return {
       contract: resolved.contract,
       hash: resolved.hash,
       activeModel: { key: activeModel.key, version: activeModel.version },
-      authority,
+      effective,
+      /** Compatibility: effective season identity for enqueue TOCTOU / job payload. */
+      authority: {
+        regionCode: effective.detected.regionCode,
+        regionId: effective.detected.regionId,
+        seasonRowId: effective.applicationSeasonId,
+        blizzardSeasonId: effective.blizzardSeasonId,
+        slug: effective.seasonSlug,
+        authoritySource: effective.detected.authoritySource,
+        authorityVerifiedAt: effective.detected.authorityVerifiedAt,
+        resolution: effective.detected.resolution,
+      },
     };
   }
 
@@ -382,35 +399,43 @@ export class CharacterService {
       return resolved;
     };
 
-    let { hash, contract, authority } = await buildOnce();
+    let { hash, contract, authority, effective } = await buildOnce();
 
-    // TOCTOU: if authority moved between resolve and enqueue prep, rebuild once.
+    // TOCTOU: if effective scoring season moved between resolve and enqueue prep, rebuild once.
     const region = await this.container.worker.prisma.region.findUniqueOrThrow({
       where: { id: character.regionId },
       select: { id: true, code: true },
     });
-    const recheck = await requireVerifiedSeasonAuthority(
-      this.seasonAuthorityDeps(),
-      region.code,
-      region.id,
-      {
-        allowProviderSync: opts.allowProviderSync ?? false,
-        correlationId: opts.correlationId,
-      },
+    const discoverActiveMplusCatalog = tryGetActiveMplusCatalogDiscoverer(
+      this.container.worker.providers.warcraftlogs,
     );
-    if (recheck.blizzardSeasonId !== authority.blizzardSeasonId || recheck.slug !== authority.slug) {
+    const recheck = await resolveEffectiveScoringSeason({
+      prisma: this.container.worker.prisma,
+      blizzard: this.container.worker.providers.blizzard,
+      logger: this.container.logger,
+      regionCode: region.code,
+      regionId: region.id,
+      allowProviderSync: opts.allowProviderSync ?? false,
+      correlationId: opts.correlationId,
+      discoverActiveMplusCatalog,
+    });
+    if (
+      recheck.blizzardSeasonId !== effective.blizzardSeasonId ||
+      recheck.seasonSlug !== effective.seasonSlug ||
+      recheck.wclZoneId !== effective.wclZoneId
+    ) {
       this.container.logger.info(
         {
           event: "refresh_enqueue_deferred",
           characterId: character.id,
           triggerSource: opts.triggerSource,
-          reason: "season_authority_changed_before_enqueue",
-          previousAuthoritativeSeasonId: authority.blizzardSeasonId,
+          reason: "effective_scoring_season_changed_before_enqueue",
+          previousAuthoritativeSeasonId: effective.blizzardSeasonId,
           authoritativeSeasonId: recheck.blizzardSeasonId,
         },
-        "season authority changed before enqueue — rebuilding contract once",
+        "effective scoring season changed before enqueue — rebuilding contract once",
       );
-      ({ hash, contract, authority } = await buildOnce());
+      ({ hash, contract, authority, effective } = await buildOnce());
     }
 
     // Do not reuse an active job under a different contract / season identity.

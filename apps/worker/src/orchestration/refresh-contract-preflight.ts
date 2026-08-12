@@ -8,16 +8,22 @@
  * it catches contract changes that occur after this preflight succeeds.
  */
 import type { Logger } from "@mplus/observability";
-import type { BlizzardProvider, RefreshCharacterJob, RefreshContractVersions } from "@mplus/contracts";
+import type {
+  BlizzardProvider,
+  RefreshCharacterJob,
+  RefreshContractVersions,
+  WarcraftLogsProvider,
+} from "@mplus/contracts";
 import type { PrismaClient } from "@mplus/database";
 import type { AppEnv } from "@mplus/config";
 import { ensureRegion } from "../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import {
-  requireVerifiedSeasonAuthority,
-  type SeasonAuthorityDeps,
-  type VerifiedSeasonAuthority,
-} from "./season-authority.js";
+  resolveEffectiveScoringSeason,
+  tryGetActiveMplusCatalogDiscoverer,
+  type EffectiveScoringSeason,
+  type DiscoverActiveMplusCatalogFn,
+} from "./active-mplus-season/effective-scoring-season.js";
 
 export const REFRESH_CONTRACT_PREFLIGHT_MISMATCH = "REFRESH_CONTRACT_PREFLIGHT_MISMATCH" as const;
 export const REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH =
@@ -80,7 +86,8 @@ export class RefreshContractPreflightError extends Error {
 export interface RefreshContractPreflightResult {
   contract: RefreshContractVersions;
   hash: string;
-  authority: VerifiedSeasonAuthority;
+  /** Effective scoring season (AUTO or PINNED) — not necessarily Blizzard current. */
+  effective: EffectiveScoringSeason;
   activeModel: { key: string; version: number };
   /** Fixture-only: job lacked a hash and was allowed to proceed. */
   missingHashAllowed: boolean;
@@ -93,17 +100,26 @@ export interface RefreshContractPreflightDeps {
   logger: Logger;
   env: Pick<AppEnv, "PROVIDER_MODE" | "ACTIVE_SCORE_MODEL_KEY" | "ACTIVE_SCORE_MODEL_VERSION">;
   getActiveModel: (key?: string) => Promise<{ key: string; version: number } | null>;
-  /** Override for tests — defaults to requireVerifiedSeasonAuthority. */
-  requireAuthority?: typeof requireVerifiedSeasonAuthority;
+  /** Optional WCL provider — used for AUTO catalog bootstrap. */
+  warcraftlogs?: WarcraftLogsProvider | null;
+  discoverActiveMplusCatalog?: DiscoverActiveMplusCatalogFn;
+  /** Test override — defaults to resolveEffectiveScoringSeason. */
+  resolveEffective?: typeof resolveEffectiveScoringSeason;
   /** Prefer explicit env so API/worker/tests share one resolution path. */
   processEnv?: NodeJS.ProcessEnv;
-  zoneId?: number | null;
   partition?: number | null;
   now?: () => Date;
 }
 
+function resolveDiscoverer(
+  deps: RefreshContractPreflightDeps,
+): DiscoverActiveMplusCatalogFn | undefined {
+  if (deps.discoverActiveMplusCatalog) return deps.discoverActiveMplusCatalog;
+  return tryGetActiveMplusCatalogDiscoverer(deps.warcraftlogs);
+}
+
 /**
- * Resolve authoritative season + active model + canonical refresh contract,
+ * Resolve effective scoring season + active model + canonical refresh contract,
  * then compare against the job's requested hash before any provider work.
  */
 export async function runRefreshContractPreflight(
@@ -115,18 +131,18 @@ export async function runRefreshContractPreflight(
   const startedMs = startedAt.getTime();
 
   const region = await ensureRegion(deps.prisma, jobPayload.region);
-  const authorityDeps: SeasonAuthorityDeps = {
+
+  const resolveEffective = deps.resolveEffective ?? resolveEffectiveScoringSeason;
+  const effective = await resolveEffective({
     prisma: deps.prisma,
     blizzard: deps.blizzard,
     logger: deps.logger,
-    now: deps.now,
-  };
-
-  // Worker execution may sync when cache is cold; character/profile providers stay untouched.
-  const requireAuthority = deps.requireAuthority ?? requireVerifiedSeasonAuthority;
-  const authority = await requireAuthority(authorityDeps, region.code, region.id, {
+    regionCode: region.code,
+    regionId: region.id,
     allowProviderSync: true,
     correlationId: opts.correlationId ?? jobPayload.correlationId ?? null,
+    now: deps.now,
+    discoverActiveMplusCatalog: resolveDiscoverer(deps),
   });
 
   const activeModel =
@@ -138,10 +154,9 @@ export async function runRefreshContractPreflight(
   const { contract, hash: computedHash } = resolveActiveRefreshContract({
     scoringModelKey: activeModel.key,
     scoringModelVersion: activeModel.version,
-    activeSeasonId: authority.slug,
+    activeSeasonId: effective.activeSeasonId,
     providerMode: deps.env.PROVIDER_MODE,
-    env: deps.processEnv ?? process.env,
-    zoneId: deps.zoneId,
+    zoneId: effective.wclZoneId,
     partition: deps.partition,
   });
 
@@ -155,15 +170,16 @@ export async function runRefreshContractPreflight(
     triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
     requestedHash,
     computedHash,
-    authoritativeSeasonSlug: authority.slug,
-    authoritativeSeasonId: authority.blizzardSeasonId,
+    authoritativeSeasonSlug: effective.activeSeasonId,
+    authoritativeSeasonId: effective.blizzardSeasonId,
+    detectedBlizzardSeasonId: effective.detected.blizzardSeasonId,
+    scoringSeasonMode: effective.selectionMode,
+    wclZoneId: effective.wclZoneId,
     providerCalls: 0,
     elapsedMs,
   };
 
   if (!requestedHash) {
-    // Fixture / legacy test jobs: allow missing hash with minimum compatibility.
-    // Live production jobs must fail closed — never run an expensive refresh without identity.
     if (deps.env.PROVIDER_MODE === "fixture") {
       deps.logger.warn(
         {
@@ -176,7 +192,7 @@ export async function runRefreshContractPreflight(
       return {
         contract,
         hash: computedHash,
-        authority,
+        effective,
         activeModel: { key: activeModel.key, version: activeModel.version },
         missingHashAllowed: true,
         elapsedMs,
@@ -192,7 +208,7 @@ export async function runRefreshContractPreflight(
       message: "Refresh contract hash required before provider execution",
       requestedHash: null,
       computedHash,
-      authoritativeSeasonSlug: authority.slug,
+      authoritativeSeasonSlug: effective.activeSeasonId,
     });
   }
 
@@ -206,7 +222,7 @@ export async function runRefreshContractPreflight(
       message: "Refresh contract preflight mismatch",
       requestedHash,
       computedHash,
-      authoritativeSeasonSlug: authority.slug,
+      authoritativeSeasonSlug: effective.activeSeasonId,
     });
   }
 
@@ -222,7 +238,7 @@ export async function runRefreshContractPreflight(
   return {
     contract,
     hash: computedHash,
-    authority,
+    effective,
     activeModel: { key: activeModel.key, version: activeModel.version },
     missingHashAllowed: false,
     elapsedMs,

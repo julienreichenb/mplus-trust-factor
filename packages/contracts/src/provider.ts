@@ -28,6 +28,12 @@ export interface ProviderFetchContext {
   /** Character under refresh — used for WCL actor resolution in report fight details. */
   targetCharacter?: CharacterIdentityInput;
   /**
+   * Authoritative WCL Mythic+ zone for THIS request, derived from the
+   * effective scoring season's persisted catalog. Required for live zoneRankings.
+   * Never sourced from process.env.
+   */
+  wclZoneId?: number;
+  /**
    * Active-season dungeon pool (canonical slugs). Authoritative pool for
    * encounterRankings scoring discovery (with {@link wclActiveDungeonEncounters}).
    */

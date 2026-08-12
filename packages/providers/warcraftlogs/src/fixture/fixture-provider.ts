@@ -142,10 +142,11 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     }>
   > {
     const discovery = this.discoverCharacter(identity, ctx);
-    const zoneId = resolveMplusZoneConfig({
-      env: process.env,
-      allowFixtureDefault: true,
-    }).zoneId;
+    const zoneId =
+      ctx.wclZoneId ??
+      resolveMplusZoneConfig({
+        allowFixtureDefault: true,
+      }).zoneId;
     const fingerprint = buildWclSummaryRequestFingerprint({
       region: identity.region,
       realmSlug: identity.realmSlug,

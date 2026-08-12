@@ -36,9 +36,18 @@ export interface SynchronizeActiveMplusSeasonInput {
    * catalog registry by blizzardSeasonId (fails if ambiguous/missing).
    */
   wclZoneId?: number | null;
+  /**
+   * Explicit catalog entry (dynamic WCL discovery). When provided, registry
+   * lookup is skipped. Production AUTO bootstrap uses this path.
+   */
+  catalog?: MplusZoneCatalogEntry | null;
   registry?: MplusZoneCatalogRegistry;
   now?: Date;
-  /** When false, persist candidate catalog without flipping isCurrent. */
+  /**
+   * When true (default), flip Season.isCurrent for Blizzard-authority sync.
+   * Effective scoring PINNED/AUTO catalog bootstrap should pass false so a
+   * catalog write never rewrites Blizzard's detected current marker.
+   */
   activate?: boolean;
 }
 
@@ -60,7 +69,31 @@ function resolveCatalogEntry(
   registry: MplusZoneCatalogRegistry,
   blizzardSeasonId: number,
   wclZoneId: number | null | undefined,
+  explicit: MplusZoneCatalogEntry | null | undefined,
 ): MplusZoneCatalogEntry {
+  if (explicit) {
+    if (explicit.dungeonSlugs.length === 0) {
+      throw new ActiveMplusSeasonCatalogIncompleteError(
+        "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: empty dungeon pool",
+      );
+    }
+    if (
+      explicit.blizzardSeasonId != null &&
+      explicit.blizzardSeasonId !== blizzardSeasonId
+    ) {
+      throw new ActiveMplusSeasonCatalogIncompleteError(
+        `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: catalog blizzard ${explicit.blizzardSeasonId} != expected ${blizzardSeasonId}`,
+      );
+    }
+    return {
+      ...explicit,
+      blizzardSeasonId,
+      dungeonSlugs: explicit.dungeonSlugs.map((s) =>
+        typeof s === "string" ? s : String(s),
+      ),
+    };
+  }
+
   if (wclZoneId != null) {
     const byZone = lookupZoneCatalogByWclZoneId(registry, wclZoneId);
     if (!byZone) {
@@ -103,6 +136,7 @@ export async function synchronizeActiveMplusSeasonCatalog(
     registry,
     input.blizzardSeasonId,
     input.wclZoneId,
+    input.catalog,
   );
 
   if (catalog.dungeonSlugs.length === 0) {

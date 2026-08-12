@@ -94,7 +94,7 @@ async function findPinnedSeason(
   return null;
 }
 
-function buildAuthorityFromSeason(input: {
+export function buildAuthorityFromSeason(input: {
   season: Season;
   dungeons: ActiveMplusDungeonIdentity[];
   regionCode: string;
