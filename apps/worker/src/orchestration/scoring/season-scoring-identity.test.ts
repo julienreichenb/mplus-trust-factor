@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectActiveDungeonSeasonSpecs,
   collectObservedWclSeasonSpecs,
+  collectSpecRankSeasonSpecs,
   resolveSeasonScoringIdentity,
   seasonIdentityAllowsDamageWarmHit,
   wclSeasonEvidenceFromPersistedAggregate,
@@ -19,9 +21,26 @@ const ASHPA_DUNGEONS = [
   "grim-batol",
 ] as const;
 
+const MYZOUTH_DUNGEONS = [
+  "algethar-academy",
+  "magisters-terrace",
+  "maisara-caverns",
+  "nexus-point-xenas",
+  "pit-of-saron",
+  "seat-of-the-triumvirate",
+  "skyreach",
+  "windrunner-spire",
+] as const;
+
 const elementalProfile: SeasonScoringProfileIdentity = {
   classSlug: "shaman",
   specSlug: "elemental",
+  role: "DPS",
+};
+
+const unholyProfile: SeasonScoringProfileIdentity = {
+  classSlug: "death-knight",
+  specSlug: "unholy",
   role: "DPS",
 };
 
@@ -37,8 +56,8 @@ function restorationEvidence(
   };
 }
 
-describe("resolveSeasonScoringIdentity", () => {
-  it("A. Aspha: profile Elemental/DPS, WCL Restoration only → scoring Restoration/HEALER", () => {
+describe("resolveSeasonScoringIdentity evidence precedence", () => {
+  it("A. Aspha: active Restoration only → Restoration/HEALER (ignore nothing conflicting)", () => {
     const profile = { ...elementalProfile };
     const identity = resolveSeasonScoringIdentity({
       profileIdentity: profile,
@@ -49,7 +68,7 @@ describe("resolveSeasonScoringIdentity", () => {
       classSlug: "shaman",
       specSlug: "restoration",
       role: "HEALER",
-      source: "WCL_SEASON",
+      source: "WCL_ACTIVE_DUNGEONS",
       observedWclSpecs: ["restoration"],
       limitations: [],
     });
@@ -57,29 +76,87 @@ describe("resolveSeasonScoringIdentity", () => {
     expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(false);
   });
 
-  it("B. profile Elemental, WCL Elemental only → scoring Elemental/DPS", () => {
+  it("B. Myzouth: active Unholy only; global Unholy/Frost/Blood → Unholy/DPS", () => {
     const identity = resolveSeasonScoringIdentity({
-      profileIdentity: elementalProfile,
+      profileIdentity: unholyProfile,
       wclPerformanceEvidence: {
-        specRanks: [{ spec: "Elemental" }],
-        dungeonAggregates: ASHPA_DUNGEONS.map((dungeonSlug) => ({
+        specRanks: [{ spec: "Unholy" }, { spec: "Frost" }, { spec: "Blood" }],
+        dungeonAggregates: MYZOUTH_DUNGEONS.map((dungeonSlug) => ({
           dungeonSlug,
-          specialization: "Elemental",
+          specialization: "Unholy",
         })),
       },
-      activeDungeonSlugs: ASHPA_DUNGEONS,
+      activeDungeonSlugs: MYZOUTH_DUNGEONS,
     });
     expect(identity).toMatchObject({
-      classSlug: "shaman",
-      specSlug: "elemental",
+      classSlug: "death-knight",
+      specSlug: "unholy",
       role: "DPS",
-      source: "WCL_SEASON",
-      observedWclSpecs: ["elemental"],
+      source: "WCL_ACTIVE_DUNGEONS",
+      observedWclSpecs: ["unholy"],
+      limitations: [],
     });
     expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(true);
   });
 
-  it("C. no usable WCL spec evidence → profile identity fallback", () => {
+  it("C. active rows Restoration + Elemental → cross-role ambiguous / fail closed", () => {
+    const identity = resolveSeasonScoringIdentity({
+      profileIdentity: elementalProfile,
+      wclPerformanceEvidence: {
+        // Global ranks must not break or worsen the active-row decision.
+        specRanks: [{ spec: "Restoration" }],
+        dungeonAggregates: [
+          { dungeonSlug: "ara-kara", specialization: "Restoration" },
+          { dungeonSlug: "grim-batol", specialization: "Elemental" },
+        ],
+      },
+      activeDungeonSlugs: ASHPA_DUNGEONS,
+    });
+    expect(identity.source).toBe("WCL_SEASON_ROLE_AMBIGUOUS");
+    expect(identity.specSlug).toBeNull();
+    expect(identity.role).toBe("UNKNOWN");
+    expect(identity.observedWclSpecs).toEqual(["elemental", "restoration"]);
+    expect(identity.limitations).toContain("season_scoring_identity_role_ambiguous");
+    expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(false);
+  });
+
+  it("D. no usable active dungeon spec; global Unholy only → fallback Unholy/DPS", () => {
+    const identity = resolveSeasonScoringIdentity({
+      profileIdentity: unholyProfile,
+      wclPerformanceEvidence: {
+        specRanks: [{ spec: "Unholy" }],
+        dungeonAggregates: [
+          { dungeonSlug: "ara-kara", specialization: null },
+          { dungeonSlug: "grim-batol", specialization: "" },
+        ],
+      },
+      activeDungeonSlugs: ASHPA_DUNGEONS,
+    });
+    expect(identity).toMatchObject({
+      classSlug: "death-knight",
+      specSlug: "unholy",
+      role: "DPS",
+      source: "WCL_SPEC_RANKS",
+      observedWclSpecs: ["unholy"],
+    });
+  });
+
+  it("E. no active spec evidence; global Unholy/Frost/Blood → ambiguity fail closed", () => {
+    const identity = resolveSeasonScoringIdentity({
+      profileIdentity: unholyProfile,
+      wclPerformanceEvidence: {
+        specRanks: [{ spec: "Unholy" }, { spec: "Frost" }, { spec: "Blood" }],
+        dungeonAggregates: [{ dungeonSlug: "ara-kara", specialization: null }],
+      },
+      activeDungeonSlugs: ASHPA_DUNGEONS,
+    });
+    expect(identity.source).toBe("WCL_SEASON_ROLE_AMBIGUOUS");
+    expect(identity.specSlug).toBeNull();
+    expect(identity.role).toBe("UNKNOWN");
+    expect(identity.observedWclSpecs).toEqual(["blood", "frost", "unholy"]);
+  });
+
+  it("F. no usable WCL evidence → existing profile fallback", () => {
     const identity = resolveSeasonScoringIdentity({
       profileIdentity: elementalProfile,
       wclPerformanceEvidence: {
@@ -101,31 +178,51 @@ describe("resolveSeasonScoringIdentity", () => {
     expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(true);
   });
 
-  it("D. conflicting Restoration + Elemental → no arbitrary pick, role-ambiguous fail closed", () => {
+  it("G. rows outside active dungeon pool must not influence identity", () => {
     const identity = resolveSeasonScoringIdentity({
       profileIdentity: elementalProfile,
       wclPerformanceEvidence: {
-        specRanks: [{ spec: "Restoration" }, { spec: "Elemental" }],
+        specRanks: [{ spec: "Elemental" }],
         dungeonAggregates: [
           { dungeonSlug: "ara-kara", specialization: "Restoration" },
-          { dungeonSlug: "grim-batol", specialization: "Elemental" },
+          { dungeonSlug: "halls-of-origination", specialization: "Elemental" },
         ],
       },
       activeDungeonSlugs: ASHPA_DUNGEONS,
     });
-    expect(identity.source).toBe("WCL_SEASON_ROLE_AMBIGUOUS");
-    expect(identity.specSlug).toBeNull();
-    expect(identity.role).toBe("UNKNOWN");
-    expect(identity.observedWclSpecs).toEqual(["elemental", "restoration"]);
-    expect(identity.limitations).toContain("season_scoring_identity_role_ambiguous");
-    expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(false);
+    expect(identity.specSlug).toBe("restoration");
+    expect(identity.role).toBe("HEALER");
+    expect(identity.source).toBe("WCL_ACTIVE_DUNGEONS");
+    expect(identity.observedWclSpecs).toEqual(["restoration"]);
   });
 
-  it("E. multiple specs same role → keep role, do not invent a spec", () => {
+  it("active Elemental only → Elemental/DPS", () => {
     const identity = resolveSeasonScoringIdentity({
       profileIdentity: elementalProfile,
       wclPerformanceEvidence: {
-        specRanks: [{ spec: "Elemental" }, { spec: "Enhancement" }],
+        specRanks: [{ spec: "Elemental" }],
+        dungeonAggregates: ASHPA_DUNGEONS.map((dungeonSlug) => ({
+          dungeonSlug,
+          specialization: "Elemental",
+        })),
+      },
+      activeDungeonSlugs: ASHPA_DUNGEONS,
+    });
+    expect(identity).toMatchObject({
+      classSlug: "shaman",
+      specSlug: "elemental",
+      role: "DPS",
+      source: "WCL_ACTIVE_DUNGEONS",
+      observedWclSpecs: ["elemental"],
+    });
+    expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(true);
+  });
+
+  it("active Elemental + Enhancement → same-role spec ambiguous", () => {
+    const identity = resolveSeasonScoringIdentity({
+      profileIdentity: elementalProfile,
+      wclPerformanceEvidence: {
+        specRanks: [{ spec: "Elemental" }],
         dungeonAggregates: [
           { dungeonSlug: "ara-kara", specialization: "Elemental" },
           { dungeonSlug: "grim-batol", specialization: "Enhancement" },
@@ -141,7 +238,7 @@ describe("resolveSeasonScoringIdentity", () => {
     expect(seasonIdentityAllowsDamageWarmHit(identity)).toBe(false);
   });
 
-  it("F. profile Restoration, WCL Restoration → unchanged healer identity", () => {
+  it("profile Restoration + active Restoration → unchanged healer identity", () => {
     const identity = resolveSeasonScoringIdentity({
       profileIdentity: {
         classSlug: "shaman",
@@ -155,11 +252,11 @@ describe("resolveSeasonScoringIdentity", () => {
       classSlug: "shaman",
       specSlug: "restoration",
       role: "HEALER",
-      source: "WCL_SEASON",
+      source: "WCL_ACTIVE_DUNGEONS",
     });
   });
 
-  it("F. current profile object is not rewritten when scoring identity differs", () => {
+  it("current profile object is not rewritten when scoring identity differs", () => {
     const profile = { ...elementalProfile };
     resolveSeasonScoringIdentity({
       profileIdentity: profile,
@@ -169,23 +266,6 @@ describe("resolveSeasonScoringIdentity", () => {
     expect(profile.classSlug).toBe("shaman");
     expect(profile.specSlug).toBe("elemental");
     expect(profile.role).toBe("DPS");
-  });
-
-  it("ignores dungeon rows outside the active pool", () => {
-    const identity = resolveSeasonScoringIdentity({
-      profileIdentity: elementalProfile,
-      wclPerformanceEvidence: {
-        specRanks: [{ spec: "Restoration" }],
-        dungeonAggregates: [
-          { dungeonSlug: "ara-kara", specialization: "Restoration" },
-          { dungeonSlug: "halls-of-origination", specialization: "Elemental" },
-        ],
-      },
-      activeDungeonSlugs: ASHPA_DUNGEONS,
-    });
-    expect(identity.specSlug).toBe("restoration");
-    expect(identity.role).toBe("HEALER");
-    expect(identity.observedWclSpecs).toEqual(["restoration"]);
   });
 
   it("normalizes Beast Mastery via hyphenation against the catalog", () => {
@@ -203,7 +283,7 @@ describe("resolveSeasonScoringIdentity", () => {
     });
     expect(identity.specSlug).toBe("beast-mastery");
     expect(identity.role).toBe("DPS");
-    expect(identity.source).toBe("WCL_SEASON");
+    expect(identity.source).toBe("WCL_ACTIVE_DUNGEONS");
   });
 
   it("does not trust a WCL spec that belongs to another class", () => {
@@ -232,13 +312,13 @@ describe("resolveSeasonScoringIdentity", () => {
   });
 });
 
-describe("collectObservedWclSeasonSpecs / persisted aggregate evidence", () => {
-  it("reads specRanks.spec and active dungeon specialization only", () => {
-    const specs = collectObservedWclSeasonSpecs({
+describe("collectObservedWclSeasonSpecs / staged collectors", () => {
+  it("active dungeon collector ignores global ranks and out-of-pool rows", () => {
+    const specs = collectActiveDungeonSeasonSpecs({
       classSlug: "shaman",
       activeDungeonSlugs: ["ara-kara"],
       wclPerformanceEvidence: {
-        specRanks: [{ spec: "Restoration" }, { spec: null }],
+        specRanks: [{ spec: "Elemental" }],
         dungeonAggregates: [
           { dungeonSlug: "ara-kara", specialization: "Restoration" },
           { dungeonSlug: "grim-batol", specialization: "Elemental" },
@@ -248,7 +328,33 @@ describe("collectObservedWclSeasonSpecs / persisted aggregate evidence", () => {
     expect(specs).toEqual(["restoration"]);
   });
 
-  it("maps persisted aggregate observedSpecs + dungeon specialization", () => {
+  it("diagnostic observed set prefers active dungeons over ranks", () => {
+    const specs = collectObservedWclSeasonSpecs({
+      classSlug: "death-knight",
+      activeDungeonSlugs: MYZOUTH_DUNGEONS,
+      wclPerformanceEvidence: {
+        specRanks: [{ spec: "Unholy" }, { spec: "Frost" }, { spec: "Blood" }],
+        dungeonAggregates: MYZOUTH_DUNGEONS.map((dungeonSlug) => ({
+          dungeonSlug,
+          specialization: "Unholy",
+        })),
+      },
+    });
+    expect(specs).toEqual(["unholy"]);
+  });
+
+  it("spec-rank collector is used only when active dungeon specs are empty", () => {
+    expect(
+      collectSpecRankSeasonSpecs({
+        classSlug: "death-knight",
+        wclPerformanceEvidence: {
+          specRanks: [{ spec: "Unholy" }, { spec: "Frost" }, { spec: "Blood" }],
+        },
+      }),
+    ).toEqual(["blood", "frost", "unholy"]);
+  });
+
+  it("maps persisted aggregate dungeon specialization without inventing ranks", () => {
     const evidence = wclSeasonEvidenceFromPersistedAggregate({
       damage: {
         metric: "points_and_damage",
@@ -271,7 +377,7 @@ describe("collectObservedWclSeasonSpecs / persisted aggregate evidence", () => {
         totalMythicPlusScore: 1,
         partition: null,
         zoneId: 47,
-        observedSpecs: ["Restoration"],
+        observedSpecs: ["Restoration", "Elemental"],
         specBinding: "EXACT_MATCH",
         wclBestPerformanceAverage: 80,
         wclMedianPerformanceAverage: 70,
@@ -283,7 +389,9 @@ describe("collectObservedWclSeasonSpecs / persisted aggregate evidence", () => {
       wclPerformanceEvidence: evidence,
       activeDungeonSlugs: ["ara-kara"],
     });
+    // Active dungeon Restoration wins; persisted observedSpecs Elemental is ignored.
     expect(identity.specSlug).toBe("restoration");
     expect(identity.role).toBe("HEALER");
+    expect(identity.source).toBe("WCL_ACTIVE_DUNGEONS");
   });
 });

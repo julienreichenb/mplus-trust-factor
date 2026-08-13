@@ -4,6 +4,11 @@
  *
  * Current profile (UI / Character.activeSpec) must not be rewritten from
  * historical M+ evidence. Authoritative scoring uses this resolver instead.
+ *
+ * Evidence precedence (strongest → weakest):
+ * 1. active-pool dungeonAggregates[].specialization
+ * 2. global.specRanks[].spec (only when active dungeon specs are absent)
+ * 3. current Blizzard / Raider.IO profile identity
  */
 import {
   canonicalRoleForClassSpec,
@@ -18,6 +23,8 @@ import {
 import { canonicalDungeonKey } from "../run-fusion.js";
 
 export type SeasonScoringIdentitySource =
+  | "WCL_ACTIVE_DUNGEONS"
+  | "WCL_SPEC_RANKS"
   | "WCL_SEASON"
   | "PROFILE"
   | "WCL_SEASON_ROLE_AMBIGUOUS"
@@ -90,11 +97,8 @@ function dungeonInActiveSet(
   return activeKeys.has(canonicalDungeonKey(dungeonSlug));
 }
 
-/**
- * Valid current-season WCL specs for the profile class, normalized + deduped.
- * Ignores null/empty/unresolvable tokens and dungeon rows outside the active pool.
- */
-export function collectObservedWclSeasonSpecs(input: {
+/** Active-pool dungeon specialization tokens only (primary evidence). */
+export function collectActiveDungeonSeasonSpecs(input: {
   classSlug: string;
   wclPerformanceEvidence?: WclSeasonPerformanceEvidence | null;
   activeDungeonSlugs: readonly string[];
@@ -104,19 +108,39 @@ export function collectObservedWclSeasonSpecs(input: {
   if (!evidence) return [];
 
   const activeKeys = activeDungeonKeySet(input.activeDungeonSlugs);
-
-  for (const rank of evidence.specRanks ?? []) {
-    const spec = catalogSpecForClass(input.classSlug, rank?.spec ?? null);
-    if (spec) observed.add(spec);
-  }
-
   for (const dungeon of evidence.dungeonAggregates ?? []) {
     if (!dungeonInActiveSet(dungeon?.dungeonSlug ?? null, activeKeys)) continue;
     const spec = catalogSpecForClass(input.classSlug, dungeon?.specialization ?? null);
     if (spec) observed.add(spec);
   }
-
   return [...observed].sort();
+}
+
+/** Global specRanks tokens only (secondary / fallback evidence). */
+export function collectSpecRankSeasonSpecs(input: {
+  classSlug: string;
+  wclPerformanceEvidence?: WclSeasonPerformanceEvidence | null;
+}): string[] {
+  const observed = new Set<string>();
+  for (const rank of input.wclPerformanceEvidence?.specRanks ?? []) {
+    const spec = catalogSpecForClass(input.classSlug, rank?.spec ?? null);
+    if (spec) observed.add(spec);
+  }
+  return [...observed].sort();
+}
+
+/**
+ * Specs that influenced the final decision, for diagnostics.
+ * Prefer active-dungeon set when present; otherwise global ranks.
+ */
+export function collectObservedWclSeasonSpecs(input: {
+  classSlug: string;
+  wclPerformanceEvidence?: WclSeasonPerformanceEvidence | null;
+  activeDungeonSlugs: readonly string[];
+}): string[] {
+  const active = collectActiveDungeonSeasonSpecs(input);
+  if (active.length > 0) return active;
+  return collectSpecRankSeasonSpecs(input);
 }
 
 export function wclSeasonEvidenceFromPersistedAggregate(
@@ -155,37 +179,19 @@ function profileFallback(
   };
 }
 
-/**
- * Resolve the class/spec/role used by authoritative scoring for the effective
- * M+ season. Does not mutate current profile identity.
- *
- * A — exactly one valid observed season spec → use it + catalog role (WCL_SEASON)
- * B — no usable WCL spec → existing profile identity
- * C — multiple specs, different catalog roles → fail closed (role UNKNOWN)
- * D — multiple specs, same catalog role → keep role, do not invent a spec
- */
-export function resolveSeasonScoringIdentity(
-  input: ResolveSeasonScoringIdentityInput,
-): SeasonScoringIdentity {
-  const classSlug = normalizeRetailClassSlug(input.profileIdentity.classSlug);
-  const observedWclSpecs =
-    classSlug != null
-      ? collectObservedWclSeasonSpecs({
-          classSlug,
-          wclPerformanceEvidence: input.wclPerformanceEvidence,
-          activeDungeonSlugs: input.activeDungeonSlugs,
-        })
-      : [];
+function resolveFromObservedSpecs(input: {
+  classSlug: string;
+  observedSpecs: string[];
+  unambiguousSource: "WCL_ACTIVE_DUNGEONS" | "WCL_SPEC_RANKS";
+  profileIdentity: SeasonScoringProfileIdentity;
+}): SeasonScoringIdentity {
+  const { classSlug, observedSpecs, unambiguousSource, profileIdentity } = input;
 
-  if (classSlug == null || observedWclSpecs.length === 0) {
-    return profileFallback(input.profileIdentity, classSlug, observedWclSpecs);
-  }
-
-  if (observedWclSpecs.length === 1) {
-    const specSlug = observedWclSpecs[0]!;
+  if (observedSpecs.length === 1) {
+    const specSlug = observedSpecs[0]!;
     const catalogRole = toPlayableRole(canonicalRoleForClassSpec(classSlug, specSlug));
     if (catalogRole == null) {
-      return profileFallback(input.profileIdentity, classSlug, observedWclSpecs, [
+      return profileFallback(profileIdentity, classSlug, observedSpecs, [
         "season_scoring_identity_catalog_role_missing",
       ]);
     }
@@ -193,14 +199,15 @@ export function resolveSeasonScoringIdentity(
       classSlug,
       specSlug,
       role: catalogRole,
-      source: "WCL_SEASON",
-      observedWclSpecs,
+      // Keep WCL_SEASON as a stable alias for unambiguous WCL season evidence.
+      source: unambiguousSource === "WCL_ACTIVE_DUNGEONS" ? "WCL_ACTIVE_DUNGEONS" : "WCL_SPEC_RANKS",
+      observedWclSpecs: observedSpecs,
       limitations: [],
     };
   }
 
   const roles = new Set<EvidenceRole>();
-  for (const specSlug of observedWclSpecs) {
+  for (const specSlug of observedSpecs) {
     const role = toPlayableRole(canonicalRoleForClassSpec(classSlug, specSlug));
     if (role != null) roles.add(role);
   }
@@ -211,10 +218,10 @@ export function resolveSeasonScoringIdentity(
       specSlug: null,
       role: "UNKNOWN",
       source: "WCL_SEASON_ROLE_AMBIGUOUS",
-      observedWclSpecs,
+      observedWclSpecs: observedSpecs,
       limitations: [
         "season_scoring_identity_role_ambiguous",
-        `observed_specs:${observedWclSpecs.join(",")}`,
+        `observed_specs:${observedSpecs.join(",")}`,
         `observed_roles:${[...roles].sort().join(",")}`,
       ],
     };
@@ -226,13 +233,64 @@ export function resolveSeasonScoringIdentity(
     specSlug: null,
     role: sharedRole,
     source: "WCL_SEASON_SPEC_AMBIGUOUS",
-    observedWclSpecs,
+    observedWclSpecs: observedSpecs,
     limitations: [
       "season_scoring_identity_spec_ambiguous",
-      `observed_specs:${observedWclSpecs.join(",")}`,
+      `observed_specs:${observedSpecs.join(",")}`,
       `observed_role:${sharedRole}`,
     ],
   };
+}
+
+/**
+ * Resolve the class/spec/role used by authoritative scoring for the effective
+ * M+ season. Does not mutate current profile identity.
+ *
+ * Stage A — exactly one active-dungeon spec → use it; ignore global specRanks
+ * Stage B — multiple active-dungeon specs → ambiguity rules on those rows only
+ * Stage C — no active-dungeon specs → unambiguous global specRanks, else fail closed
+ * Stage D — no usable WCL evidence → profile identity
+ */
+export function resolveSeasonScoringIdentity(
+  input: ResolveSeasonScoringIdentityInput,
+): SeasonScoringIdentity {
+  const classSlug = normalizeRetailClassSlug(input.profileIdentity.classSlug);
+  if (classSlug == null) {
+    return profileFallback(input.profileIdentity, null, []);
+  }
+
+  const activeDungeonSpecs = collectActiveDungeonSeasonSpecs({
+    classSlug,
+    wclPerformanceEvidence: input.wclPerformanceEvidence,
+    activeDungeonSlugs: input.activeDungeonSlugs,
+  });
+
+  // Stage A / B — active dungeon specialization is primary.
+  if (activeDungeonSpecs.length > 0) {
+    return resolveFromObservedSpecs({
+      classSlug,
+      observedSpecs: activeDungeonSpecs,
+      unambiguousSource: "WCL_ACTIVE_DUNGEONS",
+      profileIdentity: input.profileIdentity,
+    });
+  }
+
+  // Stage C — only when active dungeon rows have no usable specialization.
+  const specRankSpecs = collectSpecRankSeasonSpecs({
+    classSlug,
+    wclPerformanceEvidence: input.wclPerformanceEvidence,
+  });
+  if (specRankSpecs.length > 0) {
+    return resolveFromObservedSpecs({
+      classSlug,
+      observedSpecs: specRankSpecs,
+      unambiguousSource: "WCL_SPEC_RANKS",
+      profileIdentity: input.profileIdentity,
+    });
+  }
+
+  // Stage D — profile fallback.
+  return profileFallback(input.profileIdentity, classSlug, []);
 }
 
 export function seasonScoringIdentityLogFields(input: {
@@ -257,5 +315,10 @@ export function seasonIdentityAllowsDamageWarmHit(
   identity: SeasonScoringIdentity,
 ): boolean {
   if (identity.role !== "DPS" && identity.role !== "TANK") return false;
-  return identity.source === "WCL_SEASON" || identity.source === "PROFILE";
+  return (
+    identity.source === "WCL_ACTIVE_DUNGEONS" ||
+    identity.source === "WCL_SPEC_RANKS" ||
+    identity.source === "WCL_SEASON" ||
+    identity.source === "PROFILE"
+  );
 }

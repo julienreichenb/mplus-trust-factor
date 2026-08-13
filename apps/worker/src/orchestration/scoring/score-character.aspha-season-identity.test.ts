@@ -162,7 +162,7 @@ describe("Aspha season scoring identity → role-aware healer Performance", () =
       classSlug: "shaman",
       specSlug: "restoration",
       role: "HEALER",
-      source: "WCL_SEASON",
+      source: "WCL_ACTIVE_DUNGEONS",
     });
     expect(publicProfile).toEqual({
       classSlug: "shaman",
