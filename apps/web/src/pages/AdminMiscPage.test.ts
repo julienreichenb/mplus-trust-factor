@@ -155,4 +155,34 @@ describe("AdminMiscPage", () => {
     expect(wrapper.get("[data-testid='season-sync-results']").text()).toMatch(/blizzard-season-17/);
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/changed/i);
   });
+
+  it("saves scoring-season with PUT, credentials, and JSON content-type", async () => {
+    const wrapper = await mountPage();
+    fetchMock.mockClear();
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/api/v1/admin/misc/scoring-season") && init?.method === "PUT") {
+        return jsonResponse({
+          ...scoringSeasonStatus,
+          version: 2,
+        });
+      }
+      return jsonResponse(scoringSeasonStatus);
+    });
+
+    await wrapper.get("[data-testid='save-scoring-season-button']").trigger("click");
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/admin/misc/scoring-season"),
+      expect.objectContaining({
+        method: "PUT",
+        credentials: "include",
+        headers: expect.objectContaining({
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+    expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/Auto/i);
+  });
 });

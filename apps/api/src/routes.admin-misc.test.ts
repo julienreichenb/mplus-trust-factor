@@ -122,6 +122,46 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
     expect(response.json().results[0]).not.toHaveProperty("indexed");
   });
 
+  it("CORS preflight for scoring-season PUT advertises PUT and the mutation then reaches the route", async () => {
+    const origin = "http://localhost:5173";
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/v1/admin/misc/scoring-season",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "PUT",
+        "Access-Control-Request-Headers": "content-type, accept",
+      },
+    });
+    expect(preflight.statusCode).toBe(204);
+    const allowMethods = preflight.headers["access-control-allow-methods"];
+    expect(typeof allowMethods).toBe("string");
+    const methods = String(allowMethods)
+      .split(",")
+      .map((m) => m.trim().toUpperCase());
+    expect(methods).toEqual(expect.arrayContaining(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]));
+    expect(methods).toContain("PUT");
+    expect(preflight.headers["access-control-allow-origin"]).toBe(origin);
+    expect(preflight.headers["access-control-allow-credentials"]).toBe("true");
+    const allowHeaders = String(preflight.headers["access-control-allow-headers"] ?? "").toLowerCase();
+    expect(allowHeaders).toMatch(/content-type/);
+
+    const mutation = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/misc/scoring-season",
+      headers: {
+        Origin: origin,
+        "content-type": "application/json",
+        accept: "application/json",
+        "x-admin-api-key": ADMIN_KEY,
+      },
+      payload: { mode: "AUTO", expectedVersion: 1, region: "EU" },
+    });
+    expect(mutation.statusCode).not.toBe(204);
+    expect(mutation.statusCode).not.toBe(404);
+    expect(mutation.headers["access-control-allow-origin"]).toBe(origin);
+  });
+
   it("syncs season authority with a valid admin API key", async () => {
     const response = await app.inject({
       method: "POST",
