@@ -4,7 +4,9 @@ import type {
   AbilityRole,
   AbilityRule,
   ApplicableCategoryResult,
+  InterruptCapabilityProfile,
 } from "./types.js";
+import { raceCompatible, normalizeRaceSlug } from "./race.js";
 import { resolveAbilityCatalog } from "./registry.js";
 
 const ALL_CATEGORIES: AbilityCategory[] = [
@@ -32,6 +34,11 @@ export interface GetApplicableOptions {
   knownTalentSpellIds?: number[];
   /** Observed Utility spell IDs for this run — prove availability even if talent metadata is incomplete. */
   observedSpellIds?: number[];
+  /**
+   * Run-scoped race slug when historically known (CombatantInfo / digest).
+   * Never use current Blizzard profile race for historical runs.
+   */
+  raceSlug?: string | null;
   gameVersion?: string;
   includeRacials?: boolean;
 }
@@ -46,6 +53,12 @@ export interface AbilityCapabilityResolution {
   rule: AbilityRule;
   state: AbilityCapabilityState;
   reason: string;
+}
+
+export interface AbilityCapabilityOptions {
+  knownTalentSpellIds?: number[];
+  observedSpellIds?: number[];
+  raceSlug?: string | null;
 }
 
 function ruleSpellIdSet(rule: AbilityRule): Set<number> {
@@ -65,28 +78,61 @@ function isObserved(rule: AbilityRule, observedSpellIds?: number[]): boolean {
   return observedSpellIds.some((id) => ids.has(id));
 }
 
+function hasRaceGate(rule: AbilityRule): boolean {
+  return (rule.raceSlugs?.length ?? 0) > 0;
+}
+
+/**
+ * Derive interrupt profile from catalog metadata when not explicit.
+ */
+export function resolveInterruptProfile(rule: AbilityRule): InterruptCapabilityProfile {
+  if (rule.interruptProfile) return rule.interruptProfile;
+  if (rule.sourceOwnership === "PET" || rule.availability === "PET_DEPENDENT") {
+    return "PET_DEPENDENT";
+  }
+  if ((rule.cooldownSeconds ?? 0) >= 30) return "LONG_COOLDOWN";
+  return "STANDARD";
+}
+
 /**
  * Resolve one catalog rule into AVAILABLE / NOT_AVAILABLE / UNKNOWN for a run.
  *
- * Precedence: observed use > baseline/pet/shared > talent selection > missing talent evidence.
+ * Precedence: observed use > race-gated shared > baseline/pet > talent selection >
+ * missing talent/race evidence.
+ *
+ * `includeRacials` only expands the candidate universe — SHARED racials with
+ * raceSlugs are not automatically AVAILABLE.
  */
 export function resolveAbilityCapability(
   rule: AbilityRule,
-  options: {
-    knownTalentSpellIds?: number[];
-    observedSpellIds?: number[];
-  } = {},
+  options: AbilityCapabilityOptions = {},
 ): AbilityCapabilityResolution {
   if (isObserved(rule, options.observedSpellIds)) {
     return { rule, state: "AVAILABLE", reason: "observed_usage" };
   }
 
+  if (hasRaceGate(rule)) {
+    const race = normalizeRaceSlug(options.raceSlug);
+    if (race == null) {
+      return { rule, state: "UNKNOWN", reason: "race_data_unavailable" };
+    }
+    if (!raceCompatible(rule.raceSlugs, race)) {
+      return { rule, state: "NOT_AVAILABLE", reason: "race_not_compatible" };
+    }
+    // Race-compatible SHARED racials are AVAILABLE without further talent gates.
+    if (rule.availability === "SHARED") {
+      return { rule, state: "AVAILABLE", reason: "race_compatible" };
+    }
+  }
+
   switch (rule.availability) {
     case "BASELINE":
-    case "SHARED":
     case "FORM_DEPENDENT":
     case "PET_DEPENDENT":
       return { rule, state: "AVAILABLE", reason: rule.availability.toLowerCase() };
+    case "SHARED":
+      // Ungated SHARED (non-racial shared rules): available when included.
+      return { rule, state: "AVAILABLE", reason: "shared" };
     case "TALENT":
     case "CHOICE_NODE": {
       if (options.knownTalentSpellIds == null) {
@@ -127,6 +173,31 @@ function aggregateCapabilityStates(
   }
 
   const unknown = resolutions.filter((r) => r.state === "UNKNOWN");
+  const hardUnknown = unknown.filter((r) => r.reason !== "race_data_unavailable");
+  if (hardUnknown.length > 0) {
+    return {
+      category,
+      state: "uncertain",
+      reason: hardUnknown[0]!.reason,
+      rules: hardUnknown.map((r) => r.rule),
+    };
+  }
+
+  // Class-owned rules that are NOT_AVAILABLE close the category even when
+  // race-gated racials remain UNKNOWN (includeRacials = candidate universe only).
+  const classOwned = resolutions.filter((r) => r.rule.classSlug != null);
+  if (
+    classOwned.length > 0 &&
+    classOwned.every((r) => r.state === "NOT_AVAILABLE")
+  ) {
+    return {
+      category,
+      state: "not_applicable",
+      reason: classOwned[0]!.reason || "not_applicable",
+      rules: classOwned.map((r) => r.rule),
+    };
+  }
+
   if (unknown.length > 0) {
     return {
       category,
@@ -165,6 +236,7 @@ export function resolveUtilityAbilityCapabilities(
     resolveAbilityCapability(rule, {
       knownTalentSpellIds: options.knownTalentSpellIds,
       observedSpellIds: options.observedSpellIds,
+      raceSlug: options.raceSlug,
     }),
   );
 }
@@ -235,6 +307,7 @@ export function getApplicableAbilityCategories(
       resolveAbilityCapability(rule, {
         knownTalentSpellIds: options.knownTalentSpellIds,
         observedSpellIds: options.observedSpellIds,
+        raceSlug: options.raceSlug,
       }),
     );
     results.push(aggregateCapabilityStates(category, resolutions, "no_matching_availability"));

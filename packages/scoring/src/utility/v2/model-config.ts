@@ -53,6 +53,8 @@ const ROOT_KEYS = new Set([
   "unmatchedOnlyMaxDomainScore",
   "interruptMatchToleranceMs",
   "ccDedupeWindowMs",
+  "interruptReferenceCooldownSeconds",
+  "interruptProfileFactor",
   "supportSemanticCredit",
   "supportDiminishingExponent",
   "dispelPurgeEventCredit",
@@ -76,6 +78,7 @@ const INTERRUPT_CREDIT_KEYS = [
 const SUPPORT_SEMANTIC_KEYS: UtilityV2SupportSemantic[] = [
   "REACTIVE_SUPPORT",
   "STRATEGIC_SUPPORT",
+  "PROVIDED_GROUP_UTILITY",
   "EMERGENCY_SUPPORT",
   "ROUTINE_ROTATIONAL_SUPPORT",
   "PASSIVE_SUPPORT",
@@ -173,9 +176,19 @@ function parseSupportSemanticCredit(
   errors: string[],
 ): UtilityV2ModelConfig["supportSemanticCredit"] | null {
   if (!raw) return null;
-  rejectUnknownKeys(raw, new Set(SUPPORT_SEMANTIC_KEYS), "supportSemanticCredit", errors);
+  const known = new Set(SUPPORT_SEMANTIC_KEYS);
+  rejectUnknownKeys(raw, known, "supportSemanticCredit", errors);
   const out = {} as Record<UtilityV2SupportSemantic, number>;
   for (const key of SUPPORT_SEMANTIC_KEYS) {
+    if (raw[key] == null && key === "PROVIDED_GROUP_UTILITY") {
+      // Legacy configs predate PROVIDED_GROUP_UTILITY — inherit STRATEGIC_SUPPORT.
+      const legacy =
+        typeof raw.STRATEGIC_SUPPORT === "number"
+          ? raw.STRATEGIC_SUPPORT
+          : UTILITY_V2_MODEL_CONFIG.supportSemanticCredit.PROVIDED_GROUP_UTILITY;
+      out[key] = legacy;
+      continue;
+    }
     const v = requireNumber(raw, key, errors, { min: 0 });
     if (v != null) out[key] = v;
   }
@@ -485,6 +498,31 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     min: 0,
   });
   const ccDedupeWindowMs = requireNumber(raw, "ccDedupeWindowMs", errors, { min: 0 });
+  const interruptReferenceCooldownSeconds =
+    raw.interruptReferenceCooldownSeconds == null
+      ? UTILITY_V2_MODEL_CONFIG.interruptReferenceCooldownSeconds
+      : requireNumber(raw, "interruptReferenceCooldownSeconds", errors, { min: 1 });
+  let interruptProfileFactor = UTILITY_V2_MODEL_CONFIG.interruptProfileFactor;
+  if (raw.interruptProfileFactor != null && isRecord(raw.interruptProfileFactor)) {
+    const pf = raw.interruptProfileFactor;
+    const standard = requireNumber(pf, "STANDARD", errors, { min: 0 });
+    const pet = requireNumber(pf, "PET_DEPENDENT", errors, { min: 0 });
+    const longCd = requireNumber(pf, "LONG_COOLDOWN", errors, { min: 0 });
+    const constrained = requireNumber(pf, "CONSTRAINED_CONTROL", errors, { min: 0 });
+    if (
+      standard != null &&
+      pet != null &&
+      longCd != null &&
+      constrained != null
+    ) {
+      interruptProfileFactor = Object.freeze({
+        STANDARD: standard,
+        PET_DEPENDENT: pet,
+        LONG_COOLDOWN: longCd,
+        CONSTRAINED_CONTROL: constrained,
+      });
+    }
+  }
   const supportDiminishingExponent = requireNumber(
     raw,
     "supportDiminishingExponent",
@@ -577,6 +615,10 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     unmatchedOnlyMaxDomainScore,
     interruptMatchToleranceMs,
     ccDedupeWindowMs,
+    interruptReferenceCooldownSeconds:
+      interruptReferenceCooldownSeconds ??
+      UTILITY_V2_MODEL_CONFIG.interruptReferenceCooldownSeconds,
+    interruptProfileFactor,
     supportSemanticCredit,
     supportDiminishingExponent,
     dispelPurgeEventCredit,

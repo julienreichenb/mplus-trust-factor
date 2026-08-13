@@ -281,6 +281,8 @@ export function buildParticipantScoringDigestsFromPackage(
             talentTreeNodeIds: [...(loadoutFromPackage.talentTreeNodeIds ?? [])],
             blizzardSpecId: loadoutFromPackage.blizzardSpecId,
             source: "COMBATANT_INFO",
+            raceSlug: loadoutFromPackage.raceSlug ?? null,
+            raceEvidenceState: loadoutFromPackage.raceEvidenceState ?? "UNKNOWN",
           }
         : {
             evidenceState: "ABSENT",
@@ -288,6 +290,8 @@ export function buildParticipantScoringDigestsFromPackage(
             talentTreeNodeIds: [],
             blizzardSpecId: null,
             source: "ABSENT",
+            raceSlug: null,
+            raceEvidenceState: "UNKNOWN",
           };
 
     // Survival pressure clock: personal damage-taken activity (unchanged).

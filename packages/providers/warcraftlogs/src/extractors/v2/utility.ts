@@ -203,7 +203,9 @@ function mapSupportAndSpecialistFamilies(run: UtilityNormalizedRun): {
           ? "PERSONAL_MOBILITY"
           : ev.category === "EXTERNAL_DEFENSIVE"
             ? "REACTIVE_SUPPORT"
-            : "STRATEGIC_SUPPORT";
+            : ev.category === "GROUP_UTILITY"
+              ? "PROVIDED_GROUP_UTILITY"
+              : "STRATEGIC_SUPPORT";
     supportActions.push({
       id: `support-ext-${idx}-${ev.timestamp}`,
       timestampMs: ev.timestamp,
@@ -235,7 +237,12 @@ function observedFamiliesFromFacts(input: {
     interrupt: input.interruptCount > 0,
     crowdControl: input.ccCount > 0,
     dispelPurge: input.dispelPurgeSuccessCount > 0,
-    groupSupport: input.supportActions.some((a) => a.semantic === "REACTIVE_SUPPORT"),
+    groupSupport: input.supportActions.some(
+      (a) =>
+        a.semantic === "REACTIVE_SUPPORT" ||
+        a.semantic === "STRATEGIC_SUPPORT" ||
+        a.semantic === "PROVIDED_GROUP_UTILITY",
+    ),
     movement: input.supportActions.some((a) => a.semantic === "PERSONAL_MOBILITY"),
     combatRes: input.supportActions.some((a) => a.semantic === "EMERGENCY_SUPPORT"),
     bloodlust: input.bloodlustSuccessCount > 0,
@@ -248,12 +255,14 @@ function resolveToolkit(input: {
   knownTalentSpellIds?: number[];
   talentDataAvailable?: boolean;
   observedSpellIds?: number[];
+  raceSlug?: string | null;
   observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
 }): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
   return resolveUtilityToolkitFromCatalog({
     classSlug: input.classSlug,
     specSlug: input.specSlug,
     includeRacials: true,
+    raceSlug: input.raceSlug,
     knownTalentSpellIds: input.knownTalentSpellIds,
     talentDataAvailable: input.talentDataAvailable,
     observedSpellIds: input.observedSpellIds,

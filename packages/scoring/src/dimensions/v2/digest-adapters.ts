@@ -353,6 +353,11 @@ function supportSemanticFromAction(
   if (family === "bloodlust") {
     return "STRATEGIC_SUPPORT";
   }
+  // Catalog GROUP_UTILITY persists as OTHER_UTILITY but resolves to groupSupport.
+  // Placement by the provider is strategic group utility — not UNVERIFIED_EXTERNAL.
+  if (family === "groupSupport" && action.utilityCategory === "OTHER_UTILITY") {
+    return "PROVIDED_GROUP_UTILITY";
+  }
   switch (action.utilityCategory) {
     case "EXTERNAL_SUPPORT":
       if (
@@ -504,6 +509,10 @@ function resolveToolkitFromDigest(
       : undefined,
     talentDataAvailable: talentPresent,
     includeRacials: true,
+    raceSlug:
+      digest.loadoutEvidence.raceEvidenceState === "KNOWN"
+        ? digest.loadoutEvidence.raceSlug
+        : null,
     observedSpellIds: digest.utility.actions.map((a) => a.primarySpellId),
     observedFamilies,
   });
@@ -621,7 +630,12 @@ export function utilityRunFactSetFromDigest(
     interrupt: interruptAttempts.length > 0,
     crowdControl: ccActions.length > 0,
     dispelPurge: dispelPurgeSuccessCount > 0,
-    groupSupport: supportActions.some((a) => a.semantic === "REACTIVE_SUPPORT"),
+    groupSupport: supportActions.some(
+      (a) =>
+        a.semantic === "REACTIVE_SUPPORT" ||
+        a.semantic === "STRATEGIC_SUPPORT" ||
+        a.semantic === "PROVIDED_GROUP_UTILITY",
+    ),
     movement: supportActions.some((a) => a.semantic === "PERSONAL_MOBILITY"),
     combatRes: supportActions.some((a) => a.semantic === "EMERGENCY_SUPPORT"),
     bloodlust: bloodlustSuccessCount > 0,

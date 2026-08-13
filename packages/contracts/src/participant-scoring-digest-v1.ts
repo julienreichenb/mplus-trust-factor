@@ -68,6 +68,9 @@ export const participantLoadoutDigestV1Schema = z.object({
   talentTreeNodeIds: z.array(z.number().int()).default([]),
   blizzardSpecId: z.number().int().nullable().optional(),
   source: z.enum(["COMBATANT_INFO", "ABSENT"]),
+  /** Run-scoped race slug when CombatantInfo (or equivalent) proves it. */
+  raceSlug: z.string().nullable().optional().default(null),
+  raceEvidenceState: z.enum(["KNOWN", "UNKNOWN"]).default("UNKNOWN"),
 });
 export type ParticipantLoadoutDigestV1 = z.infer<
   typeof participantLoadoutDigestV1Schema
@@ -175,6 +178,8 @@ export const participantScoringDigestV1Schema = z
       talentTreeNodeIds: [],
       blizzardSpecId: null,
       source: "ABSENT",
+      raceSlug: null,
+      raceEvidenceState: "UNKNOWN",
     }),
     capabilityPackageArtifactId: z.string().min(1),
     capabilityPackageContentHash: z.string().min(16),

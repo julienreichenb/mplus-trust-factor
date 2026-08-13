@@ -120,6 +120,8 @@ export const participantLoadoutEvidenceV1Schema = z.object({
   talentSpellIds: z.array(z.number().int()),
   talentTreeNodeIds: z.array(z.number().int()).default([]),
   evidenceState: z.enum(["PRESENT", "ABSENT", "UNPARSEABLE"]),
+  raceSlug: z.string().nullable().optional().default(null),
+  raceEvidenceState: z.enum(["KNOWN", "UNKNOWN"]).default("UNKNOWN"),
 });
 export type ParticipantLoadoutEvidenceV1 = z.infer<
   typeof participantLoadoutEvidenceV1Schema

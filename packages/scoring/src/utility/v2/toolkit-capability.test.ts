@@ -298,7 +298,7 @@ describe("Utility toolkit capability model", () => {
     expect(cc?.applicable).toBe(true);
     expect(cc?.creditedEvents).toBe(2);
     expect(cc?.rawScore).not.toBeNull();
-    expect(cc?.rawScore!).toBeGreaterThan(UTILITY_V2_MODEL_CONFIG.scoreFloor);
+    expect(cc?.rawScore ?? 0).toBeGreaterThan(UTILITY_V2_MODEL_CONFIG.scoreFloor);
   });
 
   it("J. Holy Paladin interrupt not available → no family contribution", () => {

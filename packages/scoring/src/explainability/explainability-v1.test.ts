@@ -436,6 +436,7 @@ function utilityFixture(
       bySemantic: {
         REACTIVE_SUPPORT: 0,
         STRATEGIC_SUPPORT: 0,
+        PROVIDED_GROUP_UTILITY: 0,
         EMERGENCY_SUPPORT: 0,
         ROUTINE_ROTATIONAL_SUPPORT: 0,
         PASSIVE_SUPPORT: 0,

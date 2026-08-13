@@ -11,7 +11,7 @@ import type { UtilityV2FamilyKey } from "./families.js";
 export const UTILITY_V2_SCHEMA_VERSION = "utility-v2-facts";
 export const UTILITY_V2_EXTRACTOR_FAMILY = "utility";
 export const UTILITY_V2_EXTRACTOR_VERSION = "utility-v2.0.0";
-export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase3-toolkit-0.1.0";
+export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase3-toolkit-0.2.0";
 export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase3-toolkit";
 export type UtilityV2CalibrationStatus =
   | "CANDIDATE_DEFAULTS_UNCALIBRATED"
@@ -77,6 +77,8 @@ export const UTILITY_V2_CC_DEDUPE_WINDOW_MS = 3_000;
 export const UTILITY_V2_SUPPORT_SEMANTIC_CREDIT = {
   REACTIVE_SUPPORT: 1,
   STRATEGIC_SUPPORT: 0.9,
+  /** Player successfully provided strategic group utility (e.g. Gateway placement). */
+  PROVIDED_GROUP_UTILITY: 0.9,
   EMERGENCY_SUPPORT: 1,
   ROUTINE_ROTATIONAL_SUPPORT: 0.05,
   PASSIVE_SUPPORT: 0,
@@ -85,6 +87,20 @@ export const UTILITY_V2_SUPPORT_SEMANTIC_CREDIT = {
 } as const;
 
 export type UtilityV2SupportSemantic = keyof typeof UTILITY_V2_SUPPORT_SEMANTIC_CREDIT;
+
+/** Reference melee kick CD (seconds) for interrupt capability normalization. */
+export const UTILITY_V2_INTERRUPT_REFERENCE_COOLDOWN_SECONDS = 15;
+
+/**
+ * Multipliers applied after CD-normalization for interrupt profiles.
+ * Constrained/control kicks are not expected at short-CD kick frequency.
+ */
+export const UTILITY_V2_INTERRUPT_PROFILE_FACTOR = {
+  STANDARD: 1,
+  PET_DEPENDENT: 1.15,
+  LONG_COOLDOWN: 1.25,
+  CONSTRAINED_CONTROL: 1.4,
+} as const;
 
 export const UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT = 1;
 
@@ -269,6 +285,11 @@ export type UtilityV2ModelConfig = {
   unmatchedOnlyMaxDomainScore: number;
   interruptMatchToleranceMs: number;
   ccDedupeWindowMs: number;
+  interruptReferenceCooldownSeconds: number;
+  interruptProfileFactor: Record<
+    "STANDARD" | "PET_DEPENDENT" | "LONG_COOLDOWN" | "CONSTRAINED_CONTROL",
+    number
+  >;
   supportSemanticCredit: Record<UtilityV2SupportSemantic, number>;
   supportDiminishingExponent: number;
   dispelPurgeEventCredit: number;
@@ -297,6 +318,8 @@ export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   unmatchedOnlyMaxDomainScore: UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
   interruptMatchToleranceMs: UTILITY_V2_INTERRUPT_MATCH_TOLERANCE_MS,
   ccDedupeWindowMs: UTILITY_V2_CC_DEDUPE_WINDOW_MS,
+  interruptReferenceCooldownSeconds: UTILITY_V2_INTERRUPT_REFERENCE_COOLDOWN_SECONDS,
+  interruptProfileFactor: UTILITY_V2_INTERRUPT_PROFILE_FACTOR,
   supportSemanticCredit: UTILITY_V2_SUPPORT_SEMANTIC_CREDIT,
   supportDiminishingExponent: UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT,
   dispelPurgeEventCredit: UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT,

@@ -478,6 +478,8 @@ export async function acquireCapabilityEvidencePackage(input: {
     talentSpellIds: number[];
     talentTreeNodeIds: number[];
     evidenceState: "PRESENT" | "ABSENT" | "UNPARSEABLE";
+    raceSlug: string | null;
+    raceEvidenceState: "KNOWN" | "UNKNOWN";
   }> = [];
   const verifiedFilters: CapabilityEvidencePackageV1["verifiedFilters"] = [];
   const datasetsByCapability = new Map<EvidenceCapability, WclRunEvidenceDataset[]>();
@@ -571,6 +573,11 @@ export async function acquireCapabilityEvidencePackage(input: {
             prior.talentSpellIds = [...spells].sort((a, b) => a - b);
             prior.talentTreeNodeIds = [...nodes].sort((a, b) => a - b);
             prior.blizzardSpecId = prior.blizzardSpecId ?? row.blizzardSpecId;
+            prior.raceSlug = prior.raceSlug ?? row.raceSlug;
+            prior.raceEvidenceState =
+              prior.raceEvidenceState === "KNOWN"
+                ? "KNOWN"
+                : row.raceEvidenceState;
             prior.evidenceState =
               spells.size > 0 || nodes.size > 0
                 ? "PRESENT"

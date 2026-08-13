@@ -14,6 +14,10 @@ import {
 import { emitUtilityConsumptionTraces } from "./consumption-traces.js";
 import { sumInterruptCredits } from "./classify-interrupts.js";
 import {
+  normalizeInterruptRatePerHour,
+  resolveInterruptCapabilityMeta,
+} from "./interrupt-capability.js";
+import {
   UTILITY_V2_FAMILY_KEYS,
   emptyFamilyApplicability,
   familiesFromLegacyToolkit,
@@ -71,6 +75,7 @@ function emptySemantic(): Record<UtilityV2SupportSemantic, number> {
   return {
     REACTIVE_SUPPORT: 0,
     STRATEGIC_SUPPORT: 0,
+    PROVIDED_GROUP_UTILITY: 0,
     EMERGENCY_SUPPORT: 0,
     ROUTINE_ROTATIONAL_SUPPORT: 0,
     PASSIVE_SUPPORT: 0,
@@ -544,6 +549,8 @@ export function computeUtilityV2(
     let credited = 0;
     let perHour = 0;
     const notes: string[] = [];
+    let interruptMetaForNotes: ReturnType<typeof resolveInterruptCapabilityMeta> | null =
+      null;
 
     if (opportunitySets.length > 0) {
       notes.push(`opportunity_runs=${opportunitySets.length}/${factSets.length}`);
@@ -552,7 +559,23 @@ export function computeUtilityV2(
         interruptCap = applyUnmatchedSpamCap(attempts, config);
         events = attempts.length;
         credited = interruptCap.creditedTotal;
-        perHour = credited / familyCombatHours;
+        const rawPerHour = credited / familyCombatHours;
+        const interruptMeta = resolveInterruptCapabilityMeta(
+          opportunitySets,
+          attempts,
+          config,
+        );
+        interruptMetaForNotes = interruptMeta;
+        perHour = normalizeInterruptRatePerHour(rawPerHour, interruptMeta, config);
+        notes.push(
+          `interrupt_capability_cd=${interruptMeta.cooldownSeconds}s`,
+          `interrupt_profile=${interruptMeta.profile}`,
+          `raw_per_hour=${round2(rawPerHour)}`,
+          `normalized_per_hour=${round2(perHour)}`,
+        );
+        if (interruptMeta.canonicalKeys.length > 0) {
+          notes.push(`interrupt_keys=${interruptMeta.canonicalKeys.join(",")}`);
+        }
       } else if (family === "crowdControl") {
         const cc = opportunitySets.flatMap((f) => f.ccActions);
         dedupedCc = dedupeStrategicCc(cc, config.ccDedupeWindowMs);
@@ -645,8 +668,27 @@ export function computeUtilityV2(
             interruptCap.counts.MATCHED_FAILED ===
             0 && interruptCap.counts.UNMATCHED_ATTEMPT > 0;
         if (unmatchedOnly) {
-          raw = Math.min(raw, config.unmatchedOnlyMaxDomainScore);
-          notes.push("unmatched_only_domain_score_capped");
+          // Capability-aware ceiling: constrained/long-CD kicks must not be
+          // stuck at the short-CD unmatched spam cap after rate normalization.
+          // STANDARD short-CD kicks keep the strict unmatched-only ceiling.
+          const meta =
+            interruptMetaForNotes ??
+            resolveInterruptCapabilityMeta(opportunitySets, [], config);
+          let capabilityCeiling = config.unmatchedOnlyMaxDomainScore;
+          if (meta.profile !== "STANDARD") {
+            const ref = Math.max(1, config.interruptReferenceCooldownSeconds);
+            const profileFactor = config.interruptProfileFactor[meta.profile] ?? 1;
+            capabilityCeiling = Math.min(
+              100,
+              config.unmatchedOnlyMaxDomainScore *
+                profileFactor *
+                (Math.max(1, meta.cooldownSeconds) / ref),
+            );
+          }
+          raw = Math.min(raw, capabilityCeiling);
+          notes.push(
+            `unmatched_only_domain_score_capped:${round2(capabilityCeiling)}`,
+          );
         }
         if (interruptCap.capApplied) {
           notes.push("unmatched_spam_credit_share_capped");

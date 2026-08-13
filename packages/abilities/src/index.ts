@@ -17,6 +17,7 @@ export type {
   CatalogSupportState,
   CatalogValidationReport,
   GetAbilityCatalogResult,
+  InterruptCapabilityProfile,
   LegacyAbilityCategory,
   ProvenanceSource,
   RetailClassDefinition,
@@ -98,6 +99,7 @@ export {
   filterRulesByAvailability,
   getApplicableAbilityCategories,
   resolveAbilityCapability,
+  resolveInterruptProfile,
   resolveUtilityAbilityCapabilities,
 } from "./applicability.js";
 export type {
@@ -105,6 +107,13 @@ export type {
   AbilityCapabilityState,
   GetApplicableOptions,
 } from "./applicability.js";
+
+export {
+  normalizeRaceSlug,
+  raceCompatible,
+  raceSlugFromBlizzardRaceId,
+} from "./race.js";
+export type { RaceEvidenceState } from "./race.js";
 
 export { validateAbilityCatalog } from "./validation.js";
 export { buildCoverageReport, formatCoverageReport } from "./coverage.js";

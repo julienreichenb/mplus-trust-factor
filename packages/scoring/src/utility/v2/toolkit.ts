@@ -30,6 +30,8 @@ export interface ResolveUtilityToolkitInput {
   talentDataAvailable?: boolean;
   /** Observed Utility spell IDs for this run (availability proof). */
   observedSpellIds?: number[];
+  /** Run-scoped race slug when historically known. */
+  raceSlug?: string | null;
   includeRacials?: boolean;
   /** Families with observed usage — promote uncertain/not_applicable to applicable. */
   observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
@@ -167,6 +169,7 @@ export function resolveUtilityToolkitFromCatalog(
     role,
     knownTalentSpellIds,
     observedSpellIds: input.observedSpellIds,
+    raceSlug: input.raceSlug,
     includeRacials: input.includeRacials ?? true,
   });
 

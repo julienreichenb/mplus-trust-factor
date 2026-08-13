@@ -1,7 +1,14 @@
 /**
  * Extract minimal CombatantInfo loadout proof for cooldown availability.
  * Does not invent a parallel talent system — only projects spell IDs / node ids.
+ * Race is run-scoped when present on CombatantInfo (never current profile).
  */
+
+import {
+  normalizeRaceSlug,
+  raceSlugFromBlizzardRaceId,
+  type RaceEvidenceState,
+} from "@mplus/abilities";
 
 export type LoadoutEvidenceState = "PRESENT" | "ABSENT" | "UNPARSEABLE";
 
@@ -11,6 +18,8 @@ export interface ParticipantLoadoutEvidence {
   talentSpellIds: number[];
   talentTreeNodeIds: number[];
   evidenceState: LoadoutEvidenceState;
+  raceSlug: string | null;
+  raceEvidenceState: RaceEvidenceState;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -25,6 +34,31 @@ function asPositiveInt(value: unknown): number | null {
     : null;
 }
 
+function extractRaceFromCombatantInfo(row: Record<string, unknown>): {
+  raceSlug: string | null;
+  raceEvidenceState: RaceEvidenceState;
+} {
+  const raceId =
+    asPositiveInt(row.raceID) ??
+    asPositiveInt(row.raceId) ??
+    (typeof row.race === "number" ? asPositiveInt(row.race) : null);
+  const fromId = raceSlugFromBlizzardRaceId(raceId);
+  if (fromId != null) {
+    return { raceSlug: fromId, raceEvidenceState: "KNOWN" };
+  }
+  const raceName =
+    typeof row.raceName === "string"
+      ? row.raceName
+      : typeof row.race === "string"
+        ? row.race
+        : null;
+  const fromName = normalizeRaceSlug(raceName);
+  if (fromName != null) {
+    return { raceSlug: fromName, raceEvidenceState: "KNOWN" };
+  }
+  return { raceSlug: null, raceEvidenceState: "UNKNOWN" };
+}
+
 /**
  * Pull talent spell IDs and tree node/entry IDs from a raw CombatantInfo event.
  * WCL talentTree nodes expose `{ id, nodeId, rank, spellId }`.
@@ -34,6 +68,8 @@ export function extractLoadoutIdsFromCombatantInfo(raw: unknown): {
   talentTreeNodeIds: number[];
   blizzardSpecId: number | null;
   evidenceState: LoadoutEvidenceState;
+  raceSlug: string | null;
+  raceEvidenceState: RaceEvidenceState;
 } {
   const row = asRecord(raw);
   if (row == null) {
@@ -42,11 +78,14 @@ export function extractLoadoutIdsFromCombatantInfo(raw: unknown): {
       talentTreeNodeIds: [],
       blizzardSpecId: null,
       evidenceState: "ABSENT",
+      raceSlug: null,
+      raceEvidenceState: "UNKNOWN",
     };
   }
 
   const blizzardSpecId =
     asPositiveInt(row.specID) ?? asPositiveInt(row.specId) ?? null;
+  const race = extractRaceFromCombatantInfo(row);
 
   const spellIds = new Set<number>();
   const nodeIds = new Set<number>();
@@ -110,6 +149,7 @@ export function extractLoadoutIdsFromCombatantInfo(raw: unknown): {
       talentTreeNodeIds: [],
       blizzardSpecId,
       evidenceState: "ABSENT",
+      ...race,
     };
   }
 
@@ -119,6 +159,7 @@ export function extractLoadoutIdsFromCombatantInfo(raw: unknown): {
       talentTreeNodeIds: [],
       blizzardSpecId,
       evidenceState: "UNPARSEABLE",
+      ...race,
     };
   }
 
@@ -127,6 +168,7 @@ export function extractLoadoutIdsFromCombatantInfo(raw: unknown): {
     talentTreeNodeIds: [...nodeIds].sort((a, b) => a - b),
     blizzardSpecId,
     evidenceState: spellIds.size > 0 || nodeIds.size > 0 ? "PRESENT" : "ABSENT",
+    ...race,
   };
 }
 
@@ -154,6 +196,8 @@ export function extractParticipantLoadoutsFromCombatantEvents(
         talentSpellIds: extracted.talentSpellIds,
         talentTreeNodeIds: extracted.talentTreeNodeIds,
         evidenceState: extracted.evidenceState,
+        raceSlug: extracted.raceSlug,
+        raceEvidenceState: extracted.raceEvidenceState,
       });
       continue;
     }
@@ -180,6 +224,11 @@ export function extractParticipantLoadoutsFromCombatantEvents(
       talentSpellIds: [...mergedSpells].sort((a, b) => a - b),
       talentTreeNodeIds: [...mergedNodes].sort((a, b) => a - b),
       evidenceState: state,
+      raceSlug: existing.raceSlug ?? extracted.raceSlug,
+      raceEvidenceState:
+        existing.raceEvidenceState === "KNOWN"
+          ? "KNOWN"
+          : extracted.raceEvidenceState,
     });
   }
 

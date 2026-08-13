@@ -335,7 +335,19 @@ export function extractUtilityActionTimeline(
         petActorId: kind === "OWNED_PET_OR_GUARDIAN" ? sourceActorId : null,
         rule,
         utilityCategory,
-        canOpenAction: canOpenFromEvent(dataset, eventType, utilityCategory),
+        canOpenAction: (() => {
+        if (!canOpenFromEvent(dataset, eventType, utilityCategory)) return false;
+        // Placement-only open for group utility: alias IDs (e.g. Gateway
+        // traversal 113942) are evidence, not a second provided placement.
+        if (
+          (utilityCategory === "OTHER_UTILITY" ||
+            utilityCategory === "EXTERNAL_SUPPORT") &&
+          !rule.spellIds.includes(spellId)
+        ) {
+          return false;
+        }
+        return true;
+      })(),
       });
     }
   }
