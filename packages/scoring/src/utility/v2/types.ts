@@ -11,6 +11,7 @@ import type {
   UtilityV2SupportSemantic,
   UtilityV2ModelConfig,
 } from "./constants.js";
+import type { UtilityFamilyApplicabilityMap } from "./families.js";
 
 export type InterruptAttemptClass =
   | "CONFIRMED_SUCCESS"
@@ -126,6 +127,8 @@ export interface UtilityV2ToolkitApplicability {
   hasInterrupt: boolean;
   hasSupport: boolean;
   hasStrategicCc: boolean;
+  /** Catalog-derived family applicability. Optional on legacy fact documents. */
+  families?: UtilityFamilyApplicabilityMap;
 }
 
 /**
@@ -155,6 +158,8 @@ export interface UtilityV2RunFactSet {
   ccActions: UtilityV2CcAction[];
   supportActions: UtilityV2SupportAction[];
   dispelPurgeSuccessCount: number;
+  /** Bloodlust / heroism / equivalent group haste uses. */
+  bloodlustSuccessCount: number;
   catalogCoverage: {
     abilityCatalogCoverage: number;
     mechanicCatalogCoverage: number;
@@ -214,13 +219,13 @@ export interface UtilityV2BindingResult {
 
 export interface UtilityV2ComputeResult {
   mode: "OBSERVED_CONTRIBUTION";
-  phase: 1 | 2;
+  phase: 1 | 2 | 3;
   opportunityMode: "off";
   algorithmVersion: string;
   scoreSemantics: string;
   modelConfigFingerprint: string;
   availabilityState: UtilityV2AvailabilityState;
-  /** Reliability-adjusted score in [50, 100], or null when UNAVAILABLE. */
+  /** Toolkit-exploitation score in [0, 100], or null when UNAVAILABLE / withheld. */
   score: number | null;
   rawBehaviorEstimate: number | null;
   confidence: number;
@@ -268,19 +273,25 @@ export interface UtilityV2Explanation {
   availabilityState: UtilityV2AvailabilityState;
   scoreFloor: number;
   domainWeights: Record<UtilityV2DomainKey, number>;
-  interruptClassification: UtilityV2InterruptCounts;
-  domainCurves: {
-    castStops: string;
-    support: string;
-    strategicCc: string;
+  familyWeights: Record<UtilityV2DomainKey, number>;
+  interruptCredits: {
+    CONFIRMED_SUCCESS: number;
+    VALID_OVERLAP: number;
+    MATCHED_FAILED: number;
+    UNMATCHED_ATTEMPT: number;
+    NOT_OBSERVABLE: number;
   };
+  interruptClassification: UtilityV2InterruptCounts;
+  domainCurves: Record<UtilityV2DomainKey, string>;
   caps: {
     domainContributionCap: number;
     unmatchedCreditShareCap: number;
     unmatchedOnlyMaxDomainScore: number;
   };
   applicableDomains: UtilityV2DomainKey[];
+  unusedDomains: UtilityV2DomainKey[];
   excludedDomains: Array<{ domain: UtilityV2DomainKey; reason: string }>;
+  uncertainDomains: Array<{ domain: UtilityV2DomainKey; reason: string }>;
   notes: string[];
   selectedRuns: Array<{
     slotId: string;

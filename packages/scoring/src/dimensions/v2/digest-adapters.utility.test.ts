@@ -264,7 +264,9 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(facts.interruptAttempts[0]!.classification).toBe("CONFIRMED_SUCCESS");
     expect(facts.interruptAttempts[0]!.credit).toBe(1);
     expect(facts.interruptAttempts[1]!.classification).toBe("UNMATCHED_ATTEMPT");
-    expect(facts.interruptAttempts[1]!.credit).toBe(0.05);
+    expect(facts.interruptAttempts[1]!.credit).toBe(
+      UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT,
+    );
     expect(facts.interruptAttempts[2]!.sourceKind).toBe("OWNED_PET");
     expect(facts.hostileObservability).toBe("ABSENT");
     expect(facts.limitations).toContain(
@@ -311,7 +313,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(classes.has("MATCHED_FAILED")).toBe(false);
   });
 
-  it("excludes personal mobility and unverified externals from full support credit path", () => {
+  it("keeps movement utility as PERSONAL_MOBILITY and unverified externals off the full support path", () => {
     const digest = baseDigest({
       utility: {
         hostileCastEvents: [],
@@ -360,7 +362,8 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
       slotId: "slot-0",
       slotIndex: 0,
     });
-    expect(facts.supportActions.every((a) => a.id !== "self-mobility")).toBe(true);
+    const mobility = facts.supportActions.find((a) => a.id === "self-mobility");
+    expect(mobility?.semantic).toBe("PERSONAL_MOBILITY");
     const unverified = facts.supportActions.find((a) => a.id === "ext-unverified")!;
     const applied = facts.supportActions.find((a) => a.id === "ext-applied")!;
     expect(unverified.tier).toBe("UNVERIFIED");

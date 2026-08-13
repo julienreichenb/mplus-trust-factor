@@ -8,7 +8,7 @@ generation.
 
 | Concept | Meaning | Examples |
 |---------|---------|---------|
-| **Functional phase** | Product maturity of one scoring dimension | Performance Phase 2, Utility Phase 1 |
+| **Functional phase** | Product maturity of one scoring dimension | Performance Phase 2, Utility Phase 3 |
 | **Technical calculator version** | Version stamp of a specific formula implementation | `performance-phase2-v1`, `utility-v2.phase1.0.1.0` |
 | **Pipeline generation** | Evidence + orchestration architecture | `scoring-v2` |
 | **Implementation status** | Whether production scoring uses that functional stage | `IMPLEMENTED`, `PLANNED`, … |
@@ -181,8 +181,9 @@ never penalized as available-but-unused.
 - contextual impact of group defensives and externals;
 - confirmed mitigation or support outcome.
 
-Phase 2 uses the **strongest persisted observable state** from
-`ParticipantScoringDigestV1` / Utility action timelines:
+Phase 2 used the **strongest persisted observable state** from
+`ParticipantScoringDigestV1` / Utility action timelines. Those interrupt and
+support credit classes remain in the Phase 3 calculator:
 
 | Observable state | Typical digest evidence | Credit tier |
 |------------------|-------------------------|-------------|
@@ -198,12 +199,24 @@ when hostile cast windows are present (probe / shared-evidence path). The produc
 digest path does **not** persist hostile windows, so it does not invent those classes
 or invent unobserved mitigation amounts for group cooldowns.
 
-**Technical calculator (production):** `utility-v2-phase2-observed-0.2.0`
+**Technical calculator (superseded):** `utility-v2-phase2-observed-0.2.0`
 **Pipeline:** `scoring-v2`
 
 ### Phase 3
 
-- comparisons with S/A players.
+- real **0–100** toolkit-exploitation score (no hidden 50 floor);
+- Ability Catalog families (interrupt, crowd control, dispel/purge, group support, movement, combat resurrection, bloodlust);
+- unused applicable families contribute 0; inapplicable families are excluded;
+- optional group tools (battle rez / bloodlust) do not penalize when unused;
+- uncertain talent applicability is excluded, never a fabricated unused zero;
+- interrupt successes ≈ legitimate non-landed attempts; unmatched spam is credit-capped;
+- intensity per active combat hour with family saturation curves (not fight-duration/cooldown);
+- Opportunity Mode remains off (no missed-mechanic / S/A-benchmark engine).
+
+S/A player comparisons remain deferred.
+
+**Technical calculator (production):** `utility-v2-phase3-toolkit-0.1.0`
+**Pipeline:** `scoring-v2`
 
 ---
 
@@ -246,9 +259,9 @@ States:
 | Survival | Phase 1 | Deaths, self-heals, defensive volume, DTPS, internal group compare | Survival digests + Survival V2 calculator in product path | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `survival-v2-phase2-contextual-0.2.0` |
 | Survival | Phase 2 | Anticipation / availability-at-damage | Pressure `defensivesBefore`/`During`/`recoveryAfter`; catalogue CD/charges; toolkit from class/spec; `computeSurvivalV2` via enriched `survivalFactDocumentFromDigest` | `IMPLEMENTED` | Relative damage still omitted; talent state unknown → no penalty; mitigation amounts not invented | `survival-v2-phase2-contextual-0.2.0` |
 | Survival | Phase 3 | Same-class/spec + S/A benchmarks | None | `DEFERRED_CRITICAL_MASS` | Critical mass | — |
-| Utility | Phase 1 | Attempt volume (kicks/CC/externals/group CDs) | Utility digests + Utility V2 in product path | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `utility-v2-phase2-observed-0.2.0` |
-| Utility | Phase 2 | Success weighting + contextual impact | Digest outcomes + capability completeness; support tiers from strongest observable state; `computeUtilityV2` via `utilityRunFactSetFromDigest` | `IMPLEMENTED` | Hostile windows not in digest → no digest-path VALID_OVERLAP/MATCHED_FAILED; mitigation amounts not invented | `utility-v2-phase2-observed-0.2.0` |
-| Utility | Phase 3 | S/A comparisons | None | `DEFERRED_CRITICAL_MASS` | Critical mass | — |
+| Utility | Phase 1 | Attempt volume (kicks/CC/externals/group CDs) | Utility digests + Utility V2 in product path | `IMPLEMENTED` (subsumed by Phase 3 product path) | — | Phase 1 internals under `utility-v2-phase3-toolkit-0.1.0` |
+| Utility | Phase 2 | Success weighting + contextual impact | Digest outcomes + capability completeness; support tiers from strongest observable state | `IMPLEMENTED` (subsumed by Phase 3 product path) | Hostile windows not in digest → no digest-path VALID_OVERLAP/MATCHED_FAILED | Phase 2 internals under `utility-v2-phase3-toolkit-0.1.0` |
+| Utility | Phase 3 | 0–100 catalog-family toolkit exploitation | Catalog applicability + digest facts; `computeUtilityV2` via `utilityRunFactSetFromDigest`; family curves in ScoreModel config | `IMPLEMENTED` | Hostile windows not in digest → no digest-path VALID_OVERLAP/MATCHED_FAILED; S/A comparisons still deferred | `utility-v2-phase3-toolkit-0.1.0` |
 | Experience | Phase 1 | Titles, exceptional ranks, prior-season score | Experience V3 calculator when enabled | `PARTIALLY_IMPLEMENTED` | Product wiring / publication maturity | `experience-v3*` (see code) |
 | Experience | Phase 2 | Linked account characters | Not implemented | `PLANNED` | Account-link evidence | — |
 | Experience | Phase 3 | — | Not defined | `PLANNED` | Product definition | — |
@@ -284,8 +297,8 @@ Pipeline: scoring-v2
 ## Version stamp (authoritative Utility)
 
 ```text
-Functional stage: Utility Phase 2
-Technical calculator: utility-v2-phase2-observed-0.2.0
+Functional stage: Utility Phase 3
+Technical calculator: utility-v2-phase3-toolkit-0.1.0
 Pipeline generation: scoring-v2
 ```
 

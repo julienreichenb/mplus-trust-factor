@@ -16,17 +16,33 @@ import {
 } from "../../model-config/validate.js";
 import { stableSha256 } from "../../model-config/stable-hash.js";
 import {
+  UTILITY_V2_FAMILY_CURVES,
+  UTILITY_V2_FAMILY_WEIGHTS,
   UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCHEMA_VERSION,
+  type UtilityV2FamilyCurves,
+  type UtilityV2FamilyWeights,
   type UtilityV2ModelConfig,
   type UtilityV2SupportSemantic,
 } from "./constants.js";
+
+const FAMILY_WEIGHT_KEYS = [
+  "interrupt",
+  "crowdControl",
+  "dispelPurge",
+  "groupSupport",
+  "movement",
+  "combatRes",
+  "bloodlust",
+] as const;
 
 const ROOT_KEYS = new Set([
   "algorithmVersion",
   "modelLabel",
   "schemaVersion",
   "calibrationStatus",
+  "familyWeights",
+  "familyCurves",
   "domainWeights",
   "domainContributionCap",
   "scoreFloor",
@@ -314,6 +330,61 @@ function parseConfidence(
   }) as UtilityV2ModelConfig["confidence"];
 }
 
+function parseFamilyWeights(
+  raw: Record<string, unknown>,
+  errors: string[],
+): UtilityV2FamilyWeights | null {
+  const familyRaw = isRecord(raw.familyWeights) ? raw.familyWeights : null;
+  if (familyRaw) {
+    rejectUnknownKeys(familyRaw, new Set(FAMILY_WEIGHT_KEYS), "familyWeights", errors);
+    const out = {} as UtilityV2FamilyWeights;
+    for (const key of FAMILY_WEIGHT_KEYS) {
+      const v = requireNumber(familyRaw, key, errors, { min: 0, max: 1 });
+      if (v != null) out[key] = v;
+    }
+    if (Object.keys(out).length === FAMILY_WEIGHT_KEYS.length) {
+      weightsSumToOne(out, "familyWeights", errors);
+      return Object.freeze(out) as UtilityV2FamilyWeights;
+    }
+    return null;
+  }
+
+  const legacy = isRecord(raw.domainWeights) ? raw.domainWeights : null;
+  if (legacy && "castStops" in legacy) {
+    // Legacy 3-domain documents: apply Phase 3 family defaults (formula change).
+    return UTILITY_V2_FAMILY_WEIGHTS;
+  }
+
+  errors.push("familyWeights (or legacy domainWeights) is required");
+  return null;
+}
+
+function parseFamilyCurves(
+  raw: Record<string, unknown>,
+  errors: string[],
+): UtilityV2FamilyCurves | null {
+  const curvesRaw = raw.familyCurves;
+  if (isRecord(curvesRaw)) {
+    rejectUnknownKeys(curvesRaw, new Set(FAMILY_WEIGHT_KEYS), "familyCurves", errors);
+    const out = {} as UtilityV2FamilyCurves;
+    for (const key of FAMILY_WEIGHT_KEYS) {
+      const parsed = parseCurve(curvesRaw[key], `familyCurves.${key}`, errors);
+      if (parsed) out[key] = parsed;
+    }
+    if (Object.keys(out).length === FAMILY_WEIGHT_KEYS.length) {
+      return Object.freeze(out) as UtilityV2FamilyCurves;
+    }
+    return null;
+  }
+
+  if (raw.castStopsCurve != null || raw.supportCurve != null || raw.strategicCcCurve != null) {
+    return UTILITY_V2_FAMILY_CURVES;
+  }
+
+  errors.push("familyCurves (or legacy domain curves) is required");
+  return null;
+}
+
 function parseScoreSemantics(
   raw: Record<string, unknown> | null,
   errors: string[],
@@ -325,7 +396,7 @@ function parseScoreSemantics(
   if (mode != null && mode !== "OBSERVED_CONTRIBUTION") {
     errors.push(`scoreSemantics.mode must be "OBSERVED_CONTRIBUTION"`);
   }
-  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 2 });
+  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 3 });
   const opportunityMode = requireString(raw, "opportunityMode", errors);
   if (opportunityMode != null && opportunityMode !== "off") {
     errors.push(`scoreSemantics.opportunityMode must be "off"`);
@@ -348,7 +419,7 @@ function parseScoreSemantics(
 
   if (
     mode !== "OBSERVED_CONTRIBUTION" ||
-    (phase !== 1 && phase !== 2) ||
+    (phase !== 1 && phase !== 2 && phase !== 3) ||
     opportunityMode !== "off" ||
     scoreKind == null ||
     notes.length === 0
@@ -358,7 +429,7 @@ function parseScoreSemantics(
 
   return Object.freeze({
     mode: "OBSERVED_CONTRIBUTION" as const,
-    phase: phase as 1 | 2,
+    phase: phase as 1 | 2 | 3,
     opportunityMode: "off" as const,
     scoreKind,
     notes: Object.freeze(notes),
@@ -394,29 +465,8 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     errors.push(`invalid calibrationStatus "${calibrationStatus}"`);
   }
 
-  const domainWeightsRaw = requireObject(raw, "domainWeights", errors);
-  let domainWeights: UtilityV2ModelConfig["domainWeights"] | null = null;
-  if (domainWeightsRaw) {
-    rejectUnknownKeys(
-      domainWeightsRaw,
-      new Set(["castStops", "support", "strategicCc"]),
-      "domainWeights",
-      errors,
-    );
-    const castStops = requireNumber(domainWeightsRaw, "castStops", errors, {
-      min: 0,
-      max: 1,
-    });
-    const support = requireNumber(domainWeightsRaw, "support", errors, { min: 0, max: 1 });
-    const strategicCc = requireNumber(domainWeightsRaw, "strategicCc", errors, {
-      min: 0,
-      max: 1,
-    });
-    if (castStops != null && support != null && strategicCc != null) {
-      domainWeights = Object.freeze({ castStops, support, strategicCc });
-      weightsSumToOne(domainWeights, "domainWeights", errors);
-    }
-  }
+  const familyWeights = parseFamilyWeights(raw, errors);
+  const familyCurves = parseFamilyCurves(raw, errors);
 
   const domainContributionCap = requireNumber(raw, "domainContributionCap", errors, {
     min: 0,
@@ -466,21 +516,37 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     requireObject(raw, "scoreSemantics", errors),
     errors,
   );
-  const castStopsCurve = parseCurve(raw.castStopsCurve, "castStopsCurve", errors);
-  const supportCurve = parseCurve(raw.supportCurve, "supportCurve", errors);
-  const strategicCcCurve = parseCurve(raw.strategicCcCurve, "strategicCcCurve", errors);
+
+  const familyCurvesResolved = familyCurves;
+  const interruptCurve = familyCurvesResolved?.interrupt ?? null;
+  const supportCurve =
+    familyCurvesResolved?.groupSupport ?? parseCurve(raw.supportCurve, "supportCurve", errors);
+  const strategicCcCurve =
+    familyCurvesResolved?.crowdControl ??
+    parseCurve(raw.strategicCcCurve, "strategicCcCurve", errors);
+  const castStopsCurve =
+    interruptCurve ?? parseCurve(raw.castStopsCurve, "castStopsCurve", errors);
 
   if (errors.length > 0) {
     throw new ModelConfigValidationError("UTILITY", errors);
   }
 
+  const migratedScoreFloor =
+    familyWeights === UTILITY_V2_FAMILY_WEIGHTS &&
+    isRecord(raw.domainWeights) &&
+    "castStops" in raw.domainWeights &&
+    raw.familyWeights == null
+      ? 0
+      : scoreFloor;
+
   if (
     algorithmVersion == null ||
     modelLabel == null ||
     calibrationStatus == null ||
-    domainWeights == null ||
+    familyWeights == null ||
+    familyCurvesResolved == null ||
     domainContributionCap == null ||
-    scoreFloor == null ||
+    migratedScoreFloor == null ||
     unmatchedCreditShareCap == null ||
     unmatchedOnlyMaxDomainScore == null ||
     interruptMatchToleranceMs == null ||
@@ -505,9 +571,10 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     modelLabel,
     schemaVersion: UTILITY_V2_SCHEMA_VERSION,
     calibrationStatus: calibrationStatus as UtilityV2ModelConfig["calibrationStatus"],
-    domainWeights,
+    familyWeights,
+    domainWeights: familyWeights,
     domainContributionCap,
-    scoreFloor,
+    scoreFloor: migratedScoreFloor,
     interruptCredits,
     unmatchedCreditShareCap,
     unmatchedOnlyMaxDomainScore,
@@ -516,6 +583,7 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     supportSemanticCredit,
     supportDiminishingExponent,
     dispelPurgeEventCredit,
+    familyCurves: familyCurvesResolved,
     castStopsCurve,
     supportCurve,
     strategicCcCurve,

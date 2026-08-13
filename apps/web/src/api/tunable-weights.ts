@@ -40,9 +40,13 @@ export interface TunableWeights {
       recovery: number;
     };
     utility: {
-      castStops: number;
-      support: number;
-      strategicCc: number;
+      interrupt: number;
+      crowdControl: number;
+      dispelPurge: number;
+      groupSupport: number;
+      movement: number;
+      combatRes: number;
+      bloodlust: number;
     };
     experience: {
       previousSeasonScore: number;
@@ -90,9 +94,13 @@ export const DEFAULT_TUNABLE_WEIGHTS: TunableWeights = {
       recovery: 15,
     },
     utility: {
-      castStops: 45,
-      support: 28,
-      strategicCc: 27,
+      interrupt: 28,
+      crowdControl: 18,
+      dispelPurge: 16,
+      groupSupport: 18,
+      movement: 10,
+      combatRes: 5,
+      bloodlust: 5,
     },
     experience: {
       previousSeasonScore: 30,
@@ -122,6 +130,29 @@ export function formatEffectivePercent(value: number): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeUtilityClient(
+  raw: Record<string, unknown>,
+  defaults: TunableWeights["components"]["utility"],
+): TunableWeights["components"]["utility"] {
+  if (typeof raw.interrupt === "number") {
+    return { ...defaults, ...(raw as TunableWeights["components"]["utility"]) };
+  }
+  if (typeof raw.castStops === "number") {
+    const support = typeof raw.support === "number" ? raw.support : 28;
+    const strategicCc = typeof raw.strategicCc === "number" ? raw.strategicCc : 27;
+    return {
+      interrupt: raw.castStops,
+      crowdControl: strategicCc,
+      dispelPurge: support * 0.4,
+      groupSupport: support * 0.4,
+      movement: support * 0.12,
+      combatRes: support * 0.04,
+      bloodlust: support * 0.04,
+    };
+  }
+  return { ...defaults };
 }
 
 function convertLegacyPerformance(raw: Record<string, unknown>): TunableWeights["components"]["performance"] {
@@ -206,12 +237,12 @@ export function resolveTunableWeightsFromConfig(config: unknown): TunableWeights
           ? (raw.components.survival as TunableWeights["components"]["survival"])
           : {}),
       },
-      utility: {
-        ...defaults.components.utility,
-        ...(isRecord(raw.components) && isRecord(raw.components.utility)
-          ? (raw.components.utility as TunableWeights["components"]["utility"])
-          : {}),
-      },
+      utility: normalizeUtilityClient(
+        isRecord(raw.components) && isRecord(raw.components.utility)
+          ? raw.components.utility
+          : {},
+        defaults.components.utility,
+      ),
       experience: {
         ...defaults.components.experience,
         ...(isRecord(raw.components) && isRecord(raw.components.experience)

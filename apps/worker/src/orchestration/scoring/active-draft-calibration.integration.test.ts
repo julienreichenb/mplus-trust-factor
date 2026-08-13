@@ -237,7 +237,7 @@ describe.runIf(dbAvailable)("WS10.5 active/draft calibration (disposable DB)", (
     const util = report.members[0]!.dimensions.find((d) => d.dimension === "UTILITY")!;
     expect(util.activeScore).toBe(UTILITY_V2_SCORE_FLOOR);
     expect(util.draftScore).toBe(55);
-    expect(util.scoreDelta).toBe(5);
+    expect(util.scoreDelta).toBe(55);
     expect(util.identicalEvidence).toBe(true);
 
     const extension = buildCalibrationReportV2Extension({

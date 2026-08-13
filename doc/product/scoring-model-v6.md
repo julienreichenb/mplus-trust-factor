@@ -16,7 +16,7 @@ Contract enums may still list `RAID` and `AUTHENTICITY` for schema compatibility
 
 ## v6 behaviour
 
-- Utility metric: single `utility.observed_contribution` (weight 1).
+- Utility metric: single `utility.observed_contribution` (weight 1) — 0–100 toolkit exploitation by Ability Catalog family.
 - `overallFormula: "WEIGHTED_DIMENSIONS"` → public overall score equals weighted public skill dimensions.
 - Authenticity / global confidence are **metadata** under v6 (`authenticityAppliedToOverall: false`). They must not be described as shrinking or re-blending the overall Trust Score.
 

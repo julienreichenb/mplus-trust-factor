@@ -386,8 +386,8 @@ function utilityFixture(
     scoreSemantics: "floor-plus-observed",
     modelConfigFingerprint: "util-cfg",
     availabilityState: "PARTIAL",
-    score: 56,
-    rawBehaviorEstimate: 60,
+    score: 37.5,
+    rawBehaviorEstimate: 37.5,
     confidence: 0.55,
     confidenceComponents: confidenceBreakdown.components,
     confidenceBreakdown,
@@ -395,36 +395,37 @@ function utilityFixture(
     inputFingerprint: "util-fp",
     domainBreakdown: [
       utilityDomain({
-        domain: "castStops",
-        cappedContribution: 10,
+        domain: "interrupt",
+        cappedContribution: 37.5,
         rawScore: 75,
         weightShare: 0.5,
+        creditedEvents: 8,
       }),
       utilityDomain({
-        domain: "support",
+        domain: "groupSupport",
         applicable: false,
         rawScore: null,
         cappedContribution: 0,
         weightShare: 0,
-        notes: ["toolkit_interrupt_absent_domain_neutral"],
+        notes: ["excluded:not_applicable"],
       }),
       utilityDomain({
-        domain: "strategicCc",
+        domain: "crowdControl",
         cappedContribution: 0,
-        rawScore: 50,
+        rawScore: 0,
         weightShare: 0.5,
         events: 0,
         creditedEvents: 0,
-        notes: ["zero_observed_cc_casts_remain_neutral"],
+        notes: ["applicable_unused_zero_contribution"],
       }),
     ],
     interruptCounts: {
-      CONFIRMED_SUCCESS: 0,
-      VALID_OVERLAP: 0,
-      MATCHED_FAILED: 0,
+      CONFIRMED_SUCCESS: 4,
+      VALID_OVERLAP: 2,
+      MATCHED_FAILED: 1,
       UNMATCHED_ATTEMPT: 0,
       NOT_OBSERVABLE: 0,
-      creditedTotal: 0,
+      creditedTotal: 6.5,
       unmatchedCreditBeforeCap: 0,
       unmatchedCreditAfterCap: 0,
       unmatchedCapApplied: false,
@@ -469,31 +470,61 @@ function utilityFixture(
       mode: "OBSERVED_CONTRIBUTION",
       publicationBlocked: true,
       availabilityState: "PARTIAL",
-      scoreFloor: 50,
-      domainWeights: { castStops: 0.45, support: 0.35, strategicCc: 0.2 },
+      scoreFloor: 0,
+      domainWeights: {
+        interrupt: 0.28,
+        crowdControl: 0.18,
+        dispelPurge: 0.16,
+        groupSupport: 0.18,
+        movement: 0.1,
+        combatRes: 0.05,
+        bloodlust: 0.05,
+      },
+      familyWeights: {
+        interrupt: 0.28,
+        crowdControl: 0.18,
+        dispelPurge: 0.16,
+        groupSupport: 0.18,
+        movement: 0.1,
+        combatRes: 0.05,
+        bloodlust: 0.05,
+      },
+      interruptCredits: {
+        CONFIRMED_SUCCESS: 1,
+        VALID_OVERLAP: 0.9,
+        MATCHED_FAILED: 0.8,
+        UNMATCHED_ATTEMPT: 0.15,
+        NOT_OBSERVABLE: 0,
+      },
       interruptClassification: {
-        CONFIRMED_SUCCESS: 0,
-        VALID_OVERLAP: 0,
-        MATCHED_FAILED: 0,
+        CONFIRMED_SUCCESS: 4,
+        VALID_OVERLAP: 2,
+        MATCHED_FAILED: 1,
         UNMATCHED_ATTEMPT: 0,
         NOT_OBSERVABLE: 0,
-        creditedTotal: 0,
+        creditedTotal: 6.5,
         unmatchedCreditBeforeCap: 0,
         unmatchedCreditAfterCap: 0,
         unmatchedCapApplied: false,
       },
       domainCurves: {
-        castStops: "credited_attempts_per_active_combat_hour",
-        support: "diminished_semantic_credit_per_active_combat_hour",
-        strategicCc: "deduped_cc_per_active_combat_hour",
+        interrupt: "credited_interrupt_attempts_per_active_combat_hour",
+        crowdControl: "deduped_cc_per_active_combat_hour",
+        dispelPurge: "dispel_purge_successes_per_active_combat_hour",
+        groupSupport: "diminished_support_credit_per_active_combat_hour",
+        movement: "movement_utility_uses_per_active_combat_hour",
+        combatRes: "combat_res_uses_per_active_combat_hour",
+        bloodlust: "bloodlust_uses_per_active_combat_hour",
       },
       caps: {
-        domainContributionCap: 25,
+        domainContributionCap: 100,
         unmatchedCreditShareCap: 0.35,
-        unmatchedOnlyMaxDomainScore: 65,
+        unmatchedOnlyMaxDomainScore: 35,
       },
-      applicableDomains: ["castStops", "strategicCc"],
-      excludedDomains: [{ domain: "support", reason: "not_applicable" }],
+      applicableDomains: ["interrupt", "crowdControl"],
+      unusedDomains: ["crowdControl"],
+      excludedDomains: [{ domain: "groupSupport", reason: "not_applicable" }],
+      uncertainDomains: [],
       notes: [],
       selectedRuns: [
         {
@@ -923,7 +954,7 @@ describe("Score Explainability V1", () => {
       );
     });
 
-    it("Utility: 50 + domain caps + reliability attenuation ~= final score", () => {
+    it("Utility: weighted family scores reconstruct the final score", () => {
       const util = utilityFixture();
       const dim = buildScoreExplainabilityV1({
         performance: null,
@@ -933,7 +964,15 @@ describe("Score Explainability V1", () => {
         composite: null,
       }).dimensions.UTILITY;
 
-      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+      const familyDrivers = dim.scoreStory.drivers.filter((d) =>
+        d.code.startsWith("utility.family."),
+      );
+      const reconstructed = familyDrivers.reduce((sum, d) => {
+        const raw = d.value ?? 0;
+        const share = d.weight ?? 0;
+        return sum + share * raw;
+      }, 0);
+      expect(reconstructed).toBeCloseTo(
         util.score!,
         Math.round(-Math.log10(RECONCILE_EPS)),
       );
@@ -1003,24 +1042,20 @@ describe("Score Explainability V1", () => {
       }).dimensions.UTILITY;
 
       const codes = dim.scoreStory.drivers.map((d) => d.code);
-      expect(codes).toContain("utility.domain.castStops");
-      expect(codes).not.toContain("utility.domain.support");
+      expect(codes).toContain("utility.family.interrupt");
+      expect(codes).not.toContain("utility.family.groupSupport");
       expect(
-        dim.scoreStory.drivers.find((d) => d.code === "utility.domain.castStops")
+        dim.scoreStory.drivers.find((d) => d.code === "utility.family.interrupt")
           ?.direction,
       ).toBe("POSITIVE");
 
       const zeroCc = dim.scoreStory.drivers.find(
-        (d) => d.code === "utility.domain.strategicCc",
+        (d) => d.code === "utility.family.crowdControl",
       );
-      expect(zeroCc?.direction).toBe("NEUTRAL");
+      expect(zeroCc?.direction).toBe("NEGATIVE");
       expect(zeroCc?.params.zeroObservedContribution).toBe(true);
 
-      expect(
-        dim.scoreStory.drivers.find(
-          (d) => d.code === "utility.reliability_attenuation",
-        )?.direction,
-      ).toBe("NEUTRAL");
+      expect(codes).not.toContain("utility.reliability_attenuation");
 
       expect(dim.confidenceStory.reasons.map((r) => r.code)).toEqual([
         "partial_dungeon_coverage",

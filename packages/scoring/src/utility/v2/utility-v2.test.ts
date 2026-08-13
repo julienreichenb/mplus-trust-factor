@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import {
   UTILITY_V2_ALGORITHM_VERSION,
-  UTILITY_V2_DOMAIN_WEIGHTS,
   UTILITY_V2_INTERRUPT_CREDITS,
   UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCORE_FLOOR,
@@ -154,7 +153,7 @@ describe("classifyInterruptAttempts", () => {
       hostileObservabilityPresent: true,
     });
     expect(classified[0]!.classification).toBe("VALID_OVERLAP");
-    expect(classified[0]!.credit).toBe(0.5);
+    expect(classified[0]!.credit).toBe(UTILITY_V2_INTERRUPT_CREDITS.VALID_OVERLAP);
   });
 
   it("classifies matched failed when hostile cast completes", () => {
@@ -176,7 +175,7 @@ describe("classifyInterruptAttempts", () => {
       hostileObservabilityPresent: true,
     });
     expect(classified[0]!.classification).toBe("MATCHED_FAILED");
-    expect(classified[0]!.credit).toBe(0.2);
+    expect(classified[0]!.credit).toBe(UTILITY_V2_INTERRUPT_CREDITS.MATCHED_FAILED);
   });
 
   it("classifies unmatched when hostile stream present but no window match", () => {
@@ -198,7 +197,7 @@ describe("classifyInterruptAttempts", () => {
       hostileObservabilityPresent: true,
     });
     expect(classified[0]!.classification).toBe("UNMATCHED_ATTEMPT");
-    expect(classified[0]!.credit).toBe(0.05);
+    expect(classified[0]!.credit).toBe(UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT);
   });
 
   it("classifies not observable when hostile stream absent", () => {
@@ -304,13 +303,13 @@ describe("availability and binding contracts", () => {
     expect(result.availabilityState).toBe("UNAVAILABLE");
   });
 
-  it("bound facts with zero actions => score 50", () => {
+  it("bound facts with zero actions => genuine low score, not missing-data zero", () => {
     const result = computeUtilityV2(baseInput());
     expect(result.score).toBe(UTILITY_V2_SCORE_FLOOR);
     expect(result.availabilityState).toBe("AVAILABLE");
     expect(result.confidence).toBeGreaterThan(0);
-    expect(result.confidence).toBeLessThanOrEqual(0.35);
-    expect(result.explanation.confidenceReasons).toContain("zero_attributable_events");
+    expect(result.explanation.unusedDomains.length).toBeGreaterThan(0);
+    expect(result.explanation.confidenceReasons).not.toContain("zero_attributable_events");
   });
 
   it("partial manifest coverage => PARTIAL", () => {
@@ -330,7 +329,7 @@ describe("availability and binding contracts", () => {
       ),
       factSets: [boundFact("slot-a", "ara-kara", idA)],
     });
-    expect(result.score).toBe(50);
+    expect(result.score).toBe(UTILITY_V2_SCORE_FLOOR);
     expect(result.availabilityState).toBe("PARTIAL");
     expect(result.context.boundSelectedSlotCount).toBe(1);
   });
@@ -356,7 +355,7 @@ describe("availability and binding contracts", () => {
       ],
     });
     expect(result.availabilityState).toBe("AVAILABLE");
-    expect(result.score).toBe(50);
+    expect(result.score).toBe(UTILITY_V2_SCORE_FLOOR);
   });
 });
 
@@ -462,7 +461,7 @@ describe("shadow payload and calibration export", () => {
     expect(payload.state).toBe("SHADOW");
     expect(payload.metrics.publicationBlocked).toBe(true);
     expect(payload.metrics.availabilityState).toBe("AVAILABLE");
-    expect(payload.score).toBe(50);
+    expect(payload.score).toBe(UTILITY_V2_SCORE_FLOOR);
     expect(payload.inputFingerprint).toBe(result.inputFingerprint);
     expect(payload.explanation.publicationBlocked).toBe(true);
   });
@@ -518,7 +517,7 @@ describe("spam caps", () => {
         sourceKind: "PLAYER" as const,
         targetActorId: 1,
         classification: "UNMATCHED_ATTEMPT" as const,
-        credit: 0.05,
+        credit: UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT,
         note: "",
       })),
     ];
@@ -541,7 +540,7 @@ describe("spam caps", () => {
         sourceKind: "PLAYER" as const,
         targetActorId: null,
         classification: "UNMATCHED_ATTEMPT" as const,
-        credit: 0.05,
+        credit: UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT,
         note: "spam",
       })),
     });
@@ -553,7 +552,7 @@ describe("spam caps", () => {
       }),
       factSets: [spam],
     });
-    const castStops = result.domainBreakdown.find((d) => d.domain === "castStops")!;
+    const castStops = result.domainBreakdown.find((d) => d.domain === "interrupt")!;
     expect(castStops.rawScore).toBeLessThanOrEqual(UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE);
     expect(result.score!).toBeLessThan(80);
   });
@@ -589,22 +588,19 @@ describe("computeUtilityV2 safety", () => {
       }),
       factSets: [fs],
     });
-    const cast = result.domainBreakdown.find((d) => d.domain === "castStops")!;
-    const support = result.domainBreakdown.find((d) => d.domain === "support")!;
-    const cc = result.domainBreakdown.find((d) => d.domain === "strategicCc")!;
+    const cast = result.domainBreakdown.find((d) => d.domain === "interrupt")!;
+    const support = result.domainBreakdown.find((d) => d.domain === "groupSupport")!;
+    const cc = result.domainBreakdown.find((d) => d.domain === "crowdControl")!;
     expect(cast.applicable).toBe(true);
     expect(support.applicable).toBe(false);
     expect(cc.applicable).toBe(false);
     expect(cast.weightShare).toBe(1);
   });
 
-  it("never scores below neutral floor when AVAILABLE/PARTIAL", () => {
+  it("scores unused applicable toolkit well below 50", () => {
     const result = computeUtilityV2(baseInput());
-    expect(result.score).toBeGreaterThanOrEqual(UTILITY_V2_SCORE_FLOOR);
-    for (const d of result.domainBreakdown) {
-      if (d.rawScore != null) expect(d.rawScore).toBeGreaterThanOrEqual(UTILITY_V2_SCORE_FLOOR);
-      expect(d.cappedContribution).toBeGreaterThanOrEqual(0);
-    }
+    expect(result.score).not.toBeNull();
+    expect(result.score!).toBeLessThan(50);
   });
 
   it("gives zero/negligible credit to passive and rotational support", () => {
@@ -655,11 +651,11 @@ describe("computeUtilityV2 safety", () => {
       },
     ]);
     expect(scored.bySemantic.PASSIVE_SUPPORT).toBe(0);
-    expect(scored.bySemantic.PERSONAL_MOBILITY).toBe(0);
+    expect(scored.bySemantic.PERSONAL_MOBILITY).toBe(1);
     expect(scored.bySemantic.ROUTINE_ROTATIONAL_SUPPORT).toBe(0.05);
     expect(scored.bySemantic.EMERGENCY_SUPPORT).toBe(1);
-    expect(scored.passiveOrRotationalIgnored).toBe(2);
-    expect(scored.rawCredit).toBeCloseTo(1.05, 5);
+    expect(scored.passiveOrRotationalIgnored).toBe(1);
+    expect(scored.rawCredit).toBeCloseTo(2.05, 5);
   });
 
   it("dedupes strategic CC spam on same target", () => {
@@ -796,7 +792,7 @@ describe("computeUtilityV2 safety", () => {
     expect(a).toEqual(b);
     expect(a.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
     expect(a.explanation.publicationBlocked).toBe(true);
-    expect(a.explanation.domainWeights).toEqual({ ...UTILITY_V2_DOMAIN_WEIGHTS });
+    expect(a.explanation.domainWeights).toEqual({ ...UTILITY_V2_MODEL_CONFIG.familyWeights });
   });
 
   it("writes detailed counts/rates/caps/catalog coverage in explanation", () => {
@@ -848,87 +844,16 @@ describe("computeUtilityV2 safety", () => {
 });
 
 /**
- * Agent 01 diagnostic freeze — Utility "+8" explainability is the domain contribution cap.
- * Documents CASE A (different rates saturating the same cap). Does not change the cap.
+ * Recalibration: the former +8 domain contribution cap / 50-floor architecture is gone.
  */
-describe("scoring-stabilization: utility domain contribution cap = 8", () => {
-  it("saturates castStops and strategicCc at cappedContribution=8 with distinct uncapped values", () => {
-    const identity = { reportCode: "CAP8", fightId: 1, reportRevision: 1 };
-    // 1 combat hour, high credited interrupts + CC → both domains above curve saturation.
-    const combatHours = 1;
-    const interruptAttempts = Array.from({ length: 50 }, (_, i) => ({
-      id: `i${i}`,
-      timestampMs: i * 1000,
-      abilityGameId: 2139,
-      sourceActorId: 10,
-      sourceKind: "PLAYER" as const,
-      targetActorId: 50,
-      classification: "CONFIRMED_SUCCESS" as const,
-      credit: 1,
-      note: "ok",
-    }));
-    const ccActions = Array.from({ length: 24 }, (_, i) => ({
-      id: `c${i}`,
-      timestampMs: i * 2000,
-      abilityGameId: 118,
-      sourceActorId: 10,
-      sourceKind: "PLAYER" as const,
-      targetActorId: 100 + i,
-      inActiveCombat: true,
-    }));
-    const fs = boundFact("slot-a", "ara-kara", identity, {
-      toolkit: { hasInterrupt: true, hasSupport: true, hasStrategicCc: true },
-      hostileBegincastCount: 80,
-      hostileObservability: "PRESENT",
-      activeCombatHours: combatHours,
-      activeCombatMs: combatHours * 3_600_000,
-      interruptAttempts,
-      ccActions,
-      supportActions: [
-        {
-          id: "s1",
-          timestampMs: 500,
-          abilityGameId: 1,
-          abilityName: "Support",
-          sourceActorId: 10,
-          sourceKind: "PLAYER",
-          targetActorId: 11,
-          semantic: "REACTIVE_SUPPORT",
-          tier: "CONFIRMED_IMPACT",
-        },
-      ],
-    });
-    const result = computeUtilityV2({
-      manifest: baseManifest([selectedSlot("slot-a", "ara-kara", 0, identity)], {
-        expectedSlotCount: 1,
-        selectedSlotCount: 1,
-        activeDungeonSlugs: ["ara-kara"],
-      }),
-      factSets: [fs],
-    });
-
-    const castStops = result.domainBreakdown.find((d) => d.domain === "castStops")!;
-    const strategicCc = result.domainBreakdown.find((d) => d.domain === "strategicCc")!;
-
-    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(8);
-    expect(castStops.cappedContribution).toBe(8);
-    expect(strategicCc.cappedContribution).toBe(8);
-    expect(castStops.capApplied).toBe(true);
-    expect(strategicCc.capApplied).toBe(true);
-    // CASE A: upstream rates differ; only the displayed capped contribution matches.
-    expect(castStops.perCombatHour).not.toBe(strategicCc.perCombatHour);
-    expect(castStops.uncappedContribution).not.toBe(strategicCc.uncappedContribution);
-    expect(castStops.uncappedContribution).toBeGreaterThan(8);
-    expect(strategicCc.uncappedContribution).toBeGreaterThan(8);
-    // Event counts are not the displayed "8".
-    expect(castStops.creditedEvents).not.toBe(8);
-    expect(strategicCc.creditedEvents).not.toBe(8);
+describe("utility toolkit scale", () => {
+  it("does not apply a hidden +8 contribution cap", () => {
+    expect(UTILITY_V2_MODEL_CONFIG.scoreFloor).toBe(0);
+    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(100);
   });
 
   it("proves expectedDungeons=8 is unrelated to domainContributionCap", () => {
     expect(UTILITY_V2_MODEL_CONFIG.confidence.expectedDungeons).toBe(8);
-    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(8);
-    // Coincidence of literal 8 only — different config keys / consumers.
     expect(UTILITY_V2_MODEL_CONFIG.confidence).not.toHaveProperty("domainContributionCap");
   });
 });

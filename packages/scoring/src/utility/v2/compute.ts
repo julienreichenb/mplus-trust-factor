@@ -1,5 +1,5 @@
 /**
- * Utility V2 Phase 1 — pure observed-contribution scoring from fact sets.
+ * Utility V2 Phase 3 — toolkit-exploitation scoring from fact sets.
  */
 
 import { clamp, clamp01 } from "../../math.js";
@@ -13,6 +13,15 @@ import {
 } from "./constants.js";
 import { emitUtilityConsumptionTraces } from "./consumption-traces.js";
 import { sumInterruptCredits } from "./classify-interrupts.js";
+import {
+  UTILITY_V2_FAMILY_KEYS,
+  emptyFamilyApplicability,
+  familiesFromLegacyToolkit,
+  legacyToolkitBooleansFromFamilies,
+  mergeFamilyApplicability,
+  type UtilityFamilyApplicabilityMap,
+  type UtilityV2FamilyKey,
+} from "./families.js";
 import { computeUtilityV2InputFingerprint } from "./fingerprint.js";
 import {
   fingerprintUtilityV2ModelConfig,
@@ -58,10 +67,6 @@ function interpolatePerHour(
   return last.score;
 }
 
-function floorNeutral(score: number, floor: number): number {
-  return Math.max(floor, score);
-}
-
 function emptySemantic(): Record<UtilityV2SupportSemantic, number> {
   return {
     REACTIVE_SUPPORT: 0,
@@ -88,7 +93,17 @@ function emptyInterruptCounts(): UtilityV2InterruptCounts {
   };
 }
 
-/** Apply unmatched spam cap so unmatched cannot dominate cast-stop credit. */
+function restampInterruptCredits(
+  attempts: ClassifiedInterruptAttempt[],
+  config: UtilityV2ModelConfig,
+): ClassifiedInterruptAttempt[] {
+  return attempts.map((a) => ({
+    ...a,
+    credit: config.interruptCredits[a.classification] ?? 0,
+  }));
+}
+
+/** Apply unmatched spam cap so unmatched cannot dominate interrupt credit. */
 export function applyUnmatchedSpamCap(
   attempts: ClassifiedInterruptAttempt[],
   config: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,
@@ -99,7 +114,8 @@ export function applyUnmatchedSpamCap(
   capApplied: boolean;
   counts: UtilityV2InterruptCounts;
 } {
-  const summed = sumInterruptCredits(attempts);
+  const restamped = restampInterruptCredits(attempts, config);
+  const summed = sumInterruptCredits(restamped);
   const nonUnmatched =
     summed.byClass.CONFIRMED_SUCCESS +
     summed.byClass.VALID_OVERLAP +
@@ -191,7 +207,6 @@ export function scoreSupportCredit(
     if (mult <= 0 || tierMult <= 0) {
       if (
         a.semantic === "PASSIVE_SUPPORT" ||
-        a.semantic === "PERSONAL_MOBILITY" ||
         a.semantic === "ROUTINE_ROTATIONAL_SUPPORT" ||
         a.semantic === "UNVERIFIED_EXTERNAL"
       ) {
@@ -214,10 +229,12 @@ export function scoreSupportCredit(
 }
 
 function mergeToolkit(sets: UtilityV2RunFactSet[]): UtilityV2ToolkitApplicability {
+  const families = mergeFamilyApplicability(
+    sets.map((s) => familiesFromLegacyToolkit(s.toolkit)),
+  );
   return {
-    hasInterrupt: sets.some((s) => s.toolkit.hasInterrupt),
-    hasSupport: sets.some((s) => s.toolkit.hasSupport),
-    hasStrategicCc: sets.some((s) => s.toolkit.hasStrategicCc),
+    ...legacyToolkitBooleansFromFamilies(families),
+    families,
   };
 }
 
@@ -236,6 +253,66 @@ function resolveAvailability(input: {
   return "AVAILABLE";
 }
 
+function familyCurveLabel(family: UtilityV2FamilyKey): string {
+  switch (family) {
+    case "interrupt":
+      return "credited_interrupt_attempts_per_active_combat_hour";
+    case "crowdControl":
+      return "deduped_cc_per_active_combat_hour";
+    case "dispelPurge":
+      return "dispel_purge_successes_per_active_combat_hour";
+    case "groupSupport":
+      return "diminished_support_credit_per_active_combat_hour";
+    case "movement":
+      return "movement_utility_uses_per_active_combat_hour";
+    case "combatRes":
+      return "combat_res_uses_per_active_combat_hour";
+    case "bloodlust":
+      return "bloodlust_uses_per_active_combat_hour";
+  }
+}
+
+function emptyExplanation(
+  config: UtilityV2ModelConfig,
+  interruptCounts: UtilityV2InterruptCounts,
+  extraNotes: string[],
+  bindingReasons: string[],
+): UtilityV2Explanation {
+  const domainCurves = {} as Record<UtilityV2FamilyKey, string>;
+  for (const family of UTILITY_V2_FAMILY_KEYS) {
+    domainCurves[family] = familyCurveLabel(family);
+  }
+  return {
+    mode: "OBSERVED_CONTRIBUTION",
+    publicationBlocked: true,
+    availabilityState: "UNAVAILABLE",
+    scoreFloor: config.scoreFloor,
+    domainWeights: { ...config.familyWeights },
+    familyWeights: { ...config.familyWeights },
+    interruptCredits: { ...config.interruptCredits },
+    interruptClassification: interruptCounts,
+    domainCurves,
+    caps: {
+      domainContributionCap: config.domainContributionCap,
+      unmatchedCreditShareCap: config.unmatchedCreditShareCap,
+      unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
+    },
+    applicableDomains: [],
+    unusedDomains: [],
+    excludedDomains: [],
+    uncertainDomains: [],
+    notes: [...config.scoreSemantics.notes, ...extraNotes],
+    selectedRuns: [],
+    confidenceReasons: ["unavailable"],
+    confidenceBreakdown: buildDimensionConfidenceBreakdown({
+      value: 0,
+      causes: ["unavailable"],
+      components: {},
+    }),
+    bindingReasons,
+  };
+}
+
 function unavailableResult(
   input: UtilityV2ComputeInput,
   bindingReasons: string[],
@@ -250,38 +327,9 @@ function unavailableResult(
     passiveOrRotationalIgnored: 0,
   };
   const interruptCounts = emptyInterruptCounts();
-  const explanation: UtilityV2Explanation = {
-    mode: "OBSERVED_CONTRIBUTION",
-    publicationBlocked: true,
-    availabilityState: "UNAVAILABLE",
-    scoreFloor: config.scoreFloor,
-    domainWeights: { ...config.domainWeights },
-    interruptClassification: interruptCounts,
-    domainCurves: {
-      castStops: "credited_attempts_per_active_combat_hour",
-      support: "diminished_semantic_credit_per_active_combat_hour",
-      strategicCc: "deduped_cc_per_active_combat_hour",
-    },
-    caps: {
-      domainContributionCap: config.domainContributionCap,
-      unmatchedCreditShareCap: config.unmatchedCreditShareCap,
-      unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
-    },
-    applicableDomains: [],
-    excludedDomains: [],
-    notes: [
-      ...config.scoreSemantics.notes,
-      "UNAVAILABLE: missing, unbound, or mismatched facts — score withheld.",
-    ],
-    selectedRuns: [],
-    confidenceReasons: ["unavailable"],
-    confidenceBreakdown: buildDimensionConfidenceBreakdown({
-      value: 0,
-      causes: ["unavailable"],
-      components: {},
-    }),
-    bindingReasons,
-  };
+  const explanation = emptyExplanation(config, interruptCounts, [
+    "UNAVAILABLE: missing, unbound, or mismatched facts — score withheld.",
+  ], bindingReasons);
 
   const emptyResultStub = {
     availabilityState: "UNAVAILABLE" as const,
@@ -336,7 +384,12 @@ function unavailableResult(
       selectedSlotCount: input.manifest.selectedSlotCount,
       boundSelectedSlotCount: 0,
       expectedSlotCount: input.manifest.expectedSlotCount,
-      toolkit: { hasInterrupt: false, hasSupport: false, hasStrategicCc: false },
+      toolkit: {
+        hasInterrupt: false,
+        hasSupport: false,
+        hasStrategicCc: false,
+        families: emptyFamilyApplicability("not_applicable"),
+      },
       catalogCoverage: { abilityCatalogCoverage: 0, mechanicCatalogCoverage: 0 },
     },
     explanation,
@@ -344,11 +397,29 @@ function unavailableResult(
   };
 }
 
+function familyIncluded(
+  family: UtilityV2FamilyKey,
+  applicability: UtilityFamilyApplicabilityMap[UtilityV2FamilyKey],
+  used: boolean,
+): { include: boolean; reason: string } {
+  if (applicability.state === "not_applicable") {
+    return { include: false, reason: applicability.reason ?? "not_applicable" };
+  }
+  if (applicability.state === "uncertain") {
+    return { include: false, reason: applicability.reason ?? "applicability_uncertain" };
+  }
+  if (applicability.state === "optional" && !used) {
+    return { include: false, reason: applicability.reason ?? "optional_group_expectation_unused" };
+  }
+  return { include: true, reason: applicability.reason ?? "applicable" };
+}
+
 /**
- * Provider-free Utility V2 Phase 1 computation from manifest-bound fact sets.
+ * Provider-free Utility V2 computation from manifest-bound fact sets.
  *
  * Missing / unbound / mismatched facts → score null, confidence 0, UNAVAILABLE.
- * Bound facts with zero observed actions → score floor 50 (Phase 1), PARTIAL/AVAILABLE.
+ * Applicable unused toolkit → genuine low/zero score (no hidden 50 floor).
+ * Uncertain talent applicability is excluded, never a fabricated unused zero.
  */
 export function computeUtilityV2(
   input: UtilityV2ComputeInput,
@@ -390,14 +461,23 @@ export function computeUtilityV2(
   );
   const hostileBegincastCount = factSets.reduce((s, f) => s + f.hostileBegincastCount, 0);
   const toolkit = mergeToolkit(factSets);
+  const families = familiesFromLegacyToolkit(toolkit);
 
   const allAttempts = factSets.flatMap((f) => f.interruptAttempts);
   const interruptCap = applyUnmatchedSpamCap(allAttempts, config);
   const allCc = factSets.flatMap((f) => f.ccActions);
   const dedupedCc = dedupeStrategicCc(allCc, config.ccDedupeWindowMs);
   const allSupport = factSets.flatMap((f) => f.supportActions);
-  const support = scoreSupportCredit(allSupport, config);
+  const groupSupportActions = allSupport.filter(
+    (a) =>
+      a.semantic !== "PERSONAL_MOBILITY" &&
+      a.semantic !== "EMERGENCY_SUPPORT",
+  );
+  const movementActions = allSupport.filter((a) => a.semantic === "PERSONAL_MOBILITY");
+  const combatResActions = allSupport.filter((a) => a.semantic === "EMERGENCY_SUPPORT");
+  const support = scoreSupportCredit(groupSupportActions, config);
   const dispelPurge = factSets.reduce((s, f) => s + f.dispelPurgeSuccessCount, 0);
+  const bloodlustCount = factSets.reduce((s, f) => s + (f.bloodlustSuccessCount ?? 0), 0);
   const combinedSupportRaw =
     support.rawCredit + dispelPurge * config.dispelPurgeEventCredit;
   const supportWithDispel = {
@@ -407,7 +487,11 @@ export function computeUtilityV2(
         ? 0
         : Math.pow(combinedSupportRaw, config.supportDiminishingExponent),
     ),
-    bySemantic: support.bySemantic,
+    bySemantic: {
+      ...support.bySemantic,
+      PERSONAL_MOBILITY: movementActions.length,
+      EMERGENCY_SUPPORT: combatResActions.length,
+    },
     passiveOrRotationalIgnored: support.passiveOrRotationalIgnored,
   };
 
@@ -419,148 +503,138 @@ export function computeUtilityV2(
     factSets.reduce((s, f) => s + f.catalogCoverage.mechanicCatalogCoverage, 0) /
       factSets.length;
 
-  const domainBreakdown: UtilityV2DomainBreakdown[] = [];
-
-  // --- castStops ---
-  {
-    const notes: string[] = [];
-    let raw: number | null = floor;
-    let applicable = true;
-    const creditedPerHour = interruptCap.creditedTotal / combatHours;
-    const unmatchedOnly =
-      interruptCap.counts.CONFIRMED_SUCCESS +
-        interruptCap.counts.VALID_OVERLAP +
-        interruptCap.counts.MATCHED_FAILED ===
-        0 && interruptCap.counts.UNMATCHED_ATTEMPT > 0;
-
-    if (!toolkit.hasInterrupt) {
-      applicable = false;
-      raw = null;
-      notes.push("toolkit_interrupt_absent_domain_neutral");
-    } else if (interruptCap.creditedTotal <= 0) {
-      raw = floor;
-      notes.push("zero_credited_interrupt_attempts_remain_neutral");
-    } else {
-      raw = interpolatePerHour(creditedPerHour, config.castStopsCurve);
-      const hostileDensity = hostileBegincastCount / combatHours;
-      const densityFactor = clamp(
-        hostileDensity / config.minHostileCastsPerHourForFullCredit,
-        0.35,
-        1,
-      );
-      raw = floor + (raw - floor) * densityFactor;
-      raw = floorNeutral(raw, floor);
-      if (unmatchedOnly) {
-        raw = Math.min(raw, config.unmatchedOnlyMaxDomainScore);
-        notes.push("unmatched_only_domain_score_capped");
-      }
-      if (interruptCap.capApplied) {
-        notes.push("unmatched_spam_credit_share_capped");
-      }
-      notes.push(
-        `denominator=credited_interrupt_attempts_per_active_combat_hour; hostile_density_factor=${round2(densityFactor)}`,
-      );
-    }
-
-    domainBreakdown.push({
-      domain: "castStops",
-      applicable,
-      rawScore: raw == null ? null : round2(raw),
-      weight: config.domainWeights.castStops,
-      weightShare: 0,
-      uncappedContribution: 0,
-      cappedContribution: 0,
-      capApplied: false,
+  const usage: Record<UtilityV2FamilyKey, { events: number; credited: number; perHour: number }> = {
+    interrupt: {
       events: allAttempts.length,
-      creditedEvents: round2(interruptCap.creditedTotal),
-      perCombatHour: applicable ? round2(creditedPerHour) : null,
-      notes,
-    });
-  }
+      credited: interruptCap.creditedTotal,
+      perHour: interruptCap.creditedTotal / combatHours,
+    },
+    crowdControl: {
+      events: allCc.length,
+      credited: dedupedCc.length,
+      perHour: dedupedCc.length / combatHours,
+    },
+    dispelPurge: {
+      events: dispelPurge,
+      credited: dispelPurge,
+      perHour: dispelPurge / combatHours,
+    },
+    groupSupport: {
+      events: groupSupportActions.length,
+      credited: support.rawCredit,
+      perHour: support.diminishedCredit / combatHours,
+    },
+    movement: {
+      events: movementActions.length,
+      credited: movementActions.length,
+      perHour: movementActions.length / combatHours,
+    },
+    combatRes: {
+      events: combatResActions.length,
+      credited: combatResActions.length,
+      perHour: combatResActions.length / combatHours,
+    },
+    bloodlust: {
+      events: bloodlustCount,
+      credited: bloodlustCount,
+      perHour: bloodlustCount / combatHours,
+    },
+  };
 
-  // --- support ---
-  {
+  // Bloodlust is not in the legacy support semantic split; count GROUP-like
+  // STRATEGIC_SUPPORT named bloodlust is not reliable. Leave 0 unless
+  // groupSupport actions are tagged via future familyActions. Observed
+  // bloodlust currently arrives as EXTERNAL_SUPPORT / groupSupport.
+
+  const domainBreakdown: UtilityV2DomainBreakdown[] = [];
+  const unusedDomains: UtilityV2FamilyKey[] = [];
+  const excludedDomains: Array<{ domain: UtilityV2FamilyKey; reason: string }> = [];
+  const uncertainDomains: Array<{ domain: UtilityV2FamilyKey; reason: string }> = [];
+
+  for (const family of UTILITY_V2_FAMILY_KEYS) {
+    const applicability = families[family];
+    const used = usage[family].credited > 0;
+    const { include, reason } = familyIncluded(family, applicability, used);
     const notes: string[] = [];
-    const toolkitSupport =
-      toolkit.hasSupport || supportWithDispel.rawCredit > 0 || dispelPurge > 0;
-    let raw: number | null = floor;
-    let applicable = true;
-    const perHour = supportWithDispel.diminishedCredit / combatHours;
+    const applicable = include;
+    let raw: number | null = null;
 
-    if (!toolkitSupport) {
-      applicable = false;
-      raw = null;
-      notes.push("no_support_toolkit_and_no_observed_support_neutral");
-    } else if (supportWithDispel.rawCredit <= 0) {
-      raw = floor;
-      notes.push("zero_observed_support_credit_remain_neutral");
-    } else {
-      raw = floorNeutral(interpolatePerHour(perHour, config.supportCurve), floor);
-      notes.push(
-        `denominator=diminished_support_credit_per_active_combat_hour; exponent=${config.supportDiminishingExponent}`,
-      );
+    if (!include) {
+      if (applicability.state === "uncertain") {
+        uncertainDomains.push({ domain: family, reason });
+        notes.push(`excluded_uncertain:${reason}`);
+      } else {
+        excludedDomains.push({ domain: family, reason });
+        notes.push(`excluded:${reason}`);
+      }
+      domainBreakdown.push({
+        domain: family,
+        applicable: false,
+        rawScore: null,
+        weight: config.familyWeights[family],
+        weightShare: 0,
+        uncappedContribution: 0,
+        cappedContribution: 0,
+        capApplied: false,
+        events: usage[family].events,
+        creditedEvents: round2(usage[family].credited),
+        perCombatHour: null,
+        notes,
+      });
+      continue;
     }
-    if (support.passiveOrRotationalIgnored > 0) {
-      notes.push(`ignored_passive_rotational_or_mobility=${support.passiveOrRotationalIgnored}`);
-    }
 
-    domainBreakdown.push({
-      domain: "support",
-      applicable,
-      rawScore: raw == null ? null : round2(raw),
-      weight: config.domainWeights.support,
-      weightShare: 0,
-      uncappedContribution: 0,
-      cappedContribution: 0,
-      capApplied: false,
-      events: allSupport.length + dispelPurge,
-      creditedEvents: round2(supportWithDispel.rawCredit),
-      perCombatHour: applicable ? round2(perHour) : null,
-      notes,
-    });
-  }
-
-  // --- strategicCc ---
-  {
-    const notes: string[] = [];
-    let raw: number | null = floor;
-    let applicable = true;
-    const perHour = dedupedCc.length / combatHours;
-
-    if (!toolkit.hasStrategicCc) {
-      applicable = false;
-      raw = null;
-      notes.push("toolkit_hard_cc_absent_domain_neutral");
-    } else if (dedupedCc.length === 0) {
+    const perHour = usage[family].perHour;
+    if (!used) {
       raw = floor;
-      notes.push("zero_observed_cc_casts_remain_neutral");
+      unusedDomains.push(family);
+      notes.push("applicable_unused_zero_contribution");
     } else {
-      raw = floorNeutral(interpolatePerHour(perHour, config.strategicCcCurve), floor);
-      notes.push("denominator=deduped_player_pet_cc_per_active_combat_hour");
-      if (allCc.length > dedupedCc.length) {
+      raw = interpolatePerHour(perHour, config.familyCurves[family]);
+      notes.push(`denominator=${familyCurveLabel(family)}`);
+      if (family === "interrupt") {
+        const unmatchedOnly =
+          interruptCap.counts.CONFIRMED_SUCCESS +
+            interruptCap.counts.VALID_OVERLAP +
+            interruptCap.counts.MATCHED_FAILED ===
+            0 && interruptCap.counts.UNMATCHED_ATTEMPT > 0;
+        if (unmatchedOnly) {
+          raw = Math.min(raw, config.unmatchedOnlyMaxDomainScore);
+          notes.push("unmatched_only_domain_score_capped");
+        }
+        if (interruptCap.capApplied) {
+          notes.push("unmatched_spam_credit_share_capped");
+        }
+      }
+      if (family === "crowdControl" && allCc.length > dedupedCc.length) {
         notes.push(`cc_deduped_${allCc.length - dedupedCc.length}`);
       }
+      if (family === "groupSupport" && support.passiveOrRotationalIgnored > 0) {
+        notes.push(
+          `ignored_passive_rotational=${support.passiveOrRotationalIgnored}`,
+        );
+      }
     }
 
+    raw = clamp(raw, floor, 100);
     domainBreakdown.push({
-      domain: "strategicCc",
+      domain: family,
       applicable,
-      rawScore: raw == null ? null : round2(raw),
-      weight: config.domainWeights.strategicCc,
+      rawScore: round2(raw),
+      weight: config.familyWeights[family],
       weightShare: 0,
       uncappedContribution: 0,
       cappedContribution: 0,
       capApplied: false,
-      events: allCc.length,
-      creditedEvents: dedupedCc.length,
-      perCombatHour: applicable ? round2(perHour) : null,
+      events: usage[family].events,
+      creditedEvents: round2(usage[family].credited),
+      perCombatHour: round2(perHour),
       notes,
     });
   }
 
-  const activeWeights = domainBreakdown
-    .filter((d) => d.applicable)
-    .reduce((s, d) => s + d.weight, 0);
+  const included = domainBreakdown.filter((d) => d.applicable);
+  const activeWeights = included.reduce((s, d) => s + d.weight, 0);
 
   for (const d of domainBreakdown) {
     if (!d.applicable) {
@@ -571,40 +645,53 @@ export function computeUtilityV2(
       continue;
     }
     const share = activeWeights > 0 ? d.weight / activeWeights : 0;
-    const uncapped = share * ((d.rawScore ?? floor) - floor);
-    const nonNeg = Math.max(0, uncapped);
-    const capped = clamp(nonNeg, 0, config.domainContributionCap);
+    const contribution = share * (d.rawScore ?? floor);
     d.weightShare = round2(share);
-    d.uncappedContribution = round2(uncapped);
-    d.cappedContribution = round2(capped);
-    d.capApplied = Math.abs(nonNeg - capped) > 1e-9;
-    d.notes.push(`weight_share=${round2(share)}; contribution_capped_after_share`);
+    d.uncappedContribution = round2(contribution);
+    d.cappedContribution = round2(contribution);
+    d.capApplied = false;
+    d.notes.push(`weight_share=${round2(share)}`);
   }
 
-  const deviation = domainBreakdown
-    .filter((d) => d.applicable)
-    .reduce((s, d) => s + d.cappedContribution, 0);
+  const uncertainOnly =
+    included.length === 0 && uncertainDomains.length > 0;
 
-  const rawBehaviorEstimate = round2(floorNeutral(floor + deviation, floor));
+  const rawBehaviorEstimate = uncertainOnly
+    ? null
+    : round2(
+        included.reduce((s, d) => s + (d.cappedContribution ?? 0), 0),
+      );
+
+  const score =
+    rawBehaviorEstimate == null
+      ? null
+      : round2(clamp(Math.max(floor, rawBehaviorEstimate), 0, 100));
 
   const attributableEvents = round2(
     interruptCap.creditedTotal +
-      supportWithDispel.rawCredit +
+      support.rawCredit +
       dedupedCc.length +
-      dispelPurge,
+      dispelPurge +
+      movementActions.length +
+      combatResActions.length +
+      bloodlustCount,
   );
 
   const reliability = clamp(
     0.25 * clamp01(dungeons.length / config.confidence.expectedDungeons) +
       0.2 * clamp01(factSets.length / config.confidence.runSaturation) +
       0.25 * clamp01(combatHours / config.confidence.combatHourSaturation) +
-      0.3 * clamp01(attributableEvents / config.confidence.attributableEventSaturation),
+      0.3 *
+        clamp01(
+          attributableEvents > 0 || included.length > 0
+            ? Math.max(
+                attributableEvents / config.confidence.attributableEventSaturation,
+                included.length > 0 ? 1 : 0,
+              )
+            : 0,
+        ),
     config.confidence.minReliability,
     1,
-  );
-
-  const score = round2(
-    floorNeutral(floor + reliability * (rawBehaviorEstimate - floor), floor),
   );
 
   const allLimitations = new Set(factSets.flatMap((f) => f.limitations));
@@ -614,26 +701,27 @@ export function computeUtilityV2(
   const catalogCoverageUnmeasured =
     allLimitations.has("digest_catalog_coverage_unmeasured") ||
     allLimitations.has("catalog_coverage_unmeasured_fallback");
+  const talentUncertain = allLimitations.has("talent_data_unavailable") ||
+    uncertainDomains.length > 0;
 
+  const observedToolkitComplete = included.length > 0 || unusedDomains.length > 0;
   const confComponents = {
     dungeonCoverage: clamp01(dungeons.length / config.confidence.expectedDungeons),
     runCoverage: clamp01(factSets.length / config.confidence.runSaturation),
     combatDuration: clamp01(combatHours / config.confidence.combatHourSaturation),
-    attributableEvents: clamp01(
-      attributableEvents / config.confidence.attributableEventSaturation,
-    ),
+    attributableEvents: observedToolkitComplete
+      ? 1
+      : clamp01(attributableEvents / config.confidence.attributableEventSaturation),
     mechanicCatalogCoverageObserved: catalogCoverageUnmeasured
       ? 0
       : clamp01(mechanicCoverage),
     sourceCompleteness: clamp01(
       (factSets.length > 0 ? 0.4 : 0) +
         (hostileBegincastCount > 0 ? 0.3 : 0) +
-        (attributableEvents > 0 ? 0.3 : 0),
+        (observedToolkitComplete ? 0.3 : 0),
     ),
   };
   const w = config.confidence.weights;
-  // When catalog coverage is unmeasured, drop that weight and renormalize so a
-  // stand-in constant cannot masquerade as observed evidence quality.
   const confidenceWeightEntries: Array<[keyof typeof w, number]> = [
     ["dungeonCoverage", w.dungeonCoverage],
     ["runCoverage", w.runCoverage],
@@ -665,13 +753,13 @@ export function computeUtilityV2(
     confidence = Math.min(confidence, config.confidence.maxWhenPartialDungeons);
     confidenceReasons.push("partial_dungeon_coverage");
   }
-  if (attributableEvents === 0) {
+  if (uncertainOnly) {
     confidence = Math.min(confidence, config.confidence.maxWhenZeroAttributable);
-    confidenceReasons.push("zero_attributable_events");
+    confidenceReasons.push("applicability_uncertain");
   }
   if (
     hostileBegincastCount === 0 &&
-    toolkit.hasInterrupt &&
+    families.interrupt.state === "applicable" &&
     !hostileNotPersistedInDigest
   ) {
     confidence = Math.min(confidence, config.confidence.maxWhenNoHostileCasts);
@@ -690,6 +778,9 @@ export function computeUtilityV2(
   } else {
     confidenceReasons.push("catalog_coverage_unmeasured");
   }
+  if (talentUncertain) {
+    confidenceReasons.push("talent_applicability_uncertain");
+  }
   confidence = round2(clamp(confidence, 0, 100));
 
   const confidenceBreakdown = buildDimensionConfidenceBreakdown({
@@ -700,35 +791,31 @@ export function computeUtilityV2(
     ),
   });
 
-  const applicableDomains = domainBreakdown
-    .filter((d) => d.applicable)
-    .map((d) => d.domain);
-  const excludedDomains = domainBreakdown
-    .filter((d) => !d.applicable)
-    .map((d) => ({
-      domain: d.domain,
-      reason: d.notes[0] ?? "not_applicable",
-    }));
+  const applicableDomains = included.map((d) => d.domain);
+  const domainCurves = {} as Record<UtilityV2FamilyKey, string>;
+  for (const family of UTILITY_V2_FAMILY_KEYS) {
+    domainCurves[family] = familyCurveLabel(family);
+  }
 
   const explanation: UtilityV2Explanation = {
     mode: "OBSERVED_CONTRIBUTION",
     publicationBlocked: true,
-    availabilityState,
+    availabilityState: uncertainOnly ? "PARTIAL" : availabilityState,
     scoreFloor: floor,
-    domainWeights: { ...config.domainWeights },
+    domainWeights: { ...config.familyWeights },
+    familyWeights: { ...config.familyWeights },
+    interruptCredits: { ...config.interruptCredits },
     interruptClassification: interruptCap.counts,
-    domainCurves: {
-      castStops: "credited_attempts_per_active_combat_hour",
-      support: "diminished_semantic_credit_per_active_combat_hour",
-      strategicCc: "deduped_cc_per_active_combat_hour",
-    },
+    domainCurves,
     caps: {
       domainContributionCap: config.domainContributionCap,
       unmatchedCreditShareCap: config.unmatchedCreditShareCap,
       unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
     },
     applicableDomains,
+    unusedDomains,
     excludedDomains,
+    uncertainDomains,
     notes: [...config.scoreSemantics.notes],
     selectedRuns: factSets.map((f) => ({
       slotId: f.slotId,
@@ -748,7 +835,10 @@ export function computeUtilityV2(
   const resultForTraces: Pick<
     UtilityV2ComputeResult,
     "availabilityState" | "domainBreakdown"
-  > = { availabilityState, domainBreakdown };
+  > = {
+    availabilityState: explanation.availabilityState,
+    domainBreakdown,
+  };
   const consumptionTraces = emitUtilityConsumptionTraces({
     boundFactSets: binding.boundFactSets,
     result: resultForTraces as UtilityV2ComputeResult,
@@ -760,7 +850,7 @@ export function computeUtilityV2(
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.scoreSemantics.scoreKind,
     modelConfigFingerprint,
-    availabilityState,
+    availabilityState: explanation.availabilityState,
     publicationBlocked: true,
     manifestContentHash: input.manifest.contentHash,
     rawBehaviorEstimate,
@@ -791,7 +881,7 @@ export function computeUtilityV2(
     algorithmVersion: config.algorithmVersion,
     scoreSemantics: config.scoreSemantics.scoreKind,
     modelConfigFingerprint,
-    availabilityState,
+    availabilityState: explanation.availabilityState,
     score,
     rawBehaviorEstimate,
     confidence: round2(confidence / 100),
@@ -835,6 +925,9 @@ export function emptyUtilityV2FactSet(
   partial: Partial<UtilityV2RunFactSet> &
     Pick<UtilityV2RunFactSet, "runId" | "dungeonSlug" | "slotId">,
 ): UtilityV2RunFactSet {
+  const families = emptyFamilyApplicability("applicable", "test_fixture");
+  families.combatRes = { state: "optional", reason: "optional_group_expectation" };
+  families.bloodlust = { state: "optional", reason: "optional_group_expectation" };
   return {
     schemaVersion: "utility-v2-facts",
     extractorFamily: "utility",
@@ -853,11 +946,13 @@ export function emptyUtilityV2FactSet(
       hasInterrupt: true,
       hasSupport: true,
       hasStrategicCc: true,
+      families,
     },
     interruptAttempts: [],
     ccActions: [],
     supportActions: [],
     dispelPurgeSuccessCount: 0,
+    bloodlustSuccessCount: 0,
     catalogCoverage: {
       abilityCatalogCoverage: 0.8,
       mechanicCatalogCoverage: 0.5,

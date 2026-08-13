@@ -43,6 +43,7 @@ export interface ClassifyInterruptAttemptsInput {
   /** When true, unmatched kicks can be UNMATCHED_ATTEMPT rather than NOT_OBSERVABLE. */
   hostileObservabilityPresent: boolean;
   toleranceMs?: number;
+  interruptCredits?: typeof UTILITY_V2_INTERRUPT_CREDITS;
 }
 
 /**
@@ -146,7 +147,7 @@ export function classifyInterruptAttempts(
       sourceKind: attempt.sourceKind,
       targetActorId: attempt.targetActorId,
       classification,
-      credit: UTILITY_V2_INTERRUPT_CREDITS[classification],
+      credit: (input.interruptCredits ?? UTILITY_V2_INTERRUPT_CREDITS)[classification],
       note,
     });
   }

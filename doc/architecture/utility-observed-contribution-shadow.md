@@ -1,22 +1,32 @@
-# Utility OBSERVED_CONTRIBUTION — Score Semantics & Shadow Mode
+# Utility OBSERVED_CONTRIBUTION — Score Semantics
 
-**Branch:** `agent/wave4.5-wcl-utility-probe`  
-**Status:** Production-safe shadow candidate — **not** public Trust publication.
+**Status:** Authoritative Utility is toolkit exploitation on a real **0–100** scale.
+
+Absence of usage of an **applicable, observable** family scores toward 0, not a hidden 50 floor.
+Inapplicable families are excluded. Optional group tools (battle rez / bloodlust) do not penalize when unused.
+Talent-uncertain families are excluded rather than treated as unused zeroes.
+
+See `packages/scoring/src/utility/v2/` for the current formula, family map, and model config.
+
+**Technical calculator:** `utility-v2-phase3-toolkit-0.1.0`  
+**Functional stage:** Utility Phase 3 (Opportunity Mode remains off).
 
 ## 1. Final score semantics
 
-OBSERVED_CONTRIBUTION is an **observed-positive-contribution** score, **not** a complete personal utility-efficiency score.
+OBSERVED_CONTRIBUTION is a **toolkit-exploitation** score. It is **not** a tactical-correctness or missed-opportunity score.
 
 | Rule | Behavior |
 |------|----------|
-| Observed useful actions | May raise score **above** neutral (50) |
-| Absence of observed action | Must **not** lower any domain or aggregate **below** 50 |
-| Zero attributable evidence | Remains **50** with **low** confidence (≤35) |
-| Missed opportunities | **Not measured** (range/LoS unobservable) |
+| Strong/broad legitimate usage | Can reach **80+**; exceptional cases can approach **100** |
+| Ordinary partial usage | Middle of the 0–100 scale |
+| Applicable toolkit unused | Genuine poor score, **clearly below 50**, potentially **0** |
+| Missing / unbound facts | Score **withheld** (`UNAVAILABLE`), not a fabricated player zero |
+| Talent applicability uncertain | Family **excluded**, never treated as unused-toolkit zero |
+| Missed opportunities | **Not measured** (range/LoS unobservable; Opportunity Mode off) |
 | SUCCESS_OTHER_PLAYER | **Never** credited |
-| Toolkit-inapplicable domains | **Neutral** (excluded from weight share); must **not** reduce confidence as “missing evidence” |
+| Toolkit-inapplicable families | **Excluded** from weight share; must **not** reduce the score |
 
-Trust weight remains **25%** (unchanged). One-sided suitability for that weight: **conditional** — OK for shadow diagnostics; not yet OK for publication without broader bias validation. Approx max skill impact vs neutral 50 if published at contribution caps: **~4 skill points** (`0.25 × ~16`). Players with no observable evidence should stay **UNAVAILABLE** (preferred) or 50/low-conf — never below 50.
+Trust weight remains **25%** (unchanged). The former hidden floor of 50 and +8 per-domain contribution cap are removed.
 
 ## 2. Shadow-mode call graph (Agent 39 shared evidence)
 
@@ -49,16 +59,15 @@ Compatible second refresh: shared evidence cache/persist hits → `providerCalls
 | Dungeon sensitivity | Travel-heavy keys shrink denominator → higher per-hour rates when activity windows apply |
 | WCL calls | **Zero** (persisted timestamps only) |
 
-## 4. Domain dominance mitigation (panel-justified)
+## 4. Family scoring (no hidden floor)
 
-Support previously dominated because contribution was capped **before** weight renormalization, amplifying single-domain scores. Fix:
+Utility is a weighted average of **included** Ability Catalog families (renormalized when a family is not applicable, unused-optional, or talent-uncertain). Candidate defaults:
 
-- Cap **after** weight share
-- One-sided contributions ≥ 0
-- Milder support curve + `diminishingExponent=0.75`
-- Weights: castStops 0.45 / support 0.28 / strategicCc 0.27
+- interrupt 0.28 / crowdControl 0.18 / dispelPurge 0.16 / groupSupport 0.18 / movement 0.10 / combatRes 0.05 / bloodlust 0.05
+- family saturation curves vs active combat hours (not fight-duration/cooldown)
+- unmatched interrupt credit share is capped so spam cannot saturate Interrupt
 
-No arbitrary class-specific bonuses.
+No arbitrary class-specific bonuses. Spec-by-spec weight tables are out of scope.
 
 ## 5. Production-safe vs experimental boundary
 
@@ -74,6 +83,6 @@ No arbitrary class-specific bonuses.
 1. Shared evidence must be ingested in refresh for selected runs (utility datasets present).
 2. Stratified panel ≥30 characters (local dataset currently insufficient).
 3. Role/class bias sign-off after expanded calibration.
-4. Explicit product decision: UNAVAILABLE vs 50/low-conf for zero evidence.
+4. Explicit product decision: UNAVAILABLE vs genuine 0/low-conf for zero applicable usage (current calculator: unused applicable toolkit → 0; missing facts → UNAVAILABLE).
 5. Implement `published` path (replace legacy combat-facts Utility) behind flag + migration.
 6. Confirm Trust authenticity/confidence blend with one-sided Utility.

@@ -3,6 +3,7 @@ import type {
   ScoreDriverV1,
 } from "@mplus/contracts";
 import type { UtilityV2ComputeResult } from "../../utility/v2/types.js";
+import { UTILITY_V2_FAMILY_KEYS, type UtilityV2FamilyKey } from "../../utility/v2/families.js";
 import {
   buildConfidenceComponents,
   buildConfidenceReasonsFromCauses,
@@ -10,11 +11,15 @@ import {
   sortDrivers,
 } from "../helpers.js";
 
-const DOMAIN_CODES = {
-  castStops: "utility.domain.castStops",
-  support: "utility.domain.support",
-  strategicCc: "utility.domain.strategicCc",
-} as const;
+const FAMILY_CODES: Record<UtilityV2FamilyKey, string> = {
+  interrupt: "utility.family.interrupt",
+  crowdControl: "utility.family.crowdControl",
+  dispelPurge: "utility.family.dispelPurge",
+  groupSupport: "utility.family.groupSupport",
+  movement: "utility.family.movement",
+  combatRes: "utility.family.combatRes",
+  bloodlust: "utility.family.bloodlust",
+};
 
 export function adaptUtilityExplainability(
   result: UtilityV2ComputeResult | null | undefined,
@@ -37,71 +42,97 @@ export function adaptUtilityExplainability(
   }
 
   const drivers: ScoreDriverV1[] = [];
+  const unused = new Set(result.explanation.unusedDomains ?? []);
+  const uncertain = new Set(
+    (result.explanation.uncertainDomains ?? []).map((e) => e.domain),
+  );
+
   for (const domain of result.domainBreakdown) {
-    // Non-applicable domains are not weaknesses.
+    const family = domain.domain as UtilityV2FamilyKey;
+    if (!UTILITY_V2_FAMILY_KEYS.includes(family)) continue;
+    // Not-applicable / uncertain families are coverage facts, not weaknesses.
     if (!domain.applicable) continue;
 
-    const code = DOMAIN_CODES[domain.domain];
-    const contribution = domain.cappedContribution;
-    const events = domain.creditedEvents;
-    const isZeroContribution = Math.abs(contribution) < 1e-9;
+    const raw = domain.rawScore ?? 0;
+    const unusedFamily = unused.has(family) || domain.creditedEvents <= 0;
+    const contribution = domain.weightShare * (raw - 50);
+    const direction = unusedFamily
+      ? "NEGATIVE"
+      : raw >= 60
+        ? "POSITIVE"
+        : raw <= 40
+          ? "NEGATIVE"
+          : "NEUTRAL";
 
     drivers.push(
       buildScoreDriver({
-        code,
-        direction: isZeroContribution
-          ? "NEUTRAL"
-          : contribution > 0
-            ? "POSITIVE"
-            : "NEUTRAL",
+        code: FAMILY_CODES[family],
+        direction,
         value: domain.rawScore,
         weight: domain.weightShare,
-        contribution: isZeroContribution ? 0 : contribution,
-        materiality: isZeroContribution ? 0 : Math.abs(contribution),
+        contribution,
+        materiality: Math.max(Math.abs(contribution), unusedFamily ? domain.weightShare * 50 : 0),
         params: {
-          domain: domain.domain,
+          domain: family,
           applicable: true,
-          events,
-          cappedContribution: contribution,
-          zeroObservedContribution: isZeroContribution,
+          events: domain.creditedEvents,
+          unused: unusedFamily,
+          cappedContribution: domain.cappedContribution,
+          zeroObservedContribution: unusedFamily,
         },
         evidence: {
           uncappedContribution: domain.uncappedContribution,
           capApplied: domain.capApplied,
           perCombatHour: domain.perCombatHour,
-          // notes may mention neutrality; never treat as fabricated penalty
           notes: domain.notes.slice(0, 8),
         },
       }),
     );
   }
 
-  // Reliability attenuation actually changes the score when reliability < 1.
-  if (
-    result.reliability != null &&
-    result.rawBehaviorEstimate != null &&
-    result.score != null &&
-    Number.isFinite(result.reliability) &&
-    result.reliability < 1 - 1e-9
-  ) {
-    const attenuation =
-      result.score - result.rawBehaviorEstimate;
+  for (const row of result.explanation.uncertainDomains ?? []) {
     drivers.push(
       buildScoreDriver({
-        code: "utility.reliability_attenuation",
+        code: "utility.applicability_uncertain",
         direction: "NEUTRAL",
-        value: result.reliability,
-        weight: null,
-        contribution: attenuation,
-        materiality: Math.abs(attenuation),
+        value: null,
+        weight: 0,
+        contribution: 0,
+        materiality: 0,
         params: {
-          reliability: result.reliability,
-          rawBehaviorEstimate: result.rawBehaviorEstimate,
-          finalScore: result.score,
+          domain: row.domain,
+          reason: row.reason,
+          notAWeakness: true,
         },
       }),
     );
   }
+
+  if (
+    result.interruptCounts &&
+    (result.interruptCounts.CONFIRMED_SUCCESS > 0 ||
+      result.interruptCounts.VALID_OVERLAP > 0 ||
+      result.interruptCounts.MATCHED_FAILED > 0)
+  ) {
+    drivers.push(
+      buildScoreDriver({
+        code: "utility.interrupt_attempt_credit",
+        direction: "POSITIVE",
+        value: result.interruptCounts.creditedTotal,
+        weight: null,
+        contribution: null,
+        materiality: 0.5,
+        params: {
+          confirmedSuccess: result.interruptCounts.CONFIRMED_SUCCESS,
+          validOverlap: result.interruptCounts.VALID_OVERLAP,
+          matchedFailed: result.interruptCounts.MATCHED_FAILED,
+          unmatchedAttempt: result.interruptCounts.UNMATCHED_ATTEMPT,
+        },
+      }),
+    );
+  }
+
+  void uncertain;
 
   const breakdown = result.confidenceBreakdown;
   return {

@@ -114,14 +114,14 @@ describe("scoreCharacter Utility Phase 2 product boundary", () => {
       allowProviderCalls: true,
     });
     expect(cold.scoringVersion).toBe(SCORING_VERSION);
-    expect(cold.scoringVersion).toContain("utility-phase2");
+    expect(cold.scoringVersion).toContain("utility-phase3");
     expect(cold.orchestration.characterDigests.length).toBe(16);
 
     const utility = cold.orchestration.dimensions.utility;
     const performance = cold.orchestration.dimensions.performance;
     const survival = cold.orchestration.dimensions.survival;
     expect(utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
-    expect(utility?.phase).toBe(2);
+    expect(utility?.phase).toBe(3);
     expect(utility?.score).not.toBeNull();
     expect(performance?.calculatorVersion).toBe(PERFORMANCE_PHASE2_ALGORITHM_VERSION);
     expect(performance?.score).not.toBeNull();
@@ -137,7 +137,7 @@ describe("scoreCharacter Utility Phase 2 product boundary", () => {
       utility?: { algorithmVersion?: string; phase?: number };
     };
     expect(details.utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
-    expect(details.utility?.phase).toBe(2);
+    expect(details.utility?.phase).toBe(3);
     expect(saved[0]?.utility).toBe(utilityScore);
 
     const warm = await scoreCharacter({

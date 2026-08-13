@@ -80,25 +80,71 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
     template: "Relative avoidable damage scored {value}",
     visibility: "PUBLIC",
   },
+  "utility.family.interrupt": {
+    labelKey: "score.utility.family.interrupt",
+    template: "Interrupt toolkit scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.crowdControl": {
+    labelKey: "score.utility.family.crowd_control",
+    template: "Crowd-control toolkit scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.dispelPurge": {
+    labelKey: "score.utility.family.dispel_purge",
+    template: "Dispel/purge toolkit scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.groupSupport": {
+    labelKey: "score.utility.family.group_support",
+    template: "External/group support scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.movement": {
+    labelKey: "score.utility.family.movement",
+    template: "Movement utility scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.combatRes": {
+    labelKey: "score.utility.family.combat_res",
+    template: "Combat resurrection usage scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.family.bloodlust": {
+    labelKey: "score.utility.family.bloodlust",
+    template: "Bloodlust/heroism usage scored {value}",
+    visibility: "PUBLIC",
+  },
+  "utility.interrupt_attempt_credit": {
+    labelKey: "score.utility.interrupt_attempt_credit",
+    template:
+      "Interrupt credit: {confirmedSuccess} landed, {validOverlap} overlapping attempts, {matchedFailed} misses",
+    visibility: "PUBLIC",
+  },
+  "utility.applicability_uncertain": {
+    labelKey: "score.utility.applicability_uncertain",
+    template: "Utility family {domain} excluded because talent applicability is uncertain",
+    visibility: "PUBLIC",
+  },
   "utility.domain.castStops": {
     labelKey: "score.utility.domain.cast_stops",
     template: "Cast stops contributed {contribution}",
-    visibility: "PUBLIC",
+    visibility: "AUDIT_ONLY",
   },
   "utility.domain.support": {
     labelKey: "score.utility.domain.support",
     template: "Support contribution {contribution}",
-    visibility: "PUBLIC",
+    visibility: "AUDIT_ONLY",
   },
   "utility.domain.strategicCc": {
     labelKey: "score.utility.domain.strategic_cc",
     template: "Strategic CC contribution {contribution}",
-    visibility: "PUBLIC",
+    visibility: "AUDIT_ONLY",
   },
   "utility.reliability_attenuation": {
     labelKey: "score.utility.reliability_attenuation",
     template: "Reliability attenuated observed utility by factor {reliability}",
-    visibility: "PUBLIC",
+    visibility: "AUDIT_ONLY",
   },
   "experience.previous_standing": {
     labelKey: "score.experience.previous_standing",
@@ -374,6 +420,16 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   catalog_coverage_unmeasured: {
     labelKey: "confidence.utility.catalog_coverage_unmeasured",
     template: "Mechanic catalog coverage was unmeasured",
+    visibility: "PUBLIC",
+  },
+  applicability_uncertain: {
+    labelKey: "confidence.utility.applicability_uncertain",
+    template: "Talent data is missing, so some utility families were not scored as unused",
+    visibility: "PUBLIC",
+  },
+  talent_applicability_uncertain: {
+    labelKey: "confidence.utility.talent_applicability_uncertain",
+    template: "Some utility families are talent-gated and talent data was unavailable",
     visibility: "PUBLIC",
   },
   // Experience

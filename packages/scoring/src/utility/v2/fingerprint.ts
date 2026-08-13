@@ -80,6 +80,7 @@ function canonicalFactContent(fact: UtilityV2RunFactSet): unknown {
       }))
       .sort((a, b) => a.id.localeCompare(b.id)),
     dispelPurgeSuccessCount: fact.dispelPurgeSuccessCount,
+    bloodlustSuccessCount: fact.bloodlustSuccessCount ?? 0,
     catalogCoverage: fact.catalogCoverage,
     limitations: [...fact.limitations].sort(),
     extractorFamily: fact.extractorFamily,

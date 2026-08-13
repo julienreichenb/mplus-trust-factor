@@ -11,6 +11,7 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   UTILITY_V2_EXTRACTOR_VERSION,
   buildUtilityV2RunFactSet,
+  resolveUtilityToolkitFromCatalog,
   type UtilityV2CcAction,
   type UtilityV2ConfirmedInterruptEvent,
   type UtilityV2HostileCastWindow,
@@ -18,7 +19,6 @@ import {
   type UtilityV2RunFactSet,
   type UtilityV2SupportAction,
   type UtilityV2SupportSemantic,
-  type UtilityV2ToolkitApplicability,
 } from "@mplus/scoring";
 import {
   buildUtilityShadowInputsFromBundles,
@@ -215,41 +215,12 @@ function mapSupportActions(run: UtilityNormalizedRun): UtilityV2SupportAction[] 
 function resolveToolkit(
   classSlug: string | null,
   specSlug: string | null,
-): { toolkit: UtilityV2ToolkitApplicability; catalogSupported: boolean; unsupportedReason: string | null } {
-  const catalog = getAbilityCatalog({
+): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
+  return resolveUtilityToolkitFromCatalog({
     classSlug,
     specSlug,
     includeRacials: true,
   });
-  if (!catalog.supported) {
-    // Unknown / unsupported identity must not look like a confirmed empty toolkit.
-    return {
-      toolkit: {
-        hasInterrupt: false,
-        hasSupport: false,
-        hasStrategicCc: false,
-      },
-      catalogSupported: false,
-      unsupportedReason: catalog.unsupportedReason ?? "ABILITY_CATALOG_UNSUPPORTED",
-    };
-  }
-  return {
-    toolkit: {
-      hasInterrupt:
-        spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size > 0,
-      hasSupport:
-        spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
-          classSlug,
-          specSlug,
-        }).size > 0,
-      hasStrategicCc:
-        spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size > 0,
-    },
-    catalogSupported: true,
-    unsupportedReason: null,
-  };
 }
 
 /**

@@ -1,16 +1,18 @@
 /**
- * Utility V2 — observed-positive-contribution model config (functional Phase 2).
+ * Utility V2 — toolkit-exploitation model config (functional Phase 3).
  *
- * Functional Phase 2 adds interrupt success/failure weighting and contextual
- * support evidence tiers. Opportunity Mode remains off (no miss penalties).
- * Calibration status: candidate defaults; coefficients are immutable here.
+ * Scores 0–100 exploitation of the applicable Ability Catalog toolkit.
+ * Opportunity Mode remains off (no miss / tactical-correctness penalties).
+ * Calibration status: candidate defaults; coefficients live in this config.
  */
+
+import type { UtilityV2FamilyKey } from "./families.js";
 
 export const UTILITY_V2_SCHEMA_VERSION = "utility-v2-facts";
 export const UTILITY_V2_EXTRACTOR_FAMILY = "utility";
 export const UTILITY_V2_EXTRACTOR_VERSION = "utility-v2.0.0";
-export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase2-observed-0.2.0";
-export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase2-observed";
+export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase3-toolkit-0.1.0";
+export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase3-toolkit";
 export type UtilityV2CalibrationStatus =
   | "CANDIDATE_DEFAULTS_UNCALIBRATED"
   | "CALIBRATION_IN_PROGRESS"
@@ -19,43 +21,60 @@ export type UtilityV2CalibrationStatus =
 export const UTILITY_V2_CALIBRATION_STATUS: UtilityV2CalibrationStatus =
   "CANDIDATE_DEFAULTS_UNCALIBRATED";
 
-/** Domain weights among applicable toolkit domains only (renormalize when N/A). */
+/**
+ * Family weights among included toolkit families (renormalize when N/A / unused-optional).
+ * Sum = 1.
+ */
+export const UTILITY_V2_FAMILY_WEIGHTS = {
+  interrupt: 0.28,
+  crowdControl: 0.18,
+  dispelPurge: 0.16,
+  groupSupport: 0.18,
+  movement: 0.1,
+  combatRes: 0.05,
+  bloodlust: 0.05,
+} as const satisfies Record<UtilityV2FamilyKey, number>;
+
+/** @deprecated Prefer UTILITY_V2_FAMILY_WEIGHTS.interrupt */
 export const UTILITY_V2_DOMAIN_WEIGHTS = {
-  castStops: 0.45,
-  support: 0.28,
-  strategicCc: 0.27,
+  castStops: UTILITY_V2_FAMILY_WEIGHTS.interrupt,
+  support: UTILITY_V2_FAMILY_WEIGHTS.groupSupport + UTILITY_V2_FAMILY_WEIGHTS.dispelPurge,
+  strategicCc: UTILITY_V2_FAMILY_WEIGHTS.crowdControl,
 } as const;
 
-export type UtilityV2DomainKey = keyof typeof UTILITY_V2_DOMAIN_WEIGHTS;
+export type UtilityV2DomainKey = UtilityV2FamilyKey;
 
-/** Absolute cap on share×(raw−50) per domain after weight share. */
-export const UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 8;
+/** Clamp on a single family raw score (0–100). Not a hidden contribution floor. */
+export const UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 100;
 
-/** Neutral floor — Phase 1 never scores below this without opportunity Mode. */
-export const UTILITY_V2_SCORE_FLOOR = 50;
+/** Inclusive floor after weighted average. Candidate default is a true 0. */
+export const UTILITY_V2_SCORE_FLOOR = 0;
 
-/** Cast-stop credit by interrupt attempt class (spec candidate defaults). */
+/**
+ * Interrupt usage credit by attempt class.
+ * Legitimate non-landed attempts are only slightly below a confirmed kick.
+ */
 export const UTILITY_V2_INTERRUPT_CREDITS = {
   CONFIRMED_SUCCESS: 1.0,
-  VALID_OVERLAP: 0.5,
-  MATCHED_FAILED: 0.2,
-  UNMATCHED_ATTEMPT: 0.05,
+  VALID_OVERLAP: 0.9,
+  MATCHED_FAILED: 0.8,
+  UNMATCHED_ATTEMPT: 0.15,
   NOT_OBSERVABLE: 0,
 } as const;
 
 /**
- * Cap on unmatched attempt credit share of total cast-stop credit.
- * Unmatched spam alone cannot produce an elite domain score.
+ * Cap on unmatched attempt credit share of total interrupt credit.
+ * Unmatched spam alone cannot produce an elite interrupt family score.
  */
 export const UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP = 0.35;
 
-/** Max domain raw score reachable from unmatched-only credit after curve. */
-export const UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE = 62;
+/** Max interrupt-family raw score reachable from unmatched-only credit after curve. */
+export const UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE = 35;
 
 /** Match window: interrupt cast ↔ confirmed interrupt / hostile window (ms). */
 export const UTILITY_V2_INTERRUPT_MATCH_TOLERANCE_MS = 1_500;
 
-/** CC dedupe: same ability+target within this window counts once. */
+/** CC / family-action dedupe: same ability+target within this window counts once. */
 export const UTILITY_V2_CC_DEDUPE_WINDOW_MS = 3_000;
 
 export const UTILITY_V2_SUPPORT_SEMANTIC_CREDIT = {
@@ -64,7 +83,7 @@ export const UTILITY_V2_SUPPORT_SEMANTIC_CREDIT = {
   EMERGENCY_SUPPORT: 1,
   ROUTINE_ROTATIONAL_SUPPORT: 0.05,
   PASSIVE_SUPPORT: 0,
-  PERSONAL_MOBILITY: 0,
+  PERSONAL_MOBILITY: 1,
   UNVERIFIED_EXTERNAL: 0,
 } as const;
 
@@ -72,40 +91,83 @@ export type UtilityV2SupportSemantic = keyof typeof UTILITY_V2_SUPPORT_SEMANTIC_
 
 export const UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT = 1;
 
-/** Support credit diminishing: effective = raw^exponent. */
+/** Group-support credit diminishing: effective = raw^exponent. */
 export const UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT = 0.75;
 
-export const UTILITY_V2_CAST_STOPS_CURVE = [
-  { perHour: 0, score: 50 },
-  { perHour: 2, score: 54 },
-  { perHour: 5, score: 62 },
-  { perHour: 10, score: 70 },
-  { perHour: 18, score: 78 },
-  { perHour: 28, score: 84 },
-  { perHour: 40, score: 88 },
-] as const;
+export type UtilityV2CurveKnot = { perHour: number; score: number };
 
-export const UTILITY_V2_SUPPORT_CURVE = [
-  { perHour: 0, score: 50 },
-  { perHour: 1.5, score: 54 },
-  { perHour: 4, score: 60 },
-  { perHour: 8, score: 66 },
-  { perHour: 14, score: 72 },
-  { perHour: 22, score: 78 },
-  { perHour: 32, score: 82 },
-] as const;
+/**
+ * Category-specific saturation vs active combat hours.
+ * 0 use → 0; ordinary partial → mid-scale; strong → 80+; exceptional → 100.
+ * Anchors are not theoretical max-casts-by-cooldown.
+ */
+export const UTILITY_V2_FAMILY_CURVES: Record<
+  UtilityV2FamilyKey,
+  ReadonlyArray<UtilityV2CurveKnot>
+> = {
+  interrupt: [
+    { perHour: 0, score: 0 },
+    { perHour: 2, score: 20 },
+    { perHour: 6, score: 45 },
+    { perHour: 12, score: 70 },
+    { perHour: 20, score: 85 },
+    { perHour: 30, score: 95 },
+    { perHour: 40, score: 100 },
+  ],
+  crowdControl: [
+    { perHour: 0, score: 0 },
+    { perHour: 1, score: 25 },
+    { perHour: 3, score: 50 },
+    { perHour: 6, score: 70 },
+    { perHour: 10, score: 85 },
+    { perHour: 16, score: 100 },
+  ],
+  dispelPurge: [
+    { perHour: 0, score: 0 },
+    { perHour: 2, score: 30 },
+    { perHour: 6, score: 55 },
+    { perHour: 12, score: 80 },
+    { perHour: 20, score: 92 },
+    { perHour: 28, score: 100 },
+  ],
+  groupSupport: [
+    { perHour: 0, score: 0 },
+    { perHour: 2, score: 30 },
+    { perHour: 6, score: 55 },
+    { perHour: 12, score: 80 },
+    { perHour: 20, score: 92 },
+    { perHour: 28, score: 100 },
+  ],
+  movement: [
+    { perHour: 0, score: 0 },
+    { perHour: 4, score: 30 },
+    { perHour: 10, score: 55 },
+    { perHour: 18, score: 80 },
+    { perHour: 28, score: 92 },
+    { perHour: 40, score: 100 },
+  ],
+  combatRes: [
+    { perHour: 0, score: 0 },
+    { perHour: 0.2, score: 55 },
+    { perHour: 0.5, score: 80 },
+    { perHour: 1, score: 100 },
+  ],
+  bloodlust: [
+    { perHour: 0, score: 0 },
+    { perHour: 0.3, score: 60 },
+    { perHour: 0.8, score: 85 },
+    { perHour: 1.5, score: 100 },
+  ],
+};
 
-export const UTILITY_V2_STRATEGIC_CC_CURVE = [
-  { perHour: 0, score: 50 },
-  { perHour: 0.5, score: 54 },
-  { perHour: 1.5, score: 62 },
-  { perHour: 3, score: 70 },
-  { perHour: 6, score: 78 },
-  { perHour: 10, score: 84 },
-  { perHour: 16, score: 88 },
-] as const;
+/** @deprecated Prefer UTILITY_V2_FAMILY_CURVES.interrupt */
+export const UTILITY_V2_CAST_STOPS_CURVE = UTILITY_V2_FAMILY_CURVES.interrupt;
+/** @deprecated Prefer UTILITY_V2_FAMILY_CURVES.groupSupport */
+export const UTILITY_V2_SUPPORT_CURVE = UTILITY_V2_FAMILY_CURVES.groupSupport;
+/** @deprecated Prefer UTILITY_V2_FAMILY_CURVES.crowdControl */
+export const UTILITY_V2_STRATEGIC_CC_CURVE = UTILITY_V2_FAMILY_CURVES.crowdControl;
 
-/** Hostile begincasts/hour below this soft-reduces cast-stop score toward 50. */
+/** Hostile begincasts/hour below this is a confidence signal, not a score floor. */
 export const UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT = 40;
 
 export const UTILITY_V2_ACTIVE_COMBAT_GAP_MS = 15_000;
@@ -138,18 +200,18 @@ export const UTILITY_V2_CONFIDENCE = {
 
 export const UTILITY_V2_SCORE_SEMANTICS = {
   mode: "OBSERVED_CONTRIBUTION" as const,
-  phase: 2 as const,
+  phase: 3 as const,
   opportunityMode: "off" as const,
-  scoreKind: "observed_positive_contribution",
+  scoreKind: "toolkit_exploitation",
   notes: [
-    "Functional Utility Phase 2: interrupt success/failure weighting + contextual support tiers.",
-    "One-sided observed-positive-contribution: floor 50; opportunity Mode remains off.",
-    "CONFIRMED_SUCCESS > VALID_OVERLAP > MATCHED_FAILED > UNMATCHED_ATTEMPT > NOT_OBSERVABLE.",
-    "Support tiers: CONFIRMED_IMPACT > CONFIRMED_APPLICATION > unverified (no invented mitigation).",
-    "Unmatched interrupt spam is credit-capped and cannot alone produce elite scores.",
-    "Toolkit-inapplicable domains excluded from weight share and missing-data confidence.",
-    "Passive/rotational support and personal mobility receive zero/negligible credit.",
-    "Missing datasets are partial/unavailable — not treated as zero observed actions.",
+    "Functional Utility Phase 3: 0–100 toolkit exploitation by Ability Catalog family.",
+    "No hidden 50 floor. Unused applicable families contribute 0; inapplicable families are excluded.",
+    "Optional group expectations (battle rez / bloodlust) do not penalize when unused.",
+    "Uncertain talent applicability is excluded from score — never a fabricated unused-toolkit zero.",
+    "CONFIRMED_SUCCESS ≈ VALID_OVERLAP ≈ MATCHED_FAILED; unmatched spam is credit-capped.",
+    "Intensity is per active combat hour with family saturation curves — not fight_duration/cooldown.",
+    "Opportunity Mode remains off: no tactical-correctness or missed-mechanic engine.",
+    "Missing datasets are partial/unavailable — not treated as player underperformance.",
     "No independent run selection — consumes frozen EvidenceManifestV2 slots only.",
   ],
 } as const;
@@ -177,14 +239,19 @@ export type UtilityV2ConfidenceConfig = {
   minReliability: number;
 };
 
-/** Functional Phase 2 score-semantics — opportunityMode must remain off. */
 export type UtilityV2ScoreSemantics = {
   mode: "OBSERVED_CONTRIBUTION";
-  phase: 1 | 2;
+  phase: 1 | 2 | 3;
   opportunityMode: "off";
   scoreKind: string;
   notes: readonly string[];
 };
+
+export type UtilityV2FamilyWeights = Record<UtilityV2FamilyKey, number>;
+export type UtilityV2FamilyCurves = Record<
+  UtilityV2FamilyKey,
+  ReadonlyArray<UtilityV2CurveKnot>
+>;
 
 /** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
 export type UtilityV2ModelConfig = {
@@ -192,7 +259,7 @@ export type UtilityV2ModelConfig = {
   modelLabel: string;
   schemaVersion: string;
   calibrationStatus: UtilityV2CalibrationStatus;
-  domainWeights: { castStops: number; support: number; strategicCc: number };
+  familyWeights: UtilityV2FamilyWeights;
   domainContributionCap: number;
   scoreFloor: number;
   interruptCredits: {
@@ -209,13 +276,16 @@ export type UtilityV2ModelConfig = {
   supportSemanticCredit: Record<UtilityV2SupportSemantic, number>;
   supportDiminishingExponent: number;
   dispelPurgeEventCredit: number;
-  castStopsCurve: ReadonlyArray<{ perHour: number; score: number }>;
-  supportCurve: ReadonlyArray<{ perHour: number; score: number }>;
-  strategicCcCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  familyCurves: UtilityV2FamilyCurves;
   minHostileCastsPerHourForFullCredit: number;
   activeCombatGapMs: number;
   confidence: UtilityV2ConfidenceConfig;
   scoreSemantics: UtilityV2ScoreSemantics;
+  /** Legacy aliases kept for explainability / replay payloads. */
+  domainWeights: UtilityV2FamilyWeights;
+  castStopsCurve: ReadonlyArray<UtilityV2CurveKnot>;
+  supportCurve: ReadonlyArray<UtilityV2CurveKnot>;
+  strategicCcCurve: ReadonlyArray<UtilityV2CurveKnot>;
 };
 
 /** Immutable candidate defaults for calibration export / replay. */
@@ -224,7 +294,7 @@ export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   modelLabel: UTILITY_V2_MODEL_LABEL,
   schemaVersion: UTILITY_V2_SCHEMA_VERSION,
   calibrationStatus: UTILITY_V2_CALIBRATION_STATUS,
-  domainWeights: UTILITY_V2_DOMAIN_WEIGHTS,
+  familyWeights: UTILITY_V2_FAMILY_WEIGHTS,
   domainContributionCap: UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
   scoreFloor: UTILITY_V2_SCORE_FLOOR,
   interruptCredits: UTILITY_V2_INTERRUPT_CREDITS,
@@ -235,11 +305,13 @@ export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   supportSemanticCredit: UTILITY_V2_SUPPORT_SEMANTIC_CREDIT,
   supportDiminishingExponent: UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT,
   dispelPurgeEventCredit: UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT,
-  castStopsCurve: UTILITY_V2_CAST_STOPS_CURVE,
-  supportCurve: UTILITY_V2_SUPPORT_CURVE,
-  strategicCcCurve: UTILITY_V2_STRATEGIC_CC_CURVE,
+  familyCurves: UTILITY_V2_FAMILY_CURVES,
   minHostileCastsPerHourForFullCredit: UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT,
   activeCombatGapMs: UTILITY_V2_ACTIVE_COMBAT_GAP_MS,
   confidence: UTILITY_V2_CONFIDENCE,
   scoreSemantics: UTILITY_V2_SCORE_SEMANTICS,
+  domainWeights: UTILITY_V2_FAMILY_WEIGHTS,
+  castStopsCurve: UTILITY_V2_FAMILY_CURVES.interrupt,
+  supportCurve: UTILITY_V2_FAMILY_CURVES.groupSupport,
+  strategicCcCurve: UTILITY_V2_FAMILY_CURVES.crowdControl,
 });

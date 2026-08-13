@@ -21,42 +21,43 @@ export function emitUtilityConsumptionTraces(input: {
   c.score("utility.activeCombatMs", "domainBreakdown.*.perCombatHour denominators");
   c.availability("utility.toolkit", "domainBreakdown.*.applicable");
 
-  const castStops = input.result.domainBreakdown.find((d) => d.domain === "castStops");
+  const castStops = input.result.domainBreakdown.find((d) => d.domain === "interrupt");
   if (castStops?.applicable) {
-    c.score("utility.interruptAttempts.CONFIRMED_SUCCESS", "domainBreakdown.castStops");
-    c.score("utility.interruptAttempts.VALID_OVERLAP", "domainBreakdown.castStops");
-    c.score("utility.interruptAttempts.MATCHED_FAILED", "domainBreakdown.castStops");
-    c.score("utility.interruptAttempts.UNMATCHED_ATTEMPT", "domainBreakdown.castStops (capped)");
+    c.score("utility.interruptAttempts.CONFIRMED_SUCCESS", "domainBreakdown.interrupt");
+    c.score("utility.interruptAttempts.VALID_OVERLAP", "domainBreakdown.interrupt");
+    c.score("utility.interruptAttempts.MATCHED_FAILED", "domainBreakdown.interrupt");
+    c.score("utility.interruptAttempts.UNMATCHED_ATTEMPT", "domainBreakdown.interrupt (capped)");
   } else {
     c.availability(
       "utility.interruptAttempts.CONFIRMED_SUCCESS",
-      "castStops.applicable=false",
-      "toolkit_interrupt_absent_or_domain_neutral",
+      "interrupt.applicable=false",
+      "toolkit_interrupt_absent_or_excluded",
     );
   }
 
-  c.confidence("utility.hostileObservability", "castStops density factor / confidence");
+  c.confidence("utility.hostileObservability", "interrupt family / confidence");
 
-  const support = input.result.domainBreakdown.find((d) => d.domain === "support");
-  if (support?.applicable) {
-    c.score("utility.supportActions", "domainBreakdown.support");
-    c.score("utility.dispelPurgeSuccessCount", "domainBreakdown.support");
+  const support = input.result.domainBreakdown.find((d) => d.domain === "groupSupport");
+  const dispel = input.result.domainBreakdown.find((d) => d.domain === "dispelPurge");
+  if (support?.applicable || dispel?.applicable) {
+    c.score("utility.supportActions", "domainBreakdown.groupSupport");
+    c.score("utility.dispelPurgeSuccessCount", "domainBreakdown.dispelPurge");
   } else {
     c.availability(
       "utility.supportActions",
-      "support.applicable=false",
-      "no_support_toolkit_and_no_observed_support_neutral",
+      "groupSupport.applicable=false",
+      "no_support_toolkit_or_excluded",
     );
   }
 
-  const cc = input.result.domainBreakdown.find((d) => d.domain === "strategicCc");
+  const cc = input.result.domainBreakdown.find((d) => d.domain === "crowdControl");
   if (cc?.applicable) {
-    c.score("utility.ccActions", "domainBreakdown.strategicCc");
+    c.score("utility.ccActions", "domainBreakdown.crowdControl");
   } else {
     c.availability(
       "utility.ccActions",
-      "strategicCc.applicable=false",
-      "toolkit_cc_absent_or_domain_neutral",
+      "crowdControl.applicable=false",
+      "toolkit_cc_absent_or_excluded",
     );
   }
 
