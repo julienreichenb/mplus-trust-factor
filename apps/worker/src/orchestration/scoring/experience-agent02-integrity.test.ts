@@ -151,6 +151,7 @@ function seasonRowsWithFixturePollution() {
 
 function createPrismaFake(rows: ReturnType<typeof seasonRowsWithFixturePollution>) {
   return {
+    runtimeSetting: { findUnique: vi.fn(async () => null) },
     season: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
         rows.find((r) => r.id === where.id) ?? null,
@@ -455,6 +456,7 @@ describe("Agent 02 — explicit Blizzard-id mismatch never wins by dates", () =>
           return seasons[idx];
         }),
       },
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
     };
 
     const result = await bootstrapExperienceSeasonMetadata({
@@ -1058,6 +1060,7 @@ describe("Agent 02 — stale providerSeasonId revalidation", () => {
           return seasons[idx];
         }),
       },
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
     };
     return { prisma, seasons };
   }
@@ -2054,6 +2057,7 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
           return seasons[idx];
         }),
       },
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
     };
 
     let boom = true;

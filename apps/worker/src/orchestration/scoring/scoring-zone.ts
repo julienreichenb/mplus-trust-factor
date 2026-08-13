@@ -18,7 +18,7 @@ export function requireScoringZoneId(
   if (zoneId == null || typeof zoneId !== "number" || !Number.isInteger(zoneId) || zoneId <= 0) {
     throw new ScoringZoneConfigurationError(
       `Missing or invalid WCL Mythic+ zoneId for scoring (${source}=${String(zoneId)}). ` +
-        `Configure WCL_MPLUS_ZONE_ID / refresh contract zone before scoreCharacter.`,
+        `Pass refresh-contract zoneId from the effective scoring season catalog before scoreCharacter.`,
     );
   }
   return zoneId;

@@ -12,7 +12,7 @@ import { deriveWclContributionTypes } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { buildRefreshContractHash } from "./orchestration/build-refresh-contract.js";
-import { ensureCurrentSeason } from "./persistence/run-repository.js";
+import { requireEffectiveScoringSeasonRow } from "./orchestration/active-mplus-season/effective-season-peek.js";
 
 function loadDotEnvFile(path: string): void {
   if (!existsSync(path)) return;
@@ -54,7 +54,7 @@ const refreshStartedAt = new Date().toISOString();
 
 const character = await worker.repositories.character.findByIdentity(identity);
 const season = character
-  ? await ensureCurrentSeason(prisma, character.regionId)
+  ? await requireEffectiveScoringSeasonRow(prisma, { regionId: character.regionId })
   : { slug: "unknown" };
 const refreshContractHash = buildRefreshContractHash({
   scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,

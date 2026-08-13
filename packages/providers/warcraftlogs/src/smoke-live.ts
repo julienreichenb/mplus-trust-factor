@@ -1056,7 +1056,7 @@ async function main(): Promise<void> {
       process.env.BLIZZARD_CLIENT_ID && process.env.BLIZZARD_CLIENT_SECRET,
     ),
     raiderioAppKeyConfigured: Boolean(process.env.RAIDERIO_APP_KEY),
-    mplusZoneId: process.env.WCL_MPLUS_ZONE_ID ?? null,
+    mplusZoneId: null,
   });
 
   const identity: CharacterIdentityInput = {

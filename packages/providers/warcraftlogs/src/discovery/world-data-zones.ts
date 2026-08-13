@@ -23,6 +23,8 @@ export const wclWorldDataZoneSchema = z.object({
     })
     .nullable()
     .optional(),
+  /** Live WCL returns a Bracket object (not an array). Opaque — selection uses name/frozen/encounters. */
+  brackets: z.unknown().optional(),
   encounters: z.array(wclWorldDataEncounterSchema).default([]),
 });
 
@@ -45,6 +47,7 @@ export const WORLD_DATA_ZONES_QUERY = `query WorldDataZones {
       name
       frozen
       expansion { id name }
+      brackets { type }
       encounters { id name }
     }
   }

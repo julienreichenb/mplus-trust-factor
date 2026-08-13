@@ -158,6 +158,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -295,6 +296,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),
@@ -383,6 +385,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),
@@ -467,6 +470,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),
@@ -555,6 +559,7 @@ describe("runDiscoverOwnedCharacters", () => {
           update: vi.fn(async () => ({})),
         },
         season: seasonPrismaMocks(),
+        runtimeSetting: { findUnique: vi.fn(async () => null) },
         verifiedCharacterOwnership: {
           findMany: vi.fn(async () => ownerships),
           update: vi.fn(async () => ({})),
@@ -625,6 +630,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),
@@ -757,8 +763,12 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: {
-        findFirst: vi.fn(async ({ where }: { where: { regionId?: string; slug?: string } }) => {
-          if (where.slug === "blizzard-season-17") {
+        findFirst: vi.fn(async ({
+          where,
+        }: {
+          where: { regionId?: string; slug?: string; isCurrent?: boolean; id?: string };
+        }) => {
+          if (where.id === "s-eu" || where.slug === "blizzard-season-17") {
             return {
               id: "s-eu",
               slug: "blizzard-season-17",
@@ -768,7 +778,27 @@ describe("runDiscoverOwnedCharacters", () => {
               metadata: {},
             };
           }
-          if (where.slug === "blizzard-season-16") {
+          if (where.id === "s-us" || where.slug === "blizzard-season-16") {
+            return {
+              id: "s-us",
+              slug: "blizzard-season-16",
+              blizzardSeasonId: 16,
+              regionId: "region-us",
+              isCurrent: true,
+              metadata: {},
+            };
+          }
+          if (where.isCurrent === true && where.regionId === "region-eu") {
+            return {
+              id: "s-eu",
+              slug: "blizzard-season-17",
+              blizzardSeasonId: 17,
+              regionId: "region-eu",
+              isCurrent: true,
+              metadata: {},
+            };
+          }
+          if (where.isCurrent === true && where.regionId === "region-us") {
             return {
               id: "s-us",
               slug: "blizzard-season-16",
@@ -802,6 +832,7 @@ describe("runDiscoverOwnedCharacters", () => {
           };
         }),
       },
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),
@@ -919,6 +950,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(
@@ -1106,6 +1138,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
         update: vi.fn(async () => ({})),

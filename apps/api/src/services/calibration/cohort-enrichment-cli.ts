@@ -151,9 +151,11 @@ function mapPersisted(row: {
 }
 
 async function loadAuthoritativeSeason(prisma: PrismaClient) {
-  return prisma.season.findFirst({
-    where: { isCurrent: true },
-    orderBy: { updatedAt: "desc" },
+  const { peekEffectiveScoringSeasonRowGlobal } = await import("@mplus/worker");
+  const peek = await peekEffectiveScoringSeasonRowGlobal(prisma);
+  if (!peek) return null;
+  return prisma.season.findUnique({
+    where: { id: peek.id },
     select: { id: true, slug: true, isCurrent: true, blizzardSeasonId: true },
   });
 }

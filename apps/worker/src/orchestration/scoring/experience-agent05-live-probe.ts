@@ -19,6 +19,7 @@ import { buildExperiencePhase1Result } from "./experience-phase1.js";
 import { readExperiencePopulationPolicyMetadata } from "./experience-season-population-policy-metadata.js";
 import { resolvePreviousMythicSeason } from "./experience-previous-season-evidence.js";
 import { assertExperienceLiveProbeDestructiveResetAllowed } from "./experience-agent05-live-probe-guards.js";
+import { peekEffectiveScoringSeasonRow } from "../active-mplus-season/effective-season-peek.js";
 
 resetEnvCache();
 const env = loadEnv();
@@ -65,10 +66,9 @@ const seasonRows = await prisma.season.findMany({
 });
 
 const euBoot = bootstrap.regions.find((r) => r.region === REGION);
+const peek = await peekEffectiveScoringSeasonRow(prisma, { regionId: region.id });
 const current =
-  seasonRows.find((s) => s.isCurrent) ??
-  seasonRows.find((s) => s.blizzardSeasonId === 17) ??
-  null;
+  (peek ? seasonRows.find((s) => s.id === peek.id) : null) ?? null;
 
 let previous =
   (euBoot?.previousSeasonId

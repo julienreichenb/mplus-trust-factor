@@ -20,7 +20,7 @@ export interface ScoringSeasonSelectionRow {
 
 /** Missing row => AUTO (no seed/migration required). */
 export async function getScoringSeasonSelection(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "runtimeSetting">,
 ): Promise<ScoringSeasonSelectionRow> {
   const row = await prisma.runtimeSetting.findUnique({
     where: { key: RUNTIME_SETTING_KEYS.scoringSeasonSelection },

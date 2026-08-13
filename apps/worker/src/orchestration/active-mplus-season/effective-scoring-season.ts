@@ -31,6 +31,7 @@ import {
   type ActiveMplusDungeonIdentity,
 } from "./types.js";
 import { buildAuthorityFromSeason, loadSeasonDungeonIdentities } from "./resolve.js";
+import { createFixtureRegistryCatalogDiscoverer } from "./zone-catalog-registry.js";
 
 export interface EffectiveScoringSeason {
   selectionMode: ScoringSeasonSelection["mode"];
@@ -141,6 +142,22 @@ export function tryGetActiveMplusCatalogDiscoverer(
           discoverActiveMplusZoneCatalog: DiscoverActiveMplusCatalogFn;
         }
       ).discoverActiveMplusZoneCatalog(input);
+  }
+  return undefined;
+}
+
+/**
+ * Live WCL discoverer when present; fixture registry only when PROVIDER_MODE=fixture.
+ * Live with WCL M+ unavailable still fails closed (no previous-season fallback).
+ */
+export function resolveScoringCatalogDiscoverer(input: {
+  warcraftlogs?: unknown;
+  providerMode?: string;
+}): DiscoverActiveMplusCatalogFn | undefined {
+  const fromWcl = tryGetActiveMplusCatalogDiscoverer(input.warcraftlogs);
+  if (fromWcl) return fromWcl;
+  if (input.providerMode === "fixture") {
+    return createFixtureRegistryCatalogDiscoverer();
   }
   return undefined;
 }

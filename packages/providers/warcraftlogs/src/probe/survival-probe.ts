@@ -10,7 +10,7 @@ import {
   classifyReportVisibility,
     countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
-import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
+import { type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
   buildActorMap,
   resolveActorSourceIdStrict,
@@ -556,10 +556,11 @@ export async function runSurvivalProbe(
   const probedAt = (options.now ?? new Date()).toISOString();
   const zoneConfig =
     options.zoneConfig ??
-    resolveMplusZoneConfig({
-      env: process.env,
-      allowFixtureDefault: false,
-    });
+    (() => {
+      throw new Error(
+        "Survival probe requires zoneConfig (explicit --zone-id / constructor zoneId from catalog).",
+      );
+    })();
 
   const graphqlErrors: GraphQlErrorRecord[] = [];
   const perOperation: ProbeRateLimitRecord[] = [];

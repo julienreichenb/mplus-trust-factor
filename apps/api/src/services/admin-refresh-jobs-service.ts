@@ -6,7 +6,7 @@ import {
   killAllRefreshJobs,
   prioritizeRefreshJob,
   resolveEffectiveScoringSeason,
-  tryGetActiveMplusCatalogDiscoverer,
+  resolveScoringCatalogDiscoverer,
   resolveActiveRefreshContract,
   runRefreshEligibilityGate,
   RefreshEligibilityError,
@@ -529,9 +529,10 @@ export class AdminRefreshJobsService {
       include: { region: true },
     });
 
-    const discoverActiveMplusCatalog = tryGetActiveMplusCatalogDiscoverer(
-      this.container.worker.providers.warcraftlogs,
-    );
+    const discoverActiveMplusCatalog = resolveScoringCatalogDiscoverer({
+      warcraftlogs: this.container.worker.providers.warcraftlogs,
+      providerMode: this.container.env.PROVIDER_MODE,
+    });
     const effective = await resolveEffectiveScoringSeason({
       prisma: this.prisma(),
       blizzard: this.container.worker.providers.blizzard,

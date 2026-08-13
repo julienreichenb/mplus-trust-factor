@@ -17,6 +17,7 @@ import {
   getScoringSeasonSelection,
   evaluateSeasonCatalogReadiness,
   readActiveMplusCatalogMetadata,
+  peekEffectiveScoringSeasonRowGlobal,
 } from "@mplus/worker";
 
 function deriveModeLabel(flags: ReturnType<typeof getScoringFlagSummary>): ScoringModeLabel {
@@ -148,7 +149,7 @@ export async function buildScoringOverview(
     warnings.push({
       code: "CURRENT_SEASON_MISSING",
       severity: "warning",
-      message: "No current season",
+      message: "No Blizzard-detected current season",
     });
   }
   if (flags.modeLabel === "Disabled") {
@@ -164,13 +165,33 @@ export async function buildScoringOverview(
   const archivedCohorts = cohortGroups.find((g) => g.status === "ARCHIVED")?._count._all ?? 0;
 
   const selectionRow = await getScoringSeasonSelection(prisma);
-  let effectiveSeason = currentSeason;
-  if (selectionRow.selection.mode === "PINNED") {
-    const pinned = await prisma.season.findFirst({
-      where: { blizzardSeasonId: selectionRow.selection.blizzardSeasonId },
-      orderBy: [{ isCurrent: "desc" }, { updatedAt: "desc" }],
+  const peek = await peekEffectiveScoringSeasonRowGlobal(prisma);
+  const effectiveSeason = peek
+    ? await prisma.season.findUnique({
+        where: { id: peek.id },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          isCurrent: true,
+          blizzardSeasonId: true,
+          metadata: true,
+          dungeonCount: true,
+          startsAt: true,
+          endsAt: true,
+          regionId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      })
+    : null;
+
+  if (!effectiveSeason) {
+    warnings.push({
+      code: "EFFECTIVE_SCORING_SEASON_MISSING",
+      severity: "warning",
+      message: "No effective scoring season",
     });
-    if (pinned) effectiveSeason = pinned;
   }
 
   const detectedMeta = currentSeason

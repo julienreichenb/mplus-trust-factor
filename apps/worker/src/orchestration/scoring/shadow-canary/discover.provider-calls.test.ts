@@ -46,15 +46,29 @@ function mockContainer(
   discoveryCandidates: unknown[],
   rankings: unknown[] = [],
 ) {
+  const seasonRow = {
+    id: SEASON_ID,
+    slug: "blizzard-season-13",
+    name: "Season 13",
+    regionId: "region-eu",
+    blizzardSeasonId: 13,
+    isCurrent: true,
+    metadata: {
+      activeMplusCatalog: {
+        schemaVersion: "active-mplus-catalog-v1",
+        wclZoneId: 45,
+        dungeonPoolHash: "abc",
+        dungeonSlugs: [...ACTIVE],
+      },
+    },
+  };
   return {
     env: { APP_ENV: "test" },
     prisma: {
+      runtimeSetting: { findUnique: vi.fn(async () => null) },
       season: {
-        findFirst: vi.fn(async () => ({
-          id: SEASON_ID,
-          slug: "blizzard-season-13",
-          isCurrent: true,
-        })),
+        findFirst: vi.fn(async () => seasonRow),
+        findUnique: vi.fn(async () => seasonRow),
       },
       seasonDungeon: {
         findMany: vi.fn(async () =>

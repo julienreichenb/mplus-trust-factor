@@ -53,7 +53,6 @@ import {
   type QualitativeLabel,
 } from "@mplus/scoring";
 import type { ScoreSnapshotWithRelations } from "@mplus/worker";
-import { getScoringSeasonSelection } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
@@ -404,28 +403,12 @@ export class AdminCalibrationService {
     const input = createCalibrationCohortBodySchema.parse(body);
     let seasonId = input.seasonId;
     if (!seasonId) {
-      const selection = await getScoringSeasonSelection(this.prisma());
-      let latest =
-        selection.selection.mode === "PINNED"
-          ? await this.prisma().season.findFirst({
-              where: { blizzardSeasonId: selection.selection.blizzardSeasonId },
-              orderBy: [{ isCurrent: "desc" }, { endsAt: "desc" }, { createdAt: "desc" }],
-            })
-          : null;
-      if (!latest) {
-        latest =
-          (await this.prisma().season.findFirst({
-            where: { isCurrent: true },
-            orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-          })) ??
-          (await this.prisma().season.findFirst({
-            orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-          }));
-      }
-      if (!latest) {
+      const { peekEffectiveScoringSeasonRowGlobal } = await import("@mplus/worker");
+      const peek = await peekEffectiveScoringSeasonRowGlobal(this.prisma());
+      if (!peek) {
         throw HttpError.badRequest("SEASON_NOT_FOUND", "No season is available to bind the cohort");
       }
-      seasonId = latest.id;
+      seasonId = peek.id;
     } else {
       const season = await this.prisma().season.findUnique({ where: { id: seasonId } });
       if (!season) {

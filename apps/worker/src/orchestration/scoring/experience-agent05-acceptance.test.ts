@@ -263,6 +263,7 @@ function seasonsAfterRollover() {
 
 function createPrismaFake(rows: ReturnType<typeof seasonsBeforeRollover>) {
   return {
+    runtimeSetting: { findUnique: async () => null },
     season: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         rows.find((r) => r.id === where.id) ?? null,

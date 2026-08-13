@@ -23,6 +23,7 @@ function parseArgs(
   argv: string[],
 ): UtilityProbeIdentity & {
   outputDir: string;
+  zoneId: number;
   maxRunsPerDungeon: number;
   maxReportsInspectedPerDungeon: number;
 } {
@@ -42,13 +43,18 @@ function parseArgs(
   const region = String(flags.region ?? "").trim().toUpperCase();
   const realmSlug = String(flags.realm ?? "").trim().toLowerCase();
   const name = String(flags.name ?? "").trim();
-  if (!region || !realmSlug || !name) {
+  const zoneIdRaw = String(flags["zone-id"] ?? "").trim();
+  const zoneId = Number(zoneIdRaw);
+  if (!region || !realmSlug || !name || !zoneIdRaw) {
     throw new Error(
-      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> [--output-dir <path>] [--max-runs-per-dungeon 3] [--max-reports-per-dungeon 8]",
+      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> --zone-id <id> [--output-dir <path>] [--max-runs-per-dungeon 3] [--max-reports-per-dungeon 8]",
     );
   }
   if (!["EU", "US", "KR", "TW"].includes(region)) {
     throw new Error(`Unsupported region "${region}"`);
+  }
+  if (!Number.isInteger(zoneId) || zoneId <= 0) {
+    throw new Error(`Invalid --zone-id: expected positive integer, got "${zoneIdRaw}"`);
   }
 
   const outputDir =
@@ -64,6 +70,7 @@ function parseArgs(
     region: region as UtilityProbeIdentity["region"],
     realmSlug,
     name,
+    zoneId,
     outputDir,
     maxRunsPerDungeon: Number(flags["max-runs-per-dungeon"] ?? 3),
     maxReportsInspectedPerDungeon: Number(flags["max-reports-per-dungeon"] ?? 8),
@@ -125,6 +132,7 @@ async function main(): Promise<void> {
       WCL_CHARACTER_TTL_SECONDS: Number(process.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200),
     },
     processEnv: process.env,
+    zoneId: args.zoneId,
   });
 
   const { dataset, outputFiles } = await runUtilityProbe({

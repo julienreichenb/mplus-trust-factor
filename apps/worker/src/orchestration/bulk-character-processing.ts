@@ -25,7 +25,7 @@ import {
 } from "./bulk-checkpoint.js";
 import { evaluateRecalculateCompatibility } from "./bulk-recalculate-compatibility.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
-import { ensureCurrentSeason } from "../persistence/run-repository.js";
+import { requireEffectiveScoringSeasonRow } from "./active-mplus-season/effective-season-peek.js";
 
 export type BulkChildProducers = Pick<
   QueueProducers,
@@ -141,7 +141,9 @@ async function enqueueChildForItem(
   if (!character) {
     throw new CharacterDeletedError(characterId);
   }
-  const season = await ensureCurrentSeason(container.prisma, character.regionId);
+  const season = await requireEffectiveScoringSeasonRow(container.prisma, {
+    regionId: character.regionId,
+  });
   const result = await producers.enqueueRecalculateScore({
     characterId,
     seasonId: season.id,

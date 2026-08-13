@@ -24,7 +24,7 @@ import { getAbilityCatalog } from "@mplus/abilities";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { buildRefreshContractHash } from "./orchestration/build-refresh-contract.js";
-import { ensureCurrentSeason } from "./persistence/run-repository.js";
+import { requireEffectiveScoringSeasonRow } from "./orchestration/active-mplus-season/effective-season-peek.js";
 
 function loadDotEnvFile(path: string): void {
   if (!existsSync(path)) return;
@@ -70,7 +70,7 @@ if (!character) {
   throw new Error("Wallidrixe character not found — run a refresh first");
 }
 
-const season = await ensureCurrentSeason(prisma, character.regionId);
+const season = await requireEffectiveScoringSeasonRow(prisma, { regionId: character.regionId });
 const refreshContractHash = buildRefreshContractHash({
   scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
   scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,

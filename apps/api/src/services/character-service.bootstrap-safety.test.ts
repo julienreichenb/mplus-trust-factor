@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
+
 import type { ApiContainer } from "../container.js";
 
 describe("CharacterService.resolveCharacter — new-row bootstrap safety", () => {
@@ -23,8 +28,6 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   const mockCharacterFindUnique = vi.fn();
   const mockSnapshotFindMany = vi.fn();
 
-  const verifiedAt = new Date().toISOString();
-
   const createdShell = {
     id: "char-new",
     regionId: "reg-1",
@@ -43,19 +46,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   function buildContainer(opts: { authorityFail?: boolean } = {}): ApiContainer {
     const seasonFindFirst = opts.authorityFail
       ? vi.fn().mockResolvedValue(null)
-      : vi.fn().mockResolvedValue({
-          id: "season-1",
-          slug: "blizzard-season-13",
-          regionId: "reg-1",
-          blizzardSeasonId: 13,
-          isCurrent: true,
-          metadata: {
-            blizzardSeasonId: 13,
-            source: "blizzard",
-            authoritySource: "season_index.current_season",
-            authorityVerifiedAt: verifiedAt,
-          },
-        });
+      : vi.fn().mockResolvedValue(fixtureReadySeasonRow());
 
     return {
       env: {
@@ -99,8 +90,10 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
             findFirst: seasonFindFirst,
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -294,7 +287,6 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
   const mockUpsert = vi.fn();
   const mockDeleteShell = vi.fn();
 
-  const verifiedAt = new Date().toISOString();
   const incompleteFixture = {
     id: "char-incomplete",
     regionId: "reg-1",
@@ -396,20 +388,10 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -547,7 +529,6 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
     admissionReleased: string[];
   };
 
-  const verifiedAt = new Date().toISOString();
   const failedHistorical: JobRow = {
     id: "job-failed-historical",
     characterId: "char-incomplete",
@@ -690,20 +671,10 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {

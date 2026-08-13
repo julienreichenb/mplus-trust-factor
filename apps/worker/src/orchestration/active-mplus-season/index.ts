@@ -7,8 +7,4 @@ export * from "./synchronize.js";
 export * from "./repair.js";
 export * from "./selection-setting.js";
 export * from "./effective-scoring-season.js";
-export {
-  resolveWclMplusZoneMode,
-  parseOptionalPositiveIntEnv,
-  type WclMplusZoneMode,
-} from "./config.js";
+export * from "./effective-season-peek.js";

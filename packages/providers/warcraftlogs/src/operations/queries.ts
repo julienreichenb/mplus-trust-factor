@@ -91,6 +91,7 @@ export const OPERATIONS = {
       name
       frozen
       expansion { id name }
+      brackets { type }
       encounters { id name }
     }
   }

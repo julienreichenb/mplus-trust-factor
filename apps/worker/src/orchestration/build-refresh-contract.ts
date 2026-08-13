@@ -94,7 +94,7 @@ function resolveContractZoneId(input: {
   }
   throw new Error(
     "Refresh contract zoneId is required (effective scoring season catalog). " +
-      "Env WCL_MPLUS_ZONE_* is not authoritative.",
+      "process.env Mythic+ zone variables are not authoritative.",
   );
 }
 

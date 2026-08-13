@@ -17,7 +17,7 @@ import {
   type AdminBacktestSummaryV1,
   type ConfidenceCoveragePoint,
 } from "@mplus/scoring";
-import { ensureCurrentSeason } from "@mplus/worker";
+import { requireEffectiveScoringSeasonRow } from "@mplus/worker";
 import { ScoreModelDraftInUseError } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -375,7 +375,10 @@ export class AdminService {
       if (!character) {
         throw HttpError.notFound("CHARACTER_NOT_FOUND", `Character ${opts.characterId} was not found`);
       }
-      const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
+      const season = await requireEffectiveScoringSeasonRow(
+        this.container.worker.prisma,
+        { regionId: character.regionId },
+      );
       await this.container.producers.enqueueRecalculateScore({
         characterId: character.id,
         seasonId: season.id,
@@ -452,7 +455,10 @@ export class AdminService {
     if (!model) {
       throw HttpError.internal("No active score model found in the database");
     }
-    const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
+    const season = await requireEffectiveScoringSeasonRow(
+      this.container.worker.prisma,
+      { regionId: character.regionId },
+    );
     const enqueueResult = await this.container.producers.enqueueRecalculateScore({
       characterId: character.id,
       seasonId: season.id,

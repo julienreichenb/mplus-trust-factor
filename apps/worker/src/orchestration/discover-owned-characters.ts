@@ -18,6 +18,7 @@ import type { QueueProducers } from "../queues.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
 import { synchronizeSeasonAuthority } from "./season-authority.js";
+import { peekEffectiveScoringSeasonRow } from "./active-mplus-season/effective-season-peek.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
 export interface DiscoveryCounters {
@@ -65,6 +66,7 @@ type RegionalSeasonCache = {
   source: "season_index.current_season";
   season: Season;
   authorityVerifiedAt: Date;
+  wclZoneId: number | null;
 };
 
 /**
@@ -137,22 +139,29 @@ export async function runDiscoverOwnedCharacters(
           counters.providerRequestCount += 1;
         }
 
+        const peek = await peekEffectiveScoringSeasonRow(prisma, { regionId });
+        if (!peek || peek.blizzardSeasonId == null) {
+          throw new Error(
+            `Effective scoring season missing after authority sync (detected ${authority.slug})`,
+          );
+        }
         const season =
           (await prisma.season.findFirst({
-            where: { id: authority.seasonRowId },
+            where: { id: peek.id },
           })) ??
           (await prisma.season.findFirst({
-            where: { regionId, slug: authority.slug },
+            where: { regionId, slug: peek.slug },
           }));
         if (!season) {
-          throw new Error(`Season row missing after authority sync (${authority.slug})`);
+          throw new Error(`Season row missing after effective-season peek (${peek.slug})`);
         }
         const entry: RegionalSeasonCache = {
-          seasonId: authority.blizzardSeasonId,
-          slug: authority.slug,
+          seasonId: peek.blizzardSeasonId,
+          slug: peek.slug,
           source: "season_index.current_season",
           season,
           authorityVerifiedAt: authority.authorityVerifiedAt,
+          wclZoneId: peek.wclZoneId,
         };
         regionalSeasonByCode.set(key, entry);
 
@@ -559,7 +568,7 @@ export async function runDiscoverOwnedCharacters(
           scoringModelVersion: activeModel.version ?? env.ACTIVE_SCORE_MODEL_VERSION,
           activeSeasonId: regional.slug,
           providerMode: env.PROVIDER_MODE ?? process.env.PROVIDER_MODE ?? "fixture",
-          env: process.env,
+          zoneId: regional.wclZoneId,
         });
 
         const enqueued = await producers.enqueueRefreshCharacter({

@@ -84,6 +84,25 @@ function ownershipFindMany(probe: unknown[], roster: unknown[]) {
   });
 }
 
+function effectiveSeasonPrisma(seasonId = "season-1") {
+  const season = {
+    id: seasonId,
+    slug: "blizzard-season-13",
+    name: "S13",
+    regionId: "region-eu",
+    blizzardSeasonId: 13,
+    isCurrent: true,
+  };
+  return {
+    runtimeSetting: { findUnique: vi.fn(async () => null) },
+    season: {
+      findFirst: vi.fn(async () => season),
+      findUnique: vi.fn(async () => season),
+      findMany: vi.fn(async () => [{ id: seasonId, slug: "blizzard-season-13" }]),
+    },
+  };
+}
+
 describe("resolveAccountPrimaryOwnershipId", () => {
   it("prefers the displayed primary when multiple primaries exist", () => {
     const warn = vi.fn();
@@ -297,9 +316,7 @@ describe("buildActiveRerollsView eligibility", () => {
         findMany: ownershipFindMany([displayedCandidate], roster),
       },
       scoreModel: { findFirst: vi.fn(async () => ({ id: "model-1" })) },
-      season: {
-        findMany: vi.fn(async () => [{ id: "season-1", regionId: "region-eu" }]),
-      },
+      ...effectiveSeasonPrisma(),
     };
 
     const result = await buildActiveRerollsView({
@@ -344,9 +361,7 @@ describe("buildActiveRerollsView eligibility", () => {
         ),
       },
       scoreModel: { findFirst: vi.fn(async () => ({ id: "model-1" })) },
-      season: {
-        findMany: vi.fn(async () => [{ id: "season-1", regionId: "region-eu" }]),
-      },
+      ...effectiveSeasonPrisma(),
     };
 
     const result = await buildActiveRerollsView({
@@ -383,8 +398,8 @@ describe("buildActiveRerollsView eligibility", () => {
     expect(ACTIVE_REROLLS_MAX).toBe(24);
   });
 
-  it("batches seasons in one query (no per-reroll season lookup)", async () => {
-    const seasonFindMany = vi.fn(async () => [{ id: "season-1", regionId: "region-eu" }]);
+  it("resolves effective scoring season once per unique region (no per-reroll season lookup)", async () => {
+    const stubs = effectiveSeasonPrisma();
     const prisma = {
       region: { findFirst: vi.fn(async () => ({ id: "region-eu" })) },
       character: { findFirst: vi.fn(async () => ({ id: "char-display" })) },
@@ -417,7 +432,7 @@ describe("buildActiveRerollsView eligibility", () => {
         ),
       },
       scoreModel: { findFirst: vi.fn(async () => ({ id: "model-1" })) },
-      season: { findMany: seasonFindMany, findFirst: vi.fn() },
+      ...stubs,
     };
 
     await buildActiveRerollsView({
@@ -428,8 +443,7 @@ describe("buildActiveRerollsView eligibility", () => {
       name: "Aleria",
     });
 
-    expect(seasonFindMany).toHaveBeenCalledTimes(1);
-    expect(prisma.season.findFirst).not.toHaveBeenCalled();
+    expect(stubs.season.findFirst).toHaveBeenCalledTimes(1);
   });
 
   it("enforces ACTIVE_REROLLS_MAX", async () => {
@@ -459,9 +473,7 @@ describe("buildActiveRerollsView eligibility", () => {
         findMany: ownershipFindMany([displayedCandidate], rows),
       },
       scoreModel: { findFirst: vi.fn(async () => ({ id: "model-1" })) },
-      season: {
-        findMany: vi.fn(async () => [{ id: "season-1", regionId: "region-eu" }]),
-      },
+      ...effectiveSeasonPrisma(),
     };
 
     const result = await buildActiveRerollsView({

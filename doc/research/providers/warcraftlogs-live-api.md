@@ -86,10 +86,9 @@ Do not run live WCL calls in CI.
 
 ## Current-season discovery
 
-Live mode requires an explicit zone ID via constructor `zoneId` or `WCL_MPLUS_ZONE_ID`.  
-Optional `WCL_MPLUS_ZONE_EXPIRES_AT` (ISO) alarms stale mappings; expired zones **skip** `zoneRankings` (no `recentReports` discovery fallback).
+Live Mythic+ zone IDs come from the **effective scoring season** persisted catalog (`Season.metadata.activeMplusCatalog.wclZoneId`), never from `process.env`.
 
-Agent 11 should formalize these env vars in `@mplus/config`. Fixture mode may use `FIXTURE_MPLUS_ZONE_ID` only.
+Optional operator CLIs may pass an explicit `--zone-id` for a raw WCL diagnostic. That override is per-invocation only: it is not scoring authority and must not be stored in `.env`.
 
 ## Run matching quality
 

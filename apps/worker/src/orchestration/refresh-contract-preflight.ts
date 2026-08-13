@@ -20,7 +20,7 @@ import { ensureRegion } from "../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import {
   resolveEffectiveScoringSeason,
-  tryGetActiveMplusCatalogDiscoverer,
+  resolveScoringCatalogDiscoverer,
   type EffectiveScoringSeason,
   type DiscoverActiveMplusCatalogFn,
 } from "./active-mplus-season/effective-scoring-season.js";
@@ -115,7 +115,10 @@ function resolveDiscoverer(
   deps: RefreshContractPreflightDeps,
 ): DiscoverActiveMplusCatalogFn | undefined {
   if (deps.discoverActiveMplusCatalog) return deps.discoverActiveMplusCatalog;
-  return tryGetActiveMplusCatalogDiscoverer(deps.warcraftlogs);
+  return resolveScoringCatalogDiscoverer({
+    warcraftlogs: deps.warcraftlogs,
+    providerMode: deps.env.PROVIDER_MODE,
+  });
 }
 
 /**

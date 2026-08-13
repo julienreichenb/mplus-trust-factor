@@ -354,27 +354,30 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
       });
 
       const regionIds = [...new Set(characters.map((c) => c.regionId))];
-      const seasons = await prisma.season.findMany({
-        where: {
-          isCurrent: true,
-          OR: [{ regionId: { in: regionIds } }, { regionId: null }],
-        },
-        select: { id: true, slug: true, regionId: true },
-      });
+      const { mapEffectiveScoringSeasonIdsByRegion } = await import(
+        "../orchestration/active-mplus-season/effective-season-peek.js"
+      );
+      const seasonIdByRegion = await mapEffectiveScoringSeasonIdsByRegion(
+        prisma,
+        regionIds,
+      );
+      const seasonRows =
+        seasonIdByRegion.size === 0
+          ? []
+          : await prisma.season.findMany({
+              where: { id: { in: [...seasonIdByRegion.values()] } },
+              select: { id: true, slug: true, regionId: true },
+            });
       const seasonByRegion = new Map<string, { id: string; slug: string }>();
-      for (const season of seasons) {
-        if (season.regionId) {
-          seasonByRegion.set(season.regionId, { id: season.id, slug: season.slug });
-        }
+      for (const [regionId, seasonId] of seasonIdByRegion) {
+        const row = seasonRows.find((s) => s.id === seasonId);
+        if (row) seasonByRegion.set(regionId, { id: row.id, slug: row.slug });
       }
-      const globalSeason = seasons.find((s) => s.regionId == null) ?? null;
 
       const result: BulkSelectableCharacterRow[] = [];
 
       for (const character of characters) {
-        const season =
-          seasonByRegion.get(character.regionId) ??
-          (globalSeason ? { id: globalSeason.id, slug: globalSeason.slug } : null);
+        const season = seasonByRegion.get(character.regionId) ?? null;
 
         let hasSeasonObservations = false;
         let observationSchemaVersions: Array<string | null> = [];

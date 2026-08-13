@@ -82,7 +82,7 @@ import {
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
-import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
+import { ensureBlizzardCurrentSeason } from "../persistence/run-repository.js";
 import { ensurePersistedSeasonDungeonBindings } from "./active-mplus-season/synchronize.js";
 import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
@@ -1127,7 +1127,7 @@ export async function runRefreshPipeline(
         try {
           const seasonProfile = await providers.blizzard.getMythicKeystoneSeasonProfile(
             identity,
-            currentSeasonId,
+            preflightEffective.blizzardSeasonId,
             ctx,
           );
           blizzardRuns = seasonProfile.data.runs;
@@ -1238,9 +1238,7 @@ export async function runRefreshPipeline(
       let cutoffs: RaiderIoSeasonCutoffs | null = null;
       // Season cutoffs are optional and must remain non-blocking (live often HTTP 500).
       try {
-        const seasonSlug =
-          profile.data.currentSeason?.seasonSlug ??
-          (await ensureCurrentSeason(container.prisma, character.regionId)).slug;
+        const seasonSlug = preflightEffective.seasonSlug;
         const cutoffsResult = await providers.raiderio.getSeasonCutoffs(
           identity.region,
           seasonSlug,
@@ -1636,30 +1634,31 @@ export async function runRefreshPipeline(
   disagreements.push(...reconcile.disagreements);
   fusionWarnings.push(...reconcile.warnings);
 
-  // Resolve Blizzard current season from the regional season index — never from
-  // a character profile seasons[] array — before persistence so runs/scores share one identity.
+  // Snapshot Blizzard-detected isCurrent for diagnostics (not scoring identity).
   const previousDatabaseSeason = await container.prisma.season.findFirst({
     where: { regionId: character.regionId, isCurrent: true },
     select: { id: true, slug: true, blizzardSeasonId: true },
   });
 
-  // Real season transition after enqueue: supersede obsolete jobs without a public technical failure.
+  // Job was enqueued for a different *effective* scoring season than preflight resolved.
+  // Setting AUTO/PINNED changes are fail-closed here and at contract preflight — never
+  // silently score Blizzard-detected 18 while the job/contract is PINNED 17.
   if (
     jobPayload.authoritativeSeasonId != null &&
-    currentSeasonId != null &&
-    jobPayload.authoritativeSeasonId !== currentSeasonId
+    jobPayload.authoritativeSeasonId !== preflightEffective.blizzardSeasonId
   ) {
     logger.info(
       {
         ...logBase,
         event: "refresh_season_authority",
         reason: "job_season_superseded",
-        authoritativeSeasonId: currentSeasonId,
+        authoritativeSeasonId: preflightEffective.blizzardSeasonId,
+        detectedBlizzardSeasonId: currentSeasonId,
         jobAuthoritativeSeasonId: jobPayload.authoritativeSeasonId,
         previousDatabaseSeasonId: previousDatabaseSeason?.blizzardSeasonId ?? null,
         previousDatabaseSeasonSlug: previousDatabaseSeason?.slug ?? null,
       },
-      "refresh job superseded by season authority change",
+      "refresh job superseded by effective scoring season change",
     );
     await repositories.job.markFailed(job.id, {
       code: "SEASON_AUTHORITY_SUPERSEDED",
@@ -1677,25 +1676,29 @@ export async function runRefreshPipeline(
     };
   }
 
-  const season =
-    currentSeasonId != null
-      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId, {
-          authoritySource:
-            authoritativeSeasonSource === "season_index.current_season"
-              ? "season_index.current_season"
-              : "blizzard",
-          authorityVerifiedAt: new Date(),
-        })
-      : await ensureCurrentSeason(container.prisma, character.regionId);
+  // Keep Season.isCurrent aligned with Blizzard detected season (A). Scoring uses
+  // the effective season row from preflight — never the detected-current row when PINNED.
+  if (currentSeasonId != null) {
+    await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId, {
+      authoritySource:
+        authoritativeSeasonSource === "season_index.current_season"
+          ? "season_index.current_season"
+          : "blizzard",
+      authorityVerifiedAt: new Date(),
+    });
+  }
+
+  const season = preflightEffective.season;
   logger.info(
     {
       ...logBase,
       event: "refresh_season_authority",
       region: identity.region,
-      authoritativeSeasonId: currentSeasonId,
-      authoritativeSeasonSlug: currentSeasonId != null ? `blizzard-season-${currentSeasonId}` : null,
+      authoritativeSeasonId: preflightEffective.blizzardSeasonId,
+      authoritativeSeasonSlug: preflightEffective.seasonSlug,
+      detectedBlizzardSeasonId: currentSeasonId,
       authoritySource: authoritativeSeasonSource,
-      seasonResolutionSource: authoritativeSeasonSource,
+      seasonResolutionSource: preflightEffective.selectionMode,
       characterProfileSeasonIds,
       characterProfileContainsCurrentSeason:
         currentSeasonId != null && characterProfileSeasonIds.includes(currentSeasonId),

@@ -2,6 +2,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
+
 import type { ApiContainer } from "../container.js";
 
 describe("CharacterService.resolveCharacter — shared eligibility", () => {
@@ -14,8 +19,6 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
   const mockApplyProviderProfile = vi.fn();
   const mockFindById = vi.fn();
   const mockFindByBlizzardCharacterId = vi.fn();
-
-  const verifiedAt = new Date().toISOString();
 
   function buildContainer(level: number, mythicRating: number | null): ApiContainer {
     const shell = {
@@ -83,20 +86,10 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {

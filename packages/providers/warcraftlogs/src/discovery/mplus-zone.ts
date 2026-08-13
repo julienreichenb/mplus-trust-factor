@@ -18,14 +18,6 @@ export interface MplusZoneConfig {
 /** Fixture-only default — never used silently in live mode. */
 export const FIXTURE_MPLUS_ZONE_ID = 45;
 
-/**
- * @deprecated Env zone authority removed. Kept only so stale references fail loudly in tests.
- */
-export const MPLUS_ZONE_ENV = {
-  zoneId: "WCL_MPLUS_ZONE_ID",
-  expiresAt: "WCL_MPLUS_ZONE_EXPIRES_AT",
-} as const;
-
 export interface ResolveMplusZoneOptions {
   zoneId?: number;
   expiresAt?: string | null;
@@ -47,7 +39,7 @@ function parseExpiresAt(value: string | null | undefined): string | null {
 
 /**
  * Resolve and validate an M+ zone ID from an explicit argument (or fixture default).
- * Throws when live mode has no explicit zone — never reads WCL_MPLUS_ZONE_*.
+ * Throws when live mode has no explicit zone — never reads process.env for zone authority.
  */
 export function resolveMplusZoneConfig(options: ResolveMplusZoneOptions = {}): MplusZoneConfig {
   const now = options.now ?? new Date();
@@ -70,7 +62,7 @@ export function resolveMplusZoneConfig(options: ResolveMplusZoneOptions = {}): M
     } else {
       throw new Error(
         "Missing current M+ zone ID. Pass zoneId from the effective scoring season " +
-          "persisted catalog (ProviderFetchContext.wclZoneId). Env WCL_MPLUS_ZONE_* is not authoritative.",
+          "persisted catalog (ProviderFetchContext.wclZoneId).",
       );
     }
   }

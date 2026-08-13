@@ -3,6 +3,10 @@ import { hashRefreshContract } from "@mplus/contracts";
 import { buildRefreshContract, clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
 import type { ApiContainer } from "../container.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
 
 describe("CharacterService — centralized 7-day refresh policy", () => {
   const mockEnqueue = vi.fn().mockResolvedValue({ jobId: "job-1", reused: false, enqueued: true });
@@ -39,7 +43,6 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
   const matchingHash = hashRefreshContract(matchingContract);
 
   function buildContainer(): ApiContainer {
-    const verifiedAt = new Date().toISOString();
     return {
       env: {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
@@ -81,20 +84,10 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: {
             findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }),

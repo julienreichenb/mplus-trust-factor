@@ -2,7 +2,8 @@
 
 ## API gaps
 
-- **Season zone ID** — live requires `WCL_MPLUS_ZONE_ID` (or constructor `zoneId`) plus recommended `WCL_MPLUS_ZONE_EXPIRES_AT`; expired zones skip rankings.
+- **Season zone ID** — live requires `ProviderFetchContext.wclZoneId` (or constructor `zoneId`) from the effective scoring season catalog; optional constructor expiry skips rankings when past due. Env Mythic+ zone variables are not authoritative.
+
 - **Encounter → dungeon mapping** — MVP uses static `ENCOUNTER_DUNGEON_MAP`; Agent 15 should seed from season metadata.
 - **Run matching** — WCL ↔ Blizzard/Raider.IO matching is best-effort; low confidence never auto-merges.
 - **Private logs** — Public API excludes private reports; user OAuth not implemented in MVP.

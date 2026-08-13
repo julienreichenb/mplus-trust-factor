@@ -35,7 +35,7 @@ import {
   resolveActiveRefreshContract,
   SeasonAuthorityUnavailableError,
   resolveEffectiveScoringSeason,
-  tryGetActiveMplusCatalogDiscoverer,
+  resolveScoringCatalogDiscoverer,
   loadCharacterRefreshEligibilitySignals,
   persistRefreshEligibilityEvidence,
   fetchBlizzardPublicBootstrap,
@@ -327,9 +327,10 @@ export class CharacterService {
       throw new SeasonAuthorityUnavailableError("UNKNOWN", "Character region is missing");
     }
 
-    const discoverActiveMplusCatalog = tryGetActiveMplusCatalogDiscoverer(
-      this.container.worker.providers.warcraftlogs,
-    );
+    const discoverActiveMplusCatalog = resolveScoringCatalogDiscoverer({
+      warcraftlogs: this.container.worker.providers.warcraftlogs,
+      providerMode: this.container.env.PROVIDER_MODE,
+    });
 
     const effective = await resolveEffectiveScoringSeason({
       prisma: this.container.worker.prisma,
@@ -406,9 +407,10 @@ export class CharacterService {
       where: { id: character.regionId },
       select: { id: true, code: true },
     });
-    const discoverActiveMplusCatalog = tryGetActiveMplusCatalogDiscoverer(
-      this.container.worker.providers.warcraftlogs,
-    );
+    const discoverActiveMplusCatalog = resolveScoringCatalogDiscoverer({
+      warcraftlogs: this.container.worker.providers.warcraftlogs,
+      providerMode: this.container.env.PROVIDER_MODE,
+    });
     const recheck = await resolveEffectiveScoringSeason({
       prisma: this.container.worker.prisma,
       blizzard: this.container.worker.providers.blizzard,
