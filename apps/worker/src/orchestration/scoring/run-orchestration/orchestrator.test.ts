@@ -794,4 +794,43 @@ describe("scoring evidence timed-only acquisition invariant", () => {
         .every((f) => selectedKeys.has(sourceFightKey(f.sourceFight))),
     ).toBe(true);
   });
+
+  it("Survival-only incomplete package still yields Utility digests (no all-or-nothing reject)", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    ports.acquireIncompleteCapabilities = ["SURVIVAL_DAMAGE_TAKEN"];
+
+    const result = await orchestrateScoringRuns(
+      baseOrchestrationInput(ports, {
+        scope: scope({ activeDungeonSlugs: ["skyreach"] }),
+        candidates: [
+          candidate({
+            reportCode: "surv-fail",
+            fightId: 1,
+            dungeonSlug: "skyreach",
+            keyLevel: 16,
+          }),
+          candidate({
+            reportCode: "surv-fail",
+            fightId: 1,
+            dungeonSlug: "skyreach",
+            keyLevel: 14,
+          }),
+        ],
+      }),
+    );
+
+    expect(result.fightFailures).toHaveLength(0);
+    expect(result.accounting.packagesCreated).toBe(1);
+    expect(result.characterDigests.length).toBeGreaterThan(0);
+    expect(result.dimensions.blocked.some((b) => b.dimension === "UTILITY")).toBe(
+      false,
+    );
+    expect(result.dimensions.utility?.score).not.toBeNull();
+    // Survival may be blocked/partial from incomplete DamageTaken — that must
+    // not erase Utility.
+    const utilityUsable = result.dimensions.utilityDigestDiagnostics.filter(
+      (d) => d.usable,
+    );
+    expect(utilityUsable.length).toBeGreaterThan(0);
+  });
 });

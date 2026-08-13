@@ -88,6 +88,7 @@ import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
+import { reconcileDetailedAcquisitionFromDigests } from "./scoring/reconcile-detailed-acquisition.js";
 import {
   RefreshContractPreflightError,
   assertPublicationContractMatchesJob,
@@ -2096,7 +2097,7 @@ export async function runRefreshPipeline(
     string,
     { startTime: number; endTime: number; encounterId: number | null; encounterName: string | null }
   >();
-  const runCoverageById: Record<string, number> = {};
+  let runCoverageById: Record<string, number> = {};
   const runDiagnostics: Array<Record<string, unknown>> = [];
   const earlyClassSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
   const earlySpecSlug = blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
@@ -2784,9 +2785,9 @@ export async function runRefreshPipeline(
   }
 
   const selectedRunCount = scoringRunSelection.selectedRuns.length;
-  const matchedReportCount = runDiagnostics.filter((d) => d.wclReportMatched === true).length;
-  const usableCombatRunCount = runDiagnostics.filter((d) => d.detailedAnalysis === true).length;
-  const detailedRunCount = usableCombatRunCount;
+  let matchedReportCount = runDiagnostics.filter((d) => d.wclReportMatched === true).length;
+  let usableCombatRunCount = runDiagnostics.filter((d) => d.detailedAnalysis === true).length;
+  let detailedRunCount = usableCombatRunCount;
 
   const presentationMetaByRunId: Record<
     string,
@@ -2812,7 +2813,7 @@ export async function runRefreshPipeline(
     };
   }
   scoringRunSelection = applyRunMetadataToSelection(scoringRunSelection, presentationMetaByRunId);
-  const contractScoringRunSelection = toContractScoringRunSelection(
+  let contractScoringRunSelection = toContractScoringRunSelection(
     scoringRunSelection,
     presentationMetaByRunId,
     dungeonNamesBySlug,
@@ -2850,9 +2851,12 @@ export async function runRefreshPipeline(
       survivalRows.length > 0 ||
       survivalBindPool.length > 0 ||
       survivalRunSelection.selectedRuns.some((e) => e.wclReportMatched);
-    const survivalOkForSuccess =
-      !survivalRequiredFailed &&
-      (!survivalCandidatesWithWcl || survivalRows.length > 0);
+    // When detailed ReportEvents are deferred to scoreCharacter, empty
+    // Survival V1.1.1 rows are expected — do not stamp WCL UNAVAILABLE.
+    const survivalOkForSuccess = deferDetailedWclAcquisitionToScoring
+      ? !survivalRequiredFailed
+      : !survivalRequiredFailed &&
+        (!survivalCandidatesWithWcl || survivalRows.length > 0);
     const wclOkForSuccess = performanceOkForSuccess && survivalOkForSuccess;
     const visibilitySummary = {
       wclVisibility,
@@ -3179,8 +3183,9 @@ export async function runRefreshPipeline(
 
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
   // zero coverage as evidence that logs are hidden.
-  const selectedRunCoverage = selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
-  const freshness =
+  // May be reconciled upward after deferred scoreCharacter digests land.
+  let selectedRunCoverage = selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
+  let freshness =
     wclVisibility === "HIDDEN"
       ? 0.35
       : wclDataState === "NO_PUBLIC_LOGS" ||
@@ -4015,6 +4020,178 @@ export async function runRefreshPipeline(
     },
   });
   const orch = scoringOutcome.scoreResult?.orchestration;
+  if (orch && deferDetailedWclAcquisitionToScoring) {
+    const reconciled = reconcileDetailedAcquisitionFromDigests({
+      selectedRuns: scoringRunSelection.selectedRuns.map((entry) => ({
+        canonicalRunId: entry.canonicalRunId,
+        dungeonSlug: entry.dungeonSlug,
+      })),
+      digests: orch.characterDigests.map((row) => ({
+        dungeonSlug: row.dungeonSlug,
+        reportCode: row.digest.reportCode,
+        fightId: row.digest.fightId,
+        reportRevision: row.digest.reportRevision,
+        utilityCompleteness: row.digest.utility.completeness,
+        survivalCompleteness: row.digest.survival.completeness,
+      })),
+      fightAccounting: orch.accounting.fights.map((f) => ({
+        reportCode: f.sourceFight.reportCode,
+        fightId: f.sourceFight.fightId,
+        reportRevision: f.sourceFight.reportRevision,
+        packageCreated: f.packageCreated,
+        digestsCreated: f.digestsCreated,
+        digestsReused: f.digestsReused,
+      })),
+      targetDigestFailures: orch.targetDigestFailures,
+      fightFailures: orch.fightFailures,
+    });
+
+    detailedRunCount = reconciled.detailedRunCount;
+    usableCombatRunCount = reconciled.detailedRunCount;
+    matchedReportCount = reconciled.detailedRunCount;
+    selectedRunCoverage =
+      selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
+    runCoverageById = { ...runCoverageById, ...reconciled.runCoverageById };
+
+    for (const [runId, patch] of Object.entries(reconciled.presentationMetaPatch)) {
+      const existing = presentationMetaByRunId[runId];
+      presentationMetaByRunId[runId] = {
+        dungeonName: existing?.dungeonName ?? dungeonNamesBySlug[
+          scoringRunSelection.selectedRuns.find((e) => e.canonicalRunId === runId)
+            ?.dungeonSlug ?? ""
+        ] ?? runId,
+        wclReportMatched: patch.wclReportMatched,
+        wclCoverageRatio: patch.wclCoverageRatio,
+        hasDetailedAnalysis: patch.hasDetailedAnalysis,
+      };
+    }
+    scoringRunSelection = applyRunMetadataToSelection(
+      scoringRunSelection,
+      presentationMetaByRunId,
+    );
+    contractScoringRunSelection = toContractScoringRunSelection(
+      scoringRunSelection,
+      presentationMetaByRunId,
+      dungeonNamesBySlug,
+    );
+
+    for (const slot of reconciled.slotDiagnostics) {
+      if (!slot.canonicalRunId) continue;
+      runDiagnostics.push({
+        runId: slot.canonicalRunId,
+        dungeonSlug: slot.dungeonSlug,
+        wclReportMatched: Boolean(reconciled.runCoverageById[slot.canonicalRunId]),
+        detailedAnalysis: Boolean(reconciled.runCoverageById[slot.canonicalRunId]),
+        detailedAcquisitionState: slot.state,
+        reportCode: slot.reportCode,
+        fightId: slot.fightId,
+        reportRevision: slot.reportRevision,
+        utilityCompleteness: slot.utilityCompleteness,
+        survivalCompleteness: slot.survivalCompleteness,
+        source: "deferred_scoring_digests",
+      });
+    }
+
+    logger.info(
+      {
+        ...logBase,
+        event: "detailed_acquisition_reconcile",
+        detailedRunCount,
+        selectedRunCount,
+        slotDiagnostics: reconciled.slotDiagnostics,
+        packagesCreated: orch.accounting.packagesCreated,
+        packagesReused: orch.accounting.packagesReused,
+        digestsCreated: orch.accounting.digestsCreated,
+        digestsReused: orch.accounting.digestsReused,
+        providerCalls: scoringOutcome.providerCalls,
+      },
+      "refresh: reconciled deferred detailed acquisition onto selected runs",
+    );
+
+    if (wclVisibility !== null || wclDataState !== null) {
+      wclDataState = refineWclDataState({
+        visibility: wclVisibility,
+        baseDataState: wclDataState,
+        combatFactsCount: combatFactsList.length,
+        dungeonAggregateCount: wclDungeonAggregates.length,
+        detailedEvidenceCount: detailedRunCount,
+      });
+      freshness =
+        wclVisibility === "HIDDEN"
+          ? 0.35
+          : wclDataState === "NO_PUBLIC_LOGS" ||
+              wclDataState === "RATE_LIMITED" ||
+              wclDataState === "UNAVAILABLE"
+            ? 0.45
+            : stagesSkipped.includes("refresh-raiderio") ||
+                stagesSkipped.includes("refresh-warcraftlogs-summary")
+              ? 0.55
+              : 0.75;
+
+      const utilityDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "UTILITY",
+      );
+      const survivalDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "SURVIVAL",
+      );
+      const performanceDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "PERFORMANCE",
+      );
+      const detailedOk =
+        detailedRunCount > 0 ||
+        utilityDim?.state === "AVAILABLE" ||
+        survivalDim?.state === "AVAILABLE";
+      const performanceOkForSuccess =
+        wclPerformanceRecord?.state === "OK" ||
+        wclPerformanceRecord?.state === "SKIPPED" ||
+        wclPerformanceRecord == null ||
+        performanceDim?.state === "AVAILABLE";
+      const wclOkForSuccess = performanceOkForSuccess && (detailedOk || !survivalRequiredFailed);
+
+      const priorRow = await container.prisma.characterProviderState.findUnique({
+        where: {
+          characterId_provider: {
+            characterId: character.id,
+            provider: "WARCRAFT_LOGS",
+          },
+        },
+        select: { metadata: true },
+      });
+      const priorMeta =
+        priorRow?.metadata && typeof priorRow.metadata === "object"
+          ? (priorRow.metadata as Record<string, unknown>)
+          : {};
+
+      await repositories.providerState.upsert({
+        characterId: character.id,
+        provider: "warcraftlogs",
+        state: wclOkForSuccess
+          ? mapWclVisibilityToState(wclVisibility, wclDataState)
+          : "UNAVAILABLE",
+        detail: wclOkForSuccess
+          ? undefined
+          : !performanceOkForSuccess
+            ? `points_and_damage Performance unavailable (${wclPerformanceRecord?.state ?? "missing"})`
+            : "Detailed WCL evidence acquisition failed",
+        wclVisibility,
+        lastAttemptAt: now,
+        ...(wclOkForSuccess ? { lastSuccessAt: now } : {}),
+        fetchedAt: now,
+        metadata: {
+          ...priorMeta,
+          wclDataState,
+          deferredDetailedAcquisition: true,
+          detailedRunCount,
+          selectedRunCount,
+          packagesCreated: orch.accounting.packagesCreated,
+          packagesReused: orch.accounting.packagesReused,
+          digestsCreated: orch.accounting.digestsCreated,
+          digestsReused: orch.accounting.digestsReused,
+          slotDiagnostics: reconciled.slotDiagnostics,
+        },
+      });
+    }
+  }
   logger.info(
     {
       ...logBase,

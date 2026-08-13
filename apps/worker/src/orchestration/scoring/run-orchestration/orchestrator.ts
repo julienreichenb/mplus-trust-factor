@@ -10,6 +10,7 @@ import {
   PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
   PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION,
   expectedEvidenceSlotCount,
+  isCapabilityPackageAcceptableForScoring,
   type CapabilityEvidencePackageV1,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceCandidateAcquisitionResult,
@@ -499,8 +500,15 @@ async function ensurePackageAndDigests(input: {
       packageHit = await ports.findCompatibleCapabilityPackage({
         sourceFight,
       });
-      // Incomplete packages must never be treated as compatible cache hits.
-      if (packageHit && packageHit.package.complete !== true) {
+      // Reject packages that fail shared prerequisites and have no usable
+      // scored-dimension capability set (Survival-only incompleteness is OK).
+      if (
+        packageHit &&
+        !isCapabilityPackageAcceptableForScoring({
+          complete: packageHit.package.complete,
+          coverage: packageHit.package.coverage,
+        })
+      ) {
         packageHit = null;
       }
     }
@@ -574,7 +582,12 @@ async function ensurePackageAndDigests(input: {
         keyLevel: input.keyLevel,
         participants,
       });
-      if (acquired.package.complete !== true) {
+      if (
+        !isCapabilityPackageAcceptableForScoring({
+          complete: acquired.package.complete,
+          coverage: acquired.package.coverage,
+        })
+      ) {
         throw new Error(
           `incomplete_capability_package:${sourceFightKey(sourceFight)}`,
         );

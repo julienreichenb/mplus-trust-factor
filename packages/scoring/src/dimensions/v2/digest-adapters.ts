@@ -481,6 +481,20 @@ function resolveToolkitFromDigest(
   observedFamilies: Partial<Record<UtilityV2FamilyKey, boolean>>,
 ): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
   const talentPresent = digest.loadoutEvidence.evidenceState === "PRESENT";
+  if (!talentPresent) {
+    // Distinct from current Blizzard profile talents — Utility gating uses
+    // run-scoped WCL CombatantInfo / digest loadout evidence only.
+    console.info(
+      JSON.stringify({
+        event: "utility.talent_source_missing",
+        source: "run_scoped_combatant_info",
+        loadoutEvidenceState: digest.loadoutEvidence.evidenceState,
+        reportCode: digest.reportCode,
+        fightId: digest.fightId,
+        participantActorId: digest.participantActorId,
+      }),
+    );
+  }
   return resolveUtilityToolkitFromCatalog({
     classSlug: digest.classSlug,
     specSlug: digest.specSlug,

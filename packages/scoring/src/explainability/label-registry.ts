@@ -424,12 +424,14 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   },
   applicability_uncertain: {
     labelKey: "confidence.utility.applicability_uncertain",
-    template: "Talent data is missing, so some utility families were not scored as unused",
+    template:
+      "Run-scoped WCL talent/loadout evidence is missing, so some utility families were not scored as unused",
     visibility: "PUBLIC",
   },
   talent_applicability_uncertain: {
     labelKey: "confidence.utility.talent_applicability_uncertain",
-    template: "Some utility families are talent-gated and talent data was unavailable",
+    template:
+      "Some utility families are talent-gated and run-scoped WCL CombatantInfo talent evidence was unavailable",
     visibility: "PUBLIC",
   },
   // Experience

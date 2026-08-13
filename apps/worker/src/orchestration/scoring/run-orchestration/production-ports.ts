@@ -12,6 +12,7 @@ import {
   assertCapabilityEvidencePackageV1,
   assertParticipantScoringDigestV1,
   buildWclRunRawPayloadV1,
+  isCapabilityPackageAcceptableForScoring,
   parseWclRunRawPayload,
   type CapabilityEvidencePackageV1,
 } from "@mplus/contracts";
@@ -260,7 +261,14 @@ export function createProductionRunOrchestrationPorts(
         throw err;
       }
       const pkg = parsed.package;
-      if (pkg.complete !== true) return null;
+      if (
+        !isCapabilityPackageAcceptableForScoring({
+          complete: pkg.complete,
+          coverage: pkg.coverage,
+        })
+      ) {
+        return null;
+      }
       // Bare legacy packages lack masterData — not roster-compatible.
       if (!parsed.hasEmbeddedRosterSource || parsed.masterData == null) {
         return null;
@@ -292,7 +300,12 @@ export function createProductionRunOrchestrationPorts(
       }
       const acquired = await deps.liveAcquireCapabilityPackage(input);
       const pkg = assertCapabilityEvidencePackageV1(acquired.package);
-      if (pkg.complete !== true) {
+      if (
+        !isCapabilityPackageAcceptableForScoring({
+          complete: pkg.complete,
+          coverage: pkg.coverage,
+        })
+      ) {
         throw Object.assign(
           new Error(
             `incomplete_capability_package:${sourceFightKey(input.sourceFight)}`,

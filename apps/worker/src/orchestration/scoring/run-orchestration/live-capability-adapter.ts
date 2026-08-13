@@ -7,6 +7,7 @@ import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import type { AppEnv } from "@mplus/config";
 import {
   assertCapabilityEvidencePackageV1,
+  isCapabilityPackageAcceptableForScoring,
   parseWclRunRawPayload,
 } from "@mplus/contracts";
 import type { ArtifactRepository, WclSourceRepository } from "@mplus/database";
@@ -375,7 +376,12 @@ export function createLiveCapabilityAcquireHook(
     });
 
     const pkg = assertCapabilityEvidencePackageV1(acquired.package);
-    if (pkg.complete !== true) {
+    if (
+      !isCapabilityPackageAcceptableForScoring({
+        complete: pkg.complete,
+        coverage: pkg.coverage,
+      })
+    ) {
       throw Object.assign(
         new Error(`incomplete_capability_package:${pkg.compatibilityKey}`),
         { code: "INCOMPLETE_CAPABILITY_PACKAGE" },
@@ -410,7 +416,12 @@ export function createLiveCapabilityAcquireHook(
         code: "PACKAGE_RELOAD_HASH_MISMATCH",
       });
     }
-    if (reloaded.complete !== true) {
+    if (
+      !isCapabilityPackageAcceptableForScoring({
+        complete: reloaded.complete,
+        coverage: reloaded.coverage,
+      })
+    ) {
       throw Object.assign(new Error("capability_package_reload_incomplete"), {
         code: "PACKAGE_RELOAD_INCOMPLETE",
       });

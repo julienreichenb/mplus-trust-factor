@@ -30,6 +30,17 @@ describe("WCL provenance contract", () => {
     expect(refined).toBe("RANKINGS_ONLY");
   });
 
+  it("promotes to MATCHED_COMBAT_LOGS from deferred digests without combatFacts", () => {
+    const refined = refineWclDataState({
+      visibility: "PUBLIC",
+      baseDataState: "RANKINGS_ONLY",
+      combatFactsCount: 0,
+      dungeonAggregateCount: 8,
+      detailedEvidenceCount: 8,
+    });
+    expect(refined).toBe("MATCHED_COMBAT_LOGS");
+  });
+
   it("keeps PUBLIC visibility when combat matches drop to zero", () => {
     const refined = refineWclDataState({
       visibility: "PUBLIC",

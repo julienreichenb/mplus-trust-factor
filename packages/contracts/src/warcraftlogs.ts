@@ -152,8 +152,20 @@ export function refineWclDataState(input: {
   baseDataState: WclDataState | null;
   combatFactsCount: number;
   dungeonAggregateCount: number;
+  /**
+   * Participant scoring digests / capability packages acquired for selected
+   * runs (deferred detailed path). Counts as matched combat evidence even when
+   * legacy analyze-run combatFacts were not collected in refresh.
+   */
+  detailedEvidenceCount?: number;
 }): WclDataState | null {
-  const { visibility, baseDataState, combatFactsCount, dungeonAggregateCount } = input;
+  const {
+    visibility,
+    baseDataState,
+    combatFactsCount,
+    dungeonAggregateCount,
+    detailedEvidenceCount = 0,
+  } = input;
   if (baseDataState === "RATE_LIMITED" || baseDataState === "UNAVAILABLE") {
     return baseDataState;
   }
@@ -164,7 +176,7 @@ export function refineWclDataState(input: {
     return "NO_PUBLIC_LOGS";
   }
   if (visibility === "PUBLIC" || visibility == null) {
-    if (combatFactsCount > 0) return "MATCHED_COMBAT_LOGS";
+    if (combatFactsCount > 0 || detailedEvidenceCount > 0) return "MATCHED_COMBAT_LOGS";
     if (dungeonAggregateCount > 0) return "RANKINGS_ONLY";
     if (visibility === "PUBLIC") return "NO_MATCHED_RUN";
   }

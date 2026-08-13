@@ -1282,10 +1282,20 @@ export class CharacterService {
     const wclUrlByRunId: Record<string, string | null> = {};
     await Promise.all(
       runIds.map(async (runId) => {
-        runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
+        const analysisCoverage = await this.repositories.run.findLatestAnalysisCoverage(
           character.id,
           runId,
         );
+        const explainedCoverage = coverageCounts.runCoverageById[runId];
+        // Prefer positive deferred-scoring coverage from CharacterScore explanation
+        // over a zero stub from wcl-visibility-v1 RunAnalysis rows.
+        const preferExplained =
+          typeof explainedCoverage === "number" &&
+          explainedCoverage > 0 &&
+          (analysisCoverage == null || analysisCoverage <= 0);
+        runCoverageById[runId] = preferExplained
+          ? explainedCoverage
+          : (analysisCoverage ?? explainedCoverage ?? null);
         const runRow = await this.repositories.run.findById(runId);
         if (runRow) {
           runNamesById[runId] = {

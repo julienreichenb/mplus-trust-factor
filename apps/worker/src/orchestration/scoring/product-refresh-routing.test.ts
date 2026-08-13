@@ -59,6 +59,10 @@ describe("product refresh routing (static convergence)", () => {
 
     expect(pipeline).toMatch(/const deferDetailedWclAcquisitionToScoring = true/);
     expect(pipeline).toMatch(/runAuthoritativeScoring/);
+    expect(pipeline).toMatch(/reconcileDetailedAcquisitionFromDigests/);
+    expect(pipeline).toMatch(
+      /survivalOkForSuccess = deferDetailedWclAcquisitionToScoring/,
+    );
     expect(pipeline).not.toMatch(
       /deferDetailedWclAcquisitionToScoring = container\.env\.SCORING_ENABLED/,
     );
