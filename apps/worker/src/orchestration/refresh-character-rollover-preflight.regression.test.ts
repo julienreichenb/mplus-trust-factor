@@ -15,10 +15,14 @@ import {
   computeDungeonPoolHash,
   computeSourceMetadataHash,
   mergeActiveMplusCatalogMetadata,
+  updateScoringSeasonSelection,
   type PersistedActiveMplusCatalogMetadata,
 } from "./active-mplus-season/index.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
-import { runRefreshContractPreflight } from "./refresh-contract-preflight.js";
+import {
+  resolvePublicationRefreshContract,
+  runRefreshContractPreflight,
+} from "./refresh-contract-preflight.js";
 import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
 import type { RefreshCharacterJob } from "@mplus/contracts";
 
@@ -324,10 +328,18 @@ describe("refresh-character rollover preflight (real queue path)", () => {
     else process.env.PROVIDER_MODE = previousMode;
   });
 
-  it("source guard: publication TOCTOU rebuilds contract with preflightEffective.wclZoneId", () => {
+  it("source guard: publication TOCTOU freshly resolves Effective Scoring Season", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(join(here, "refresh-pipeline.ts"), "utf8");
-    expect(src).toMatch(/zoneId:\s*preflightEffective\.wclZoneId/);
+    const publicationIdx = src.indexOf("Final publication / TOCTOU");
+    expect(publicationIdx).toBeGreaterThan(0);
+    const publicationSrc = src.slice(publicationIdx);
+    const scoringIdx = publicationSrc.indexOf("runAuthoritativeScoring");
+    expect(scoringIdx).toBeGreaterThan(0);
+    const barrierSrc = publicationSrc.slice(0, scoringIdx);
+    expect(barrierSrc).toMatch(/resolvePublicationRefreshContract/);
+    expect(barrierSrc).toMatch(/publicationEffective/);
+    expect(barrierSrc).not.toMatch(/zoneId:\s*preflightEffective\.wclZoneId/);
   });
 
   it("COLD AUTO: missing catalog bootstraps once, preflight builds contract with discovered zone", async () => {
@@ -593,3 +605,222 @@ describe("refresh-character rollover preflight (real queue path)", () => {
     ).toThrow(ZONE_MISSING_MSG);
   });
 });
+
+function readySeason(input: {
+  blizzardSeasonId: number;
+  isCurrent: boolean;
+  wclZoneId: number;
+  dungeonSlugs: string[];
+}) {
+  const meta = catalogMeta({
+    wclZoneId: input.wclZoneId,
+    blizzardSeasonId: input.blizzardSeasonId,
+    dungeonSlugs: input.dungeonSlugs,
+  });
+  return {
+    id: `s${input.blizzardSeasonId}`,
+    slug: `blizzard-season-${input.blizzardSeasonId}`,
+    name: `Season ${input.blizzardSeasonId}`,
+    blizzardSeasonId: input.blizzardSeasonId,
+    isCurrent: input.isCurrent,
+    metadata: mergeActiveMplusCatalogMetadata(
+      {
+        authoritySource: "season_index.current_season",
+        authorityVerifiedAt: new Date().toISOString(),
+        blizzardSeasonId: input.blizzardSeasonId,
+      },
+      meta,
+    ),
+    dungeonSlugs: input.dungeonSlugs,
+    encounterIds: input.dungeonSlugs.map((_, i) => i + 1),
+  };
+}
+
+function livePreflightDeps(
+  prisma: never,
+  discoverActiveMplusCatalog: () => Promise<never>,
+) {
+  return {
+    prisma,
+    blizzard: {
+      getMythicKeystoneSeasonIndex: async () => ({
+        data: { current_season: { id: 18 } },
+      }),
+    } as never,
+    logger: makeLogger() as never,
+    env: {
+      PROVIDER_MODE: "live" as const,
+      ACTIVE_SCORE_MODEL_KEY: "default",
+      ACTIVE_SCORE_MODEL_VERSION: 6,
+    },
+    getActiveModel: async () => ({ key: "default", version: 6 }),
+    discoverActiveMplusCatalog,
+  };
+}
+
+describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)", () => {
+  const previousMode = process.env.PROVIDER_MODE;
+  const slugs17 = ["a", "b"] as const;
+  const slugs18 = ["c", "d"] as const;
+  const Z17 = 47;
+  const Z18 = 48;
+
+  beforeEach(() => {
+    clearSeasonAuthorityCacheForTests();
+    process.env.PROVIDER_MODE = "live";
+    delete process.env.WCL_MPLUS_ZONE_ID;
+    delete process.env.WCL_MPLUS_ZONE_MODE;
+    delete process.env.WCL_MPLUS_ZONE_EXPIRES_AT;
+  });
+
+  afterEach(() => {
+    if (previousMode === undefined) delete process.env.PROVIDER_MODE;
+    else process.env.PROVIDER_MODE = previousMode;
+  });
+
+  function dualSeasonPrisma(selection: { mode: "AUTO" } | { mode: "PINNED"; blizzardSeasonId: number }) {
+    return makePrisma({
+      seasons: [
+        readySeason({
+          blizzardSeasonId: 17,
+          isCurrent: false,
+          wclZoneId: Z17,
+          dungeonSlugs: [...slugs17],
+        }),
+        readySeason({
+          blizzardSeasonId: 18,
+          isCurrent: true,
+          wclZoneId: Z18,
+          dungeonSlugs: [...slugs18],
+        }),
+      ],
+      runtimeSetting: { value: selection, version: 1 },
+    });
+  }
+
+  it("PINNED 17 → AUTO 18 during in-flight job: late contract uses 18/Z18 and publication is refused", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "PINNED", blizzardSeasonId: 17 });
+    const discover = vi.fn(async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const deps = livePreflightDeps(prisma, discover);
+
+    const startHash = resolveActiveRefreshContract({
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+      activeSeasonId: "blizzard-season-17",
+      providerMode: "live",
+      zoneId: Z17,
+    }).hash;
+
+    const preflight = await runRefreshContractPreflight(
+      deps,
+      buildJob(startHash, 17, "blizzard-season-17"),
+      { jobId: "job-pin-to-auto-start" },
+    );
+    expect(preflight.effective.blizzardSeasonId).toBe(17);
+    expect(preflight.effective.wclZoneId).toBe(Z17);
+    expect(preflight.hash).toBe(startHash);
+
+    await updateScoringSeasonSelection(prisma, { mode: "AUTO", expectedVersion: 1 }, null);
+
+    const publication = await resolvePublicationRefreshContract(deps, buildJob(startHash, 17, "blizzard-season-17"), {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+
+    expect(publication.effective.selectionMode).toBe("AUTO");
+    expect(publication.effective.blizzardSeasonId).toBe(18);
+    expect(publication.effective.wclZoneId).toBe(Z18);
+    expect(publication.contract.activeSeasonId).toBe("blizzard-season-18");
+    expect(publication.contract.zoneId).toBe(Z18);
+    expect(publication.hash).not.toBe(preflight.hash);
+    expect(discover).not.toHaveBeenCalled();
+    // Pipeline refuse condition: requested job hash !== freshly resolved late hash.
+    expect(Boolean(startHash && startHash !== publication.hash)).toBe(true);
+  });
+
+  it("AUTO 18 → PINNED 17 during in-flight job: late contract uses 17/Z17 and publication is refused", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "AUTO" });
+    const discover = vi.fn(async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const deps = livePreflightDeps(prisma, discover);
+
+    const startHash = resolveActiveRefreshContract({
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+      activeSeasonId: "blizzard-season-18",
+      providerMode: "live",
+      zoneId: Z18,
+    }).hash;
+
+    const preflight = await runRefreshContractPreflight(
+      deps,
+      buildJob(startHash, 18, "blizzard-season-18"),
+      { jobId: "job-auto-to-pin-start" },
+    );
+    expect(preflight.effective.blizzardSeasonId).toBe(18);
+    expect(preflight.effective.wclZoneId).toBe(Z18);
+    expect(preflight.hash).toBe(startHash);
+
+    await updateScoringSeasonSelection(
+      prisma,
+      { mode: "PINNED", blizzardSeasonId: 17, expectedVersion: 1 },
+      null,
+    );
+
+    const publication = await resolvePublicationRefreshContract(deps, buildJob(startHash, 18, "blizzard-season-18"), {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+
+    expect(publication.effective.selectionMode).toBe("PINNED");
+    expect(publication.effective.blizzardSeasonId).toBe(17);
+    expect(publication.effective.wclZoneId).toBe(Z17);
+    expect(publication.contract.activeSeasonId).toBe("blizzard-season-17");
+    expect(publication.contract.zoneId).toBe(Z17);
+    expect(publication.hash).not.toBe(preflight.hash);
+    expect(discover).not.toHaveBeenCalled();
+    expect(Boolean(startHash && startHash !== publication.hash)).toBe(true);
+  });
+
+  it("PINNED 17 remains PINNED 17: late contract matches job-start and publication succeeds", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "PINNED", blizzardSeasonId: 17 });
+    const discover = vi.fn(async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const deps = livePreflightDeps(prisma, discover);
+
+    const startHash = resolveActiveRefreshContract({
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+      activeSeasonId: "blizzard-season-17",
+      providerMode: "live",
+      zoneId: Z17,
+    }).hash;
+
+    const preflight = await runRefreshContractPreflight(
+      deps,
+      buildJob(startHash, 17, "blizzard-season-17"),
+      { jobId: "job-stable-pin-start" },
+    );
+    expect(preflight.effective.blizzardSeasonId).toBe(17);
+    expect(preflight.effective.wclZoneId).toBe(Z17);
+
+    const publication = await resolvePublicationRefreshContract(deps, buildJob(startHash, 17, "blizzard-season-17"), {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+
+    expect(publication.effective.selectionMode).toBe("PINNED");
+    expect(publication.effective.blizzardSeasonId).toBe(17);
+    expect(publication.effective.wclZoneId).toBe(Z17);
+    expect(publication.contract.zoneId).toBe(Z17);
+    expect(publication.hash).toBe(preflight.hash);
+    expect(publication.hash).toBe(startHash);
+    expect(discover).not.toHaveBeenCalled();
+    expect(startHash === publication.hash).toBe(true);
+  });
+});
+

@@ -5,7 +5,8 @@
  * provider-state mutation, run ingestion, metric writes, or WCL budget use.
  *
  * The late publication/TOCTOU guard in refresh-pipeline.ts remains mandatory —
- * it catches contract changes that occur after this preflight succeeds.
+ * it must freshly resolve the Effective Scoring Season (not reuse job-start
+ * preflight) and refuse publication when the late contract hash diverges.
  */
 import type { Logger } from "@mplus/observability";
 import type {
@@ -246,6 +247,53 @@ export async function runRefreshContractPreflight(
     missingHashAllowed: false,
     elapsedMs,
   };
+}
+
+export interface PublicationRefreshContractResult {
+  effective: EffectiveScoringSeason;
+  contract: RefreshContractVersions;
+  hash: string;
+}
+
+/**
+ * Publication/TOCTOU contract resolution.
+ *
+ * MUST re-resolve Effective Scoring Season at publication time. Never rebuild
+ * the late contract from the job-start preflight effective-season object.
+ */
+export async function resolvePublicationRefreshContract(
+  deps: RefreshContractPreflightDeps,
+  jobPayload: Pick<RefreshCharacterJob, "region" | "correlationId">,
+  opts: {
+    scoringModelKey: string;
+    scoringModelVersion: number;
+    correlationId?: string | null;
+  },
+): Promise<PublicationRefreshContractResult> {
+  const region = await ensureRegion(deps.prisma, jobPayload.region);
+  const resolveEffective = deps.resolveEffective ?? resolveEffectiveScoringSeason;
+  const effective = await resolveEffective({
+    prisma: deps.prisma,
+    blizzard: deps.blizzard,
+    logger: deps.logger,
+    regionCode: region.code,
+    regionId: region.id,
+    allowProviderSync: true,
+    correlationId: opts.correlationId ?? jobPayload.correlationId ?? null,
+    now: deps.now,
+    discoverActiveMplusCatalog: resolveDiscoverer(deps),
+  });
+
+  const { contract, hash } = resolveActiveRefreshContract({
+    scoringModelKey: opts.scoringModelKey,
+    scoringModelVersion: opts.scoringModelVersion,
+    activeSeasonId: effective.activeSeasonId,
+    providerMode: deps.env.PROVIDER_MODE,
+    zoneId: effective.wclZoneId,
+    partition: deps.partition,
+  });
+
+  return { effective, contract, hash };
 }
 
 /** True when an error is the dedicated non-retryable preflight barrier failure. */

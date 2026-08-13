@@ -89,10 +89,8 @@ import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDi
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import {
-  resolveActiveRefreshContract,
-} from "./build-refresh-contract.js";
-import {
   RefreshContractPreflightError,
+  resolvePublicationRefreshContract,
   runRefreshContractPreflight,
 } from "./refresh-contract-preflight.js";
 import {
@@ -3762,20 +3760,33 @@ export async function runRefreshPipeline(
   } as ScoreModelConfig;
 
   // ── Final publication / TOCTOU contract barrier ─────────────────────────
-  // Re-resolve immediately before score calculation/publication. Protects
-  // against contract changes that occur after the job-start preflight.
+  // Freshly re-resolve Effective Scoring Season immediately before score
+  // calculation/publication. Never rebuild the late contract from the
+  // job-start preflightEffective object — RuntimeSetting / detected season
+  // may have changed while this job was in flight.
   // Do not remove or weaken this guard. Cancellation is re-checked atomically
   // inside the publication transaction (publicationGuard).
   await assertNotCancelled("pre_publication");
 
-  // Same effective-season zone as job-start preflight — never rebuild without zoneId.
-  const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
-    scoringModelKey: model.key,
-    scoringModelVersion: model.version,
-    activeSeasonId: season.slug,
-    providerMode: container.env.PROVIDER_MODE,
-    zoneId: preflightEffective.wclZoneId,
-  });
+  const publicationResolved = await resolvePublicationRefreshContract(
+    {
+      prisma: container.prisma,
+      blizzard: providers.blizzard,
+      logger,
+      env: container.env,
+      getActiveModel: (key) => repositories.score.getActiveModel(key),
+      warcraftlogs: providers.warcraftlogs,
+    },
+    jobPayload,
+    {
+      scoringModelKey: model.key,
+      scoringModelVersion: model.version,
+      correlationId: ctx.correlationId ?? ctx.requestId,
+    },
+  );
+  const publicationEffective = publicationResolved.effective;
+  const refreshContract = publicationResolved.contract;
+  const computedContractHash = publicationResolved.hash;
 
   if (
     jobPayload.refreshContractHash &&
@@ -3791,7 +3802,11 @@ export async function runRefreshPipeline(
         currentRefreshContractHash: computedContractHash,
         refreshContract,
         characterId: character.id,
-        contractSeasonSlug: season.slug,
+        preflightSeasonSlug: season.slug,
+        preflightWclZoneId: preflightEffective.wclZoneId,
+        contractSeasonSlug: publicationEffective.activeSeasonId,
+        publicationBlizzardSeasonId: publicationEffective.blizzardSeasonId,
+        publicationWclZoneId: publicationEffective.wclZoneId,
         triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
       },
       "refresh contract publication/TOCTOU mismatch — refusing to publish divergent snapshot",
