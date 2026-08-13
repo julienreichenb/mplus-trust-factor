@@ -69,7 +69,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => {
               if (opts.authorityFail) {
                 const { SeasonAuthorityUnavailableError } = await import("@mplus/worker");
@@ -147,7 +147,12 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   beforeEach(() => {
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockFindByIdentity.mockResolvedValue(null);
     mockFindByBlizzardCharacterId.mockResolvedValue(null);
     mockGetPublishedSnapshot.mockResolvedValue(null);
@@ -180,7 +185,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
         blizzardCharacterId: "9999",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     mockEnqueue.mockResolvedValue({ jobId: "job-new-1", reused: false, enqueued: true });
   });
 
@@ -211,7 +216,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("compensate-deletes a fresh shell when season authority fails after create", async () => {
+  it("fails closed before create when season authority is unavailable", async () => {
     const service = new CharacterService(buildContainer({ authorityFail: true }));
     const result = await service.resolveCharacter({
       region: "EU",
@@ -220,8 +225,10 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
     });
     expect(result.statusCode).toBe(503);
     expect(result.body).toMatchObject({ status: "PROVIDER_UNAVAILABLE", retryable: true });
-    expect(mockUpsert).toHaveBeenCalledTimes(1);
-    expect(mockDeleteShell).toHaveBeenCalledWith("char-new");
+    // Authority is resolved before Blizzard/create so no orphan shell is left behind.
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockDeleteShell).not.toHaveBeenCalled();
+    expect(mockGetProfile).not.toHaveBeenCalled();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
@@ -373,7 +380,7 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
                 seasonId: 13,
@@ -450,7 +457,12 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     repaired = false;
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockGetPublishedSnapshot.mockResolvedValue(null);
     mockFindLatestJob.mockResolvedValue(failedJob);
     mockListProviderState.mockResolvedValue([]);
@@ -466,7 +478,7 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
         blizzardCharacterId: "4242",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     mockEnqueue.mockResolvedValue({ jobId: "job-repair-1", reused: false, enqueued: true });
   });
 
@@ -654,8 +666,8 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
                 },
               };
             }),
-            getMythicKeystoneProfile: vi.fn(async () => ({
-              data: { currentMythicRating: 2500 },
+            getMythicKeystoneSeasonProfile: vi.fn(async () => ({
+              data: { profile: { currentMythicRating: 2500 }, runs: [] },
             })),
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
@@ -739,6 +751,7 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
               id: "realm-1",
               slug: "archimonde",
               name: "Archimonde",
+              region: { id: "reg-1", code: "EU" },
             }),
           },
           score: {

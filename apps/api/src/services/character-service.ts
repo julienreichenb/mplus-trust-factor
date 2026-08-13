@@ -601,6 +601,7 @@ export class CharacterService {
   /**
    * Complete shell + missing current-season Mythic+ rating → one keystone call.
    * Provider failure never becomes confirmed no-score.
+   * Fetches the eligibility (effective/PINNED) season — not Blizzard live current.
    */
   private async fetchAndPersistCurrentSeasonMythicScore(
     character: Character,
@@ -609,20 +610,22 @@ export class CharacterService {
     opts: { correlationId?: string | null },
   ): Promise<{ ok: true } | { ok: false; statusCode: number; body: CharacterResolveResponse }> {
     try {
-      const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
-        identity,
-        {
-          region: identity.region,
-          requestId: opts.correlationId ?? `mythic-${character.id}`,
-          correlationId: opts.correlationId ?? null,
-          forceRefresh: true,
-          now: new Date().toISOString(),
-        },
-      );
+      const keystone =
+        await this.container.worker.providers.blizzard.getMythicKeystoneSeasonProfile(
+          identity,
+          authority.blizzardSeasonId,
+          {
+            region: identity.region,
+            requestId: opts.correlationId ?? `mythic-${character.id}`,
+            correlationId: opts.correlationId ?? null,
+            forceRefresh: true,
+            now: new Date().toISOString(),
+          },
+        );
       await persistRefreshEligibilityEvidence(this.container.worker.prisma, {
         characterId: character.id,
         level: character.level ?? null,
-        mythicRating: keystone.data.currentMythicRating ?? null,
+        mythicRating: keystone.data.profile.currentMythicRating ?? null,
         authoritativeSeasonRowId: authority.seasonRowId,
       });
       return { ok: true };
@@ -640,12 +643,12 @@ export class CharacterService {
   }
 
   /**
-   * Bounded Blizzard profile + current-season Mythic+ reads for resolve bootstrap.
+   * Bounded Blizzard profile + authoritative-season Mythic+ reads for resolve bootstrap.
    * Never invents eligibility evidence on NOT_FOUND.
    */
   private async fetchBlizzardBootstrap(
     identity: CharacterIdentityInput,
-    opts: { correlationId?: string | null },
+    opts: { correlationId?: string | null; blizzardSeasonId: number },
     notFoundMessage: string,
   ): Promise<
     | { ok: true; profile: CanonicalCharacter; mythicRating: number | null }
@@ -654,7 +657,11 @@ export class CharacterService {
     const fetched = await fetchBlizzardPublicBootstrap(
       this.container.worker.providers.blizzard,
       identity,
-      { correlationId: opts.correlationId, forceRefresh: true },
+      {
+        correlationId: opts.correlationId,
+        forceRefresh: true,
+        blizzardSeasonId: opts.blizzardSeasonId,
+      },
     );
     if (fetched.ok) {
       return { ok: true, profile: fetched.profile, mythicRating: fetched.mythicRating };
@@ -1680,8 +1687,9 @@ export class CharacterService {
           { characterId: character.id, authority },
         );
         // Decision is the usable score value — published CharacterScore alone is not enough.
+        // undefined = UNKNOWN/missing (repairable); null = CONFIRMED_NO_SCORE; positive = HAS_SCORE.
         const existingScore = signalsBefore.currentSeasonMythicScore;
-        const missingSeasonMythicEvidence = existingScore == null;
+        const missingSeasonMythicEvidence = existingScore === undefined;
         const needsRepair = shouldRepairCharacterBootstrap({
           character,
           latestJob,
@@ -1715,7 +1723,10 @@ export class CharacterService {
             } else {
             const fetched = await this.fetchBlizzardBootstrap(
               identity,
-              { correlationId: opts.correlationId },
+              {
+                correlationId: opts.correlationId,
+                blizzardSeasonId: authority.blizzardSeasonId,
+              },
               `Character not found on ${realm.name} — ${identity.region}.`,
             );
             if (!fetched.ok) return fetched;
@@ -1849,12 +1860,54 @@ export class CharacterService {
       }
     }
 
-    // New character: verify against Blizzard before creating a stable DB row.
-    // Resolve may fetch identity/level/current-season rating and persist evidence
-    // before enqueue — the worker gate remains provider-free.
+    // New character: resolve effective/PINNED season BEFORE Blizzard keystone so
+    // Mythic+ evidence is acquired for the same season eligibility will evaluate.
+    let bootstrapAuthority: VerifiedSeasonAuthority;
+    try {
+      const discoverActiveMplusCatalog = resolveScoringCatalogDiscoverer({
+        warcraftlogs: this.container.worker.providers.warcraftlogs,
+        providerMode: this.container.env.PROVIDER_MODE,
+      });
+      const effective = await resolveEffectiveScoringSeason({
+        prisma: this.container.worker.prisma,
+        blizzard: this.container.worker.providers.blizzard,
+        logger: this.container.logger,
+        regionCode: realm.region.code,
+        regionId: realm.region.id,
+        allowProviderSync: true,
+        correlationId: opts.correlationId,
+        discoverActiveMplusCatalog,
+      });
+      bootstrapAuthority = {
+        regionCode: effective.detected.regionCode,
+        regionId: effective.detected.regionId,
+        seasonRowId: effective.applicationSeasonId,
+        blizzardSeasonId: effective.blizzardSeasonId,
+        slug: effective.seasonSlug,
+        authoritySource: effective.detected.authoritySource,
+        authorityVerifiedAt: effective.detected.authorityVerifiedAt,
+        resolution: effective.detected.resolution,
+      };
+    } catch (error) {
+      if (error instanceof SeasonAuthorityUnavailableError) {
+        return {
+          statusCode: 503,
+          body: {
+            status: "PROVIDER_UNAVAILABLE",
+            retryable: true,
+            message: "Season authority is temporarily unavailable. Please retry shortly.",
+          },
+        };
+      }
+      throw error;
+    }
+
     const fetched = await this.fetchBlizzardBootstrap(
       identity,
-      { correlationId: opts.correlationId },
+      {
+        correlationId: opts.correlationId,
+        blizzardSeasonId: bootstrapAuthority.blizzardSeasonId,
+      },
       `Character not found on ${realm.name} — ${identity.region}.`,
     );
     if (!fetched.ok) return fetched;
@@ -1924,14 +1977,11 @@ export class CharacterService {
     }
 
     try {
-      const { authority } = await this.resolveActiveRefreshContract(character, {
-        allowProviderSync: true,
-        correlationId: opts.correlationId,
-      });
+      // Persist + evaluate under the same season used for the keystone fetch.
       character = await this.persistBootstrapFromBlizzardProfile(
         character,
         identity,
-        authority,
+        bootstrapAuthority,
         fetched.profile,
         fetched.mythicRating,
       );
@@ -1946,7 +1996,10 @@ export class CharacterService {
         );
       }
 
-      const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
+      const eligibility = await this.evaluateSharedRefreshEligibility(
+        character,
+        bootstrapAuthority,
+      );
       if (!eligibility.eligible) {
         // Profile-only: complete bootstrap, shell persisted, no refresh-character, no WCL budget.
         return {
@@ -2124,8 +2177,9 @@ export class CharacterService {
       this.container.worker.prisma,
       { characterId: character.id, authority: resolvedContract.authority },
     );
+    // Only UNKNOWN (undefined) triggers a bounded keystone repair — not CONFIRMED_NO (null).
     if (
-      eligibilitySignals.currentSeasonMythicScore == null &&
+      eligibilitySignals.currentSeasonMythicScore === undefined &&
       !characterLacksBootstrapEvidence(character)
     ) {
       const fetched = await this.fetchAndPersistCurrentSeasonMythicScore(

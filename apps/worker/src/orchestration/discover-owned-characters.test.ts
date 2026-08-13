@@ -1180,7 +1180,10 @@ describe("runDiscoverOwnedCharacters", () => {
           characterId: characterState.id,
           mythicRating: 2100,
           rawSummary: {
-            eligibility: { authoritativeSeasonId: "season-1" },
+            eligibility: {
+              authoritativeSeasonId: "season-1",
+              confirmedNoScore: false,
+            },
           },
         }),
       }),

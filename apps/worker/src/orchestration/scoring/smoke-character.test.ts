@@ -72,24 +72,24 @@ function mockBlizzard(overrides: Record<string, unknown> = {}) {
       data: profile,
       freshness: { fetchedAt: new Date().toISOString(), expiresAt: null },
     })),
-    getMythicKeystoneProfile: vi.fn(async () => ({
-      data: { currentMythicRating: 2500, seasons: [] },
+    getMythicKeystoneSeasonProfile: vi.fn(async () => ({
+      data: {
+        profile: { currentMythicRating: 2500, seasons: [] },
+        runs: [],
+      },
       freshness: { fetchedAt: new Date().toISOString(), expiresAt: null },
     })),
     ...overrides,
   };
 }
 
-function mockPrisma(opts: { hasSeasonScore?: boolean } = {}) {
+function mockPrisma(opts: { hasSeasonScore?: boolean; confirmedNoScore?: boolean } = {}) {
   const hasSeasonScore = opts.hasSeasonScore === true;
+  const confirmedNoScore = opts.confirmedNoScore === true;
   return {
     character: {
       update: vi.fn(async () => ({})),
-      findUnique: vi.fn(async () =>
-        hasSeasonScore
-          ? { id: "char-1", level: 90, regionId: "reg-eu" }
-          : null,
-      ),
+      findUnique: vi.fn(async () => ({ id: "char-1", level: 90, regionId: "reg-eu" })),
     },
     verifiedCharacterOwnership: {
       findFirst: vi.fn(async () =>
@@ -98,7 +98,12 @@ function mockPrisma(opts: { hasSeasonScore?: boolean } = {}) {
               currentSeasonMythicRating: 2500,
               currentSeasonMythicSeasonId: authority.seasonRowId,
             }
-          : null,
+          : confirmedNoScore
+            ? {
+                currentSeasonMythicRating: 0,
+                currentSeasonMythicSeasonId: authority.seasonRowId,
+              }
+            : null,
       ),
     },
     metricObservation: {
@@ -254,7 +259,7 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     });
 
     expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
-    expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(characterRepository.upsertCharacter).toHaveBeenCalled();
     expect(characterRepository.applyProviderProfile).toHaveBeenCalled();
     expect(prisma.characterSnapshot.create).toHaveBeenCalled();
@@ -279,7 +284,7 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     });
 
     expect(blizzard.getCharacterProfile).not.toHaveBeenCalled();
-    expect(blizzard.getMythicKeystoneProfile).not.toHaveBeenCalled();
+    expect(blizzard.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(result.reason).toBe("already_complete");
     expect(result.bootstrapPerformed).toBe(false);
     expect(result.providerCalls).toBe(0);
@@ -303,11 +308,32 @@ describe("resolveOrDiscoverPublicCharacter", () => {
     });
 
     expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
-    expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(prisma.characterSnapshot.create).toHaveBeenCalled();
     expect(result.reason).toBe("repaired");
     expect(result.bootstrapPerformed).toBe(true);
     expect(result.providerCalls).toBe(2);
+  });
+
+  it("DB hit complete + CONFIRMED_NO_SCORE → zero Blizzard calls", async () => {
+    const characterRepository = mockRepo({
+      findByIdentity: vi.fn(async () => completeCharacter),
+    });
+    const blizzard = mockBlizzard();
+
+    const result = await resolveOrDiscoverPublicCharacter({
+      prisma: mockPrisma({ confirmedNoScore: true }) as never,
+      characterRepository: characterRepository as never,
+      blizzard: blizzard as never,
+      identity,
+      authority,
+    });
+
+    expect(blizzard.getCharacterProfile).not.toHaveBeenCalled();
+    expect(blizzard.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(result.reason).toBe("already_complete");
+    expect(result.bootstrapPerformed).toBe(false);
+    expect(result.providerCalls).toBe(0);
   });
 
   it("DB hit incomplete → repair path reuses Blizzard bootstrap", async () => {

@@ -112,7 +112,7 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
                 seasonId: 13,
@@ -184,7 +184,12 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
   beforeEach(() => {
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockFindByIdentity.mockResolvedValue({ ...incompleteFixture });
     mockGetPublishedSnapshot.mockResolvedValue(null);
     mockFindActiveJob.mockResolvedValue(null);
@@ -205,7 +210,7 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
         blizzardCharacterId: "4242",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     mockEnqueue.mockResolvedValue({ jobId: "job-repair-1", reused: false, enqueued: true });
   });
 
@@ -242,7 +247,12 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
         data: expect.objectContaining({
           characterId: "char-incomplete",
           mythicRating: 2500,
-          rawSummary: { eligibility: { authoritativeSeasonId: "season-1" } },
+          rawSummary: {
+            eligibility: {
+              authoritativeSeasonId: "season-1",
+              confirmedNoScore: false,
+            },
+          },
         }),
       }),
     );
@@ -387,7 +397,7 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
   });
 
   it("keeps max-level characters with no current-season rating profile-only", async () => {
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 0 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 0 }, runs: [] } });
     const service = new CharacterService(buildContainer({ mythicRating: 0 }));
     const result = await service.resolveCharacter({
       region: "EU",

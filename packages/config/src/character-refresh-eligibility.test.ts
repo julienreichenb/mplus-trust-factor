@@ -41,6 +41,16 @@ describe("character refresh eligibility", () => {
     expect(result.code).toBeNull();
   });
 
+  it("treats undefined current-season score as UNKNOWN (not confirmed absence)", () => {
+    const result = evaluateCharacterRefreshEligibility({
+      characterLevel: 90,
+      currentSeasonMythicScore: undefined,
+      authoritativeSeasonKnown: true,
+    });
+    expect(result.eligible).toBe(false);
+    expect(result.code).toBe(CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN);
+  });
+
   it("blocks missing current-season score", () => {
     const result = evaluateCharacterRefreshEligibility({
       characterLevel: 90,
