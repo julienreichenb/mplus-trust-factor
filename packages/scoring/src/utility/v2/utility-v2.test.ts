@@ -16,6 +16,8 @@ import {
   dedupeStrategicCc,
   emptyUtilityV2FactSet,
   exportUtilityV2Calibration,
+  fingerprintUtilityV2ModelConfig,
+  parseUtilityV2ModelConfig,
   scoreSupportCredit,
   toUtilityV2ShadowDimensionPayload,
   type ClassifiedInterruptAttempt,
@@ -798,7 +800,8 @@ describe("computeUtilityV2 safety", () => {
   it("writes detailed counts/rates/caps/catalog coverage in explanation", () => {
     const result = computeUtilityV2(baseInput());
     expect(result.explanation.interruptClassification).toBeDefined();
-    expect(result.explanation.caps.domainContributionCap).toBeGreaterThan(0);
+    expect(result.explanation.caps.unmatchedCreditShareCap).toBeGreaterThan(0);
+    expect(result.explanation.caps).not.toHaveProperty("domainContributionCap");
     expect(result.metrics.domainBreakdown).toBeDefined();
   });
 
@@ -845,15 +848,35 @@ describe("computeUtilityV2 safety", () => {
 
 /**
  * Recalibration: the former +8 domain contribution cap / 50-floor architecture is gone.
+ * domainContributionCap was a configurable no-op under 0–100 weighted-average scoring,
+ * so it is removed from the validated config (legacy key still parses and is ignored).
  */
 describe("utility toolkit scale", () => {
   it("does not apply a hidden +8 contribution cap", () => {
     expect(UTILITY_V2_MODEL_CONFIG.scoreFloor).toBe(0);
-    expect(UTILITY_V2_MODEL_CONFIG.domainContributionCap).toBe(100);
+    expect(UTILITY_V2_MODEL_CONFIG).not.toHaveProperty("domainContributionCap");
   });
 
-  it("proves expectedDungeons=8 is unrelated to domainContributionCap", () => {
+  it("proves expectedDungeons=8 is unrelated to the removed contribution cap", () => {
     expect(UTILITY_V2_MODEL_CONFIG.confidence.expectedDungeons).toBe(8);
     expect(UTILITY_V2_MODEL_CONFIG.confidence).not.toHaveProperty("domainContributionCap");
+  });
+
+  it("ignores legacy domainContributionCap without changing fingerprint or score", () => {
+    const canonical = parseUtilityV2ModelConfig(
+      JSON.parse(JSON.stringify(UTILITY_V2_MODEL_CONFIG)),
+    );
+    const withLegacyCap = parseUtilityV2ModelConfig({
+      ...UTILITY_V2_MODEL_CONFIG,
+      domainContributionCap: 8,
+    });
+    expect(withLegacyCap).not.toHaveProperty("domainContributionCap");
+    expect(fingerprintUtilityV2ModelConfig(withLegacyCap)).toBe(
+      fingerprintUtilityV2ModelConfig(canonical),
+    );
+    const input = baseInput();
+    expect(computeUtilityV2(input, { modelConfig: withLegacyCap }).score).toBe(
+      computeUtilityV2(input, { modelConfig: canonical }).score,
+    );
   });
 });

@@ -44,6 +44,8 @@ const ROOT_KEYS = new Set([
   "familyWeights",
   "familyCurves",
   "domainWeights",
+  // Legacy no-op from the floor-50 / +8 architecture. Accepted so persisted
+  // DRAFT docs still parse; never copied onto the validated config.
   "domainContributionCap",
   "scoreFloor",
   "interruptCredits",
@@ -468,9 +470,6 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
   const familyWeights = parseFamilyWeights(raw, errors);
   const familyCurves = parseFamilyCurves(raw, errors);
 
-  const domainContributionCap = requireNumber(raw, "domainContributionCap", errors, {
-    min: 0,
-  });
   const scoreFloor = requireNumber(raw, "scoreFloor", errors, { min: 0, max: 100 });
   const unmatchedCreditShareCap = requireNumber(raw, "unmatchedCreditShareCap", errors, {
     min: 0,
@@ -545,7 +544,6 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     calibrationStatus == null ||
     familyWeights == null ||
     familyCurvesResolved == null ||
-    domainContributionCap == null ||
     migratedScoreFloor == null ||
     unmatchedCreditShareCap == null ||
     unmatchedOnlyMaxDomainScore == null ||
@@ -573,7 +571,6 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     calibrationStatus: calibrationStatus as UtilityV2ModelConfig["calibrationStatus"],
     familyWeights,
     domainWeights: familyWeights,
-    domainContributionCap,
     scoreFloor: migratedScoreFloor,
     interruptCredits,
     unmatchedCreditShareCap,

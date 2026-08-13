@@ -517,7 +517,6 @@ function utilityFixture(
         bloodlust: "bloodlust_uses_per_active_combat_hour",
       },
       caps: {
-        domainContributionCap: 100,
         unmatchedCreditShareCap: 0.35,
         unmatchedOnlyMaxDomainScore: 35,
       },
@@ -973,6 +972,10 @@ describe("Score Explainability V1", () => {
         return sum + share * raw;
       }, 0);
       expect(reconstructed).toBeCloseTo(
+        util.score!,
+        Math.round(-Math.log10(RECONCILE_EPS)),
+      );
+      expect(sumDriverContributions(familyDrivers)).toBeCloseTo(
         util.score!,
         Math.round(-Math.log10(RECONCILE_EPS)),
       );

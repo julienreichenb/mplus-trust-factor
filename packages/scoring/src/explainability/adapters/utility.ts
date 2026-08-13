@@ -55,7 +55,8 @@ export function adaptUtilityExplainability(
 
     const raw = domain.rawScore ?? 0;
     const unusedFamily = unused.has(family) || domain.creditedEvents <= 0;
-    const contribution = domain.weightShare * (raw - 50);
+    // Same 0-based family aggregation as computeUtilityV2 (share * raw).
+    const contribution = domain.cappedContribution;
     const direction = unusedFamily
       ? "NEGATIVE"
       : raw >= 60
@@ -71,7 +72,7 @@ export function adaptUtilityExplainability(
         value: domain.rawScore,
         weight: domain.weightShare,
         contribution,
-        materiality: Math.max(Math.abs(contribution), unusedFamily ? domain.weightShare * 50 : 0),
+        materiality: unusedFamily ? domain.weightShare : Math.abs(contribution),
         params: {
           domain: family,
           applicable: true,

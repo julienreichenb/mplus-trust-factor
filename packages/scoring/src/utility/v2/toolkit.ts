@@ -92,7 +92,7 @@ export function resolveUtilityToolkitFromCatalog(
 
   if (classSlug == null || specSlug == null) {
     const families = emptyFamilyApplicability("uncertain", "class_spec_identity_unknown");
-    promoteObserved(families, input.observedFamilies);
+    // Observed usage cannot confirm a toolkit when class/spec is unknown.
     return {
       toolkit: {
         ...legacyToolkitBooleansFromFamilies(families),
@@ -110,7 +110,6 @@ export function resolveUtilityToolkitFromCatalog(
   const role = roleForLookup(classSlug, specSlug, input.role);
   if (role == null) {
     const families = emptyFamilyApplicability("uncertain", "class_spec_identity_unknown");
-    promoteObserved(families, input.observedFamilies);
     return {
       toolkit: {
         ...legacyToolkitBooleansFromFamilies(families),

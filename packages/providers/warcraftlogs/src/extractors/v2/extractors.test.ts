@@ -25,7 +25,13 @@ import type { SurvivalCalibrationRun } from "../../probe/survival-calibration-ty
 import type { SurvivalNormalizedDataset } from "../../probe/survival-probe-types.js";
 import type { SurvivalV1_1_1RunScore } from "../../probe/survival-v1_1_1-logic.js";
 import type { SurvivalV1_1DangerWindowAudit } from "../../probe/survival-v1_1-types.js";
-import type { UtilityNormalizedRun } from "../../probe/utility-probe-types.js";
+import type {
+  UtilityCcEvent,
+  UtilityDispelPurgeEvent,
+  UtilityGroupUtilityEvent,
+  UtilityNormalizedRun,
+  UtilityPreservedEvent,
+} from "../../probe/utility-probe-types.js";
 import {
   attachDatasetToBundle,
   buildEmptyBundle,
@@ -608,5 +614,171 @@ describe("Utility V2 fact extractor", () => {
     });
     expect(outcome.status).toBe("UNAVAILABLE");
     expect(outcome.category).toBe("incomplete_shared_evidence");
+  });
+
+  function preserved(ts: number, spellId: number): UtilityPreservedEvent {
+    return {
+      timestamp: ts,
+      sourceID: 10,
+      targetID: 50,
+      abilityGameID: spellId,
+      extraAbilityGameID: null,
+      type: "cast",
+      hitType: null,
+      fightId: SLOT.identity.fightId,
+      reportCode: SLOT.identity.reportCode,
+      actorOwnership: "PLAYER",
+      additionalFields: {},
+      raw: {},
+    };
+  }
+
+  function ccEvent(ts: number, spellId: number): UtilityCcEvent {
+    return {
+      timestamp: ts,
+      sourceID: 10,
+      targetID: 50,
+      abilityGameID: spellId,
+      category: "HARD_CC",
+      sourceKind: "PLAYER",
+      canonical: null,
+      hostileTarget: true,
+      nonBossTarget: true,
+      debuffApplied: true,
+      durationMs: 4000,
+      breakOrRemovalTimestamp: null,
+      repeatedOnSameTarget: false,
+      unmatchedSpellId: false,
+      usefulnessClassification: null,
+      usefulnessNote: "",
+      event: preserved(ts, spellId),
+    };
+  }
+
+  function dispelEvent(ts: number, spellId: number): UtilityDispelPurgeEvent {
+    return {
+      timestamp: ts,
+      sourceID: 10,
+      targetID: 11,
+      abilityGameID: spellId,
+      removedSpellId: 1,
+      kind: "DISPEL",
+      targetSide: "FRIENDLY",
+      sourceKind: "PLAYER",
+      canonical: null,
+      cooldownStateAtCast: "AVAILABLE",
+      unmatchedSpellId: false,
+      event: preserved(ts, spellId),
+    };
+  }
+
+  function groupEvent(
+    ts: number,
+    spellId: number,
+    category: UtilityGroupUtilityEvent["category"],
+  ): UtilityGroupUtilityEvent {
+    return {
+      timestamp: ts,
+      sourceID: 10,
+      targetID: 11,
+      abilityGameID: spellId,
+      category,
+      sourceKind: "PLAYER",
+      canonical: null,
+      successfulApplication: true,
+      targetDeathNearby: null,
+      battleRezResult: null,
+      classification: "CONFIRMED_USEFUL",
+      evidence: [],
+      unmatchedSpellId: false,
+      event: preserved(ts, spellId),
+    };
+  }
+
+  it("counts dispel/purge and bloodlust exactly once (not as groupSupport)", () => {
+    const fact = mapUtilityNormalizedRunToFactSet({
+      slot: SLOT,
+      run: baseNormalized({
+        interruptEvents: [],
+        dispelPurgeEvents: [dispelEvent(20_000, 475)],
+        externalGroupUtilityEvents: [
+          groupEvent(30_000, 80353, "BLOODLUST"),
+          groupEvent(40_000, 1022, "EXTERNAL_DEFENSIVE"),
+        ],
+        ccEvents: [ccEvent(15_000, 122)],
+      }),
+      hostileCastEvents: [],
+      castEvents: [],
+      classSlug: "mage",
+      specSlug: "frost",
+    });
+
+    expect(fact.dispelPurgeSuccessCount).toBe(1);
+    expect(fact.bloodlustSuccessCount).toBe(1);
+    expect(fact.ccActions).toHaveLength(1);
+    expect(fact.supportActions.map((a) => a.abilityGameId).sort()).toEqual([1022]);
+    expect(fact.supportActions.every((a) => a.semantic !== "PERSONAL_MOBILITY")).toBe(true);
+    expect(fact.supportActions.some((a) => a.semantic === "REACTIVE_SUPPORT")).toBe(true);
+    expect(fact.toolkit.families?.dispelPurge.state).toBe("applicable");
+    expect(fact.toolkit.families?.bloodlust.state).toBe("applicable");
+  });
+
+  it("unknown class/spec does not claim confirmed toolkit flags", () => {
+    const fact = mapUtilityNormalizedRunToFactSet({
+      slot: SLOT,
+      run: baseNormalized({
+        classSlug: null,
+        specialization: null,
+        interruptEvents: [],
+      }),
+      hostileCastEvents: [],
+      castEvents: [],
+      classSlug: null,
+      specSlug: null,
+    });
+    expect(fact.toolkit.hasInterrupt).toBe(false);
+    expect(fact.toolkit.hasSupport).toBe(false);
+    expect(fact.toolkit.hasStrategicCc).toBe(false);
+    expect(fact.limitations).toContain("class_spec_identity_unknown");
+    expect(fact.limitations).not.toContain("zero_observation_bound");
+    for (const row of Object.values(fact.toolkit.families ?? {})) {
+      expect(row.state).toBe("uncertain");
+    }
+  });
+
+  it("keeps talent-gated families uncertain unless observed or talent-proven", () => {
+    const withoutTalent = mapUtilityNormalizedRunToFactSet({
+      slot: SLOT,
+      run: baseNormalized({
+        interruptEvents: [],
+        ccEvents: [],
+        dispelPurgeEvents: [],
+        externalGroupUtilityEvents: [],
+      }),
+      hostileCastEvents: [],
+      castEvents: [],
+      classSlug: "mage",
+      specSlug: "frost",
+      talentDataAvailable: false,
+    });
+    expect(withoutTalent.toolkit.families?.groupSupport.state).toBe("uncertain");
+    expect(withoutTalent.limitations).toContain("talent_data_unavailable");
+
+    const observed = mapUtilityNormalizedRunToFactSet({
+      slot: SLOT,
+      run: baseNormalized({
+        interruptEvents: [],
+        ccEvents: [],
+        dispelPurgeEvents: [],
+        externalGroupUtilityEvents: [groupEvent(18_000, 414660, "EXTERNAL_DEFENSIVE")],
+      }),
+      hostileCastEvents: [],
+      castEvents: [],
+      classSlug: "mage",
+      specSlug: "frost",
+      talentDataAvailable: false,
+    });
+    expect(observed.toolkit.families?.groupSupport.state).toBe("applicable");
+    expect(observed.toolkit.families?.groupSupport.reason).toBe("observed_usage");
   });
 });

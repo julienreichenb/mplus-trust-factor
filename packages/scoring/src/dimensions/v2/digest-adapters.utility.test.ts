@@ -372,6 +372,58 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(applied.semantic).toBe("REACTIVE_SUPPORT");
   });
 
+  it("counts dispel/purge and bloodlust once and keeps them out of groupSupport", () => {
+    const digest = baseDigest({
+      utility: {
+        hostileCastEvents: [],
+        actions: [
+          baseAction({
+            canonicalActionId: "dispel",
+            utilityCategory: "DEFENSIVE_DISPEL",
+            outcome: "SUCCESS",
+            abilityKey: "remove-curse",
+            canonicalName: "Remove Curse",
+            primarySpellId: 475,
+            sourceDataset: "Dispels",
+            evidenceEventTypes: ["dispel"],
+          }),
+          baseAction({
+            canonicalActionId: "lust",
+            utilityCategory: "OTHER_UTILITY",
+            outcome: "SUCCESS",
+            abilityKey: "time-warp",
+            canonicalName: "Time Warp",
+            primarySpellId: 80353,
+            sourceDataset: "Casts",
+            evidenceEventTypes: ["cast"],
+          }),
+          baseAction({
+            canonicalActionId: "bop",
+            utilityCategory: "EXTERNAL_SUPPORT",
+            outcome: "SUCCESS",
+            abilityKey: "blessing-of-protection",
+            canonicalName: "Blessing of Protection",
+            primarySpellId: 1022,
+            sourceDataset: "Buffs",
+            evidenceEventTypes: ["applybuff"],
+          }),
+        ],
+        capabilityCompleteness: [],
+        completeness: "COMPLETE",
+        limitations: [],
+      },
+    });
+    const facts = utilityRunFactSetFromDigest(digest, {
+      slotId: "slot-0",
+      slotIndex: 0,
+    });
+    expect(facts.dispelPurgeSuccessCount).toBe(1);
+    expect(facts.bloodlustSuccessCount).toBe(1);
+    expect(facts.supportActions.map((a) => a.abilityGameId).sort()).toEqual([1022]);
+    expect(facts.supportActions.every((a) => a.abilityGameId !== 475)).toBe(true);
+    expect(facts.supportActions.every((a) => a.abilityGameId !== 80353)).toBe(true);
+  });
+
   it("uses catalog toolkit so zero observed actions stay applicable (not N/A)", () => {
     const digest = baseDigest();
     const facts = utilityRunFactSetFromDigest(digest, {

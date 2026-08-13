@@ -664,6 +664,11 @@ export function applyTunableWeightsToSurvivalConfig(
   };
 }
 
+/**
+ * Live/admin Utility tunables overlay family weights only.
+ * Curves, interrupt credits, scoreFloor, and remaining model fields are
+ * consumed by DRAFT/calibration replay via scoringDimensionConfigs.utility.
+ */
 export function applyTunableWeightsToUtilityConfig(
   tunable: TunableWeights,
   base: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,

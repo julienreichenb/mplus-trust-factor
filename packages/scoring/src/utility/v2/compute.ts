@@ -293,7 +293,6 @@ function emptyExplanation(
     interruptClassification: interruptCounts,
     domainCurves,
     caps: {
-      domainContributionCap: config.domainContributionCap,
       unmatchedCreditShareCap: config.unmatchedCreditShareCap,
       unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
     },
@@ -541,11 +540,6 @@ export function computeUtilityV2(
     },
   };
 
-  // Bloodlust is not in the legacy support semantic split; count GROUP-like
-  // STRATEGIC_SUPPORT named bloodlust is not reliable. Leave 0 unless
-  // groupSupport actions are tagged via future familyActions. Observed
-  // bloodlust currently arrives as EXTERNAL_SUPPORT / groupSupport.
-
   const domainBreakdown: UtilityV2DomainBreakdown[] = [];
   const unusedDomains: UtilityV2FamilyKey[] = [];
   const excludedDomains: Array<{ domain: UtilityV2FamilyKey; reason: string }> = [];
@@ -645,6 +639,8 @@ export function computeUtilityV2(
       continue;
     }
     const share = activeWeights > 0 ? d.weight / activeWeights : 0;
+    // 0–100 weighted average: family contribution is share * raw. The old
+    // +8 domainContributionCap is obsolete and is not applied.
     const contribution = share * (d.rawScore ?? floor);
     d.weightShare = round2(share);
     d.uncappedContribution = round2(contribution);
@@ -808,7 +804,6 @@ export function computeUtilityV2(
     interruptClassification: interruptCap.counts,
     domainCurves,
     caps: {
-      domainContributionCap: config.domainContributionCap,
       unmatchedCreditShareCap: config.unmatchedCreditShareCap,
       unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
     },

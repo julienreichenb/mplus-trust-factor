@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  UTILITY_V2_FAMILY_KEYS,
   UTILITY_V2_INTERRUPT_CREDITS,
   UTILITY_V2_MODEL_CONFIG,
   computeUtilityV2,
@@ -13,7 +14,8 @@ import {
   type UtilityV2FrozenManifestRef,
   type UtilityV2RunFactSet,
 } from "./index.js";
-import { emptyFamilyApplicability } from "./families.js";
+import { emptyFamilyApplicability, legacyToolkitBooleansFromFamilies } from "./families.js";
+import { adaptUtilityExplainability } from "../../explainability/adapters/utility.js";
 
 function selectedSlot(
   slotId: string,
@@ -379,5 +381,46 @@ describe("utility toolkit recalibration acceptance", () => {
     const interrupt = result.domainBreakdown.find((d) => d.domain === "interrupt")!;
     expect(interrupt.rawScore).not.toBeNull();
     expect(result.explanation.confidenceReasons).not.toContain("zero_attributable_events");
+
+    const explained = adaptUtilityExplainability(result);
+    const familyDrivers = explained.scoreStory.drivers.filter((d) =>
+      d.code.startsWith("utility.family."),
+    );
+    const contributionSum = familyDrivers.reduce((sum, d) => sum + (d.contribution ?? 0), 0);
+    expect(contributionSum).toBeCloseTo(result.score!, 2);
+    const unused = familyDrivers.find((d) => d.params.unused === true);
+    expect(unused?.direction).toBe("NEGATIVE");
+    expect(
+      explained.scoreStory.drivers
+        .filter((d) => d.code === "utility.applicability_uncertain")
+        .every((d) => d.direction === "NEUTRAL"),
+    ).toBe(true);
+  });
+
+  it("unknown identity does not become unused-toolkit zero", () => {
+    const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
+    const families = emptyFamilyApplicability("uncertain", "class_spec_identity_unknown");
+    const result = computeUtilityV2(
+      inputFor(
+        fact(identity, {
+          toolkit: {
+            ...legacyToolkitBooleansFromFamilies(families),
+            families,
+          },
+        }),
+      ),
+    );
+    expect(result.score).toBeNull();
+    expect(result.explanation.unusedDomains).toEqual([]);
+    expect(result.explanation.uncertainDomains).toHaveLength(UTILITY_V2_FAMILY_KEYS.length);
+    const explained = adaptUtilityExplainability(result);
+    expect(
+      explained.scoreStory.drivers.filter((d) => d.code.startsWith("utility.family.")),
+    ).toHaveLength(0);
+    expect(
+      explained.scoreStory.drivers.every(
+        (d) => d.code !== "utility.family.interrupt" || d.direction !== "NEGATIVE",
+      ),
+    ).toBe(true);
   });
 });

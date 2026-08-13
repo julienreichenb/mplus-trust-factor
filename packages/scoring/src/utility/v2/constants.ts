@@ -44,9 +44,6 @@ export const UTILITY_V2_DOMAIN_WEIGHTS = {
 
 export type UtilityV2DomainKey = UtilityV2FamilyKey;
 
-/** Clamp on a single family raw score (0–100). Not a hidden contribution floor. */
-export const UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 100;
-
 /** Inclusive floor after weighted average. Candidate default is a true 0. */
 export const UTILITY_V2_SCORE_FLOOR = 0;
 
@@ -260,7 +257,6 @@ export type UtilityV2ModelConfig = {
   schemaVersion: string;
   calibrationStatus: UtilityV2CalibrationStatus;
   familyWeights: UtilityV2FamilyWeights;
-  domainContributionCap: number;
   scoreFloor: number;
   interruptCredits: {
     CONFIRMED_SUCCESS: number;
@@ -295,7 +291,6 @@ export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   schemaVersion: UTILITY_V2_SCHEMA_VERSION,
   calibrationStatus: UTILITY_V2_CALIBRATION_STATUS,
   familyWeights: UTILITY_V2_FAMILY_WEIGHTS,
-  domainContributionCap: UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
   scoreFloor: UTILITY_V2_SCORE_FLOOR,
   interruptCredits: UTILITY_V2_INTERRUPT_CREDITS,
   unmatchedCreditShareCap: UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,

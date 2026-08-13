@@ -147,19 +147,23 @@ export function mergeFamilyApplicability(
   return out;
 }
 
+/**
+ * Legacy three-boolean toolkit flags claim *confirmed* availability only.
+ * Uncertain (unknown identity / talent-gated) must not fabricate a toolkit.
+ */
 export function legacyToolkitBooleansFromFamilies(
   families: UtilityFamilyApplicabilityMap,
 ): { hasInterrupt: boolean; hasSupport: boolean; hasStrategicCc: boolean } {
-  const counted = (state: UtilityFamilyApplicabilityState) =>
-    state === "applicable" || state === "uncertain" || state === "optional";
+  const confirmed = (state: UtilityFamilyApplicabilityState) =>
+    state === "applicable" || state === "optional";
   return {
-    hasInterrupt: counted(families.interrupt.state),
+    hasInterrupt: confirmed(families.interrupt.state),
     hasSupport:
-      counted(families.groupSupport.state) ||
-      counted(families.dispelPurge.state) ||
-      counted(families.combatRes.state) ||
-      counted(families.bloodlust.state),
-    hasStrategicCc: counted(families.crowdControl.state),
+      confirmed(families.groupSupport.state) ||
+      confirmed(families.dispelPurge.state) ||
+      confirmed(families.combatRes.state) ||
+      confirmed(families.bloodlust.state),
+    hasStrategicCc: confirmed(families.crowdControl.state),
   };
 }
 

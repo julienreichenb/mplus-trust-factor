@@ -284,7 +284,6 @@ export interface UtilityV2Explanation {
   interruptClassification: UtilityV2InterruptCounts;
   domainCurves: Record<UtilityV2DomainKey, string>;
   caps: {
-    domainContributionCap: number;
     unmatchedCreditShareCap: number;
     unmatchedOnlyMaxDomainScore: number;
   };
