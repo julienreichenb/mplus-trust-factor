@@ -301,6 +301,14 @@ export async function resolveEffectiveScoringSeason(
     metadataTtlSeconds: 86_400,
   });
 
+  const wclZoneId = authority.wclZoneId;
+  if (!Number.isInteger(wclZoneId) || wclZoneId <= 0) {
+    throw new ActiveMplusSeasonCatalogIncompleteError(
+      `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: effective season ${season.slug} ` +
+        `resolved without a positive persisted wclZoneId`,
+    );
+  }
+
   input.logger.info(
     {
       event: "scoring_season_resolved",
@@ -309,7 +317,7 @@ export async function resolveEffectiveScoringSeason(
       detectedBlizzardSeasonId: detected.blizzardSeasonId,
       effectiveBlizzardSeasonId: authority.blizzardSeasonId,
       effectiveSeasonSlug: authority.seasonSlug,
-      wclZoneId: authority.wclZoneId,
+      wclZoneId,
       catalogSource,
       bootstrapped,
     },
@@ -325,7 +333,7 @@ export async function resolveEffectiveScoringSeason(
     seasonSlug: season.slug,
     seasonDisplayName: season.name,
     blizzardSeasonId: authority.blizzardSeasonId ?? effectiveBlizzardSeasonId,
-    wclZoneId: authority.wclZoneId,
+    wclZoneId,
     dungeons,
     activeDungeonSlugs: authority.activeDungeonSlugs,
     dungeonPoolHash: authority.dungeonPoolHash,

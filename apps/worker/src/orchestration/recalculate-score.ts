@@ -6,6 +6,7 @@ import {
 } from "@mplus/contracts";
 import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { requirePersistedCatalogWclZoneId } from "./active-mplus-season/catalog-metadata.js";
 import { runAuthoritativeScoring } from "./scoring/refresh-bridge.js";
 import { mythicRunToEvidenceCandidateMetadataList } from "@mplus/scoring";
 import {
@@ -59,13 +60,14 @@ export async function runRecalculateScore(
   }
 
   const now = new Date();
+  const wclZoneId = requirePersistedCatalogWclZoneId(season);
   const { contract: refreshContract, hash: refreshContractHash } =
     resolveActiveRefreshContract({
       scoringModelKey: model.key,
       scoringModelVersion: model.version,
       activeSeasonId: season.slug,
       providerMode: container.env.PROVIDER_MODE,
-      env: process.env,
+      zoneId: wclZoneId,
     });
 
   const region = await container.prisma.region.findUnique({

@@ -70,3 +70,23 @@ export function mergeActiveMplusCatalogMetadata(
     wclMplusZoneId: catalog.wclZoneId,
   };
 }
+
+/**
+ * Operational paths that already hold a Season row must refuse to build a
+ * refresh contract without a persisted validated WCL zone.
+ */
+export function requirePersistedCatalogWclZoneId(
+  season: { id: string; slug: string; metadata: unknown },
+): number {
+  const meta = readActiveMplusCatalogMetadata(season.metadata);
+  if (meta == null || !Number.isInteger(meta.wclZoneId) || meta.wclZoneId <= 0) {
+    throw Object.assign(
+      new Error(
+        `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: season ${season.slug} (${season.id}) ` +
+          `has no persisted validated wclZoneId`,
+      ),
+      { code: "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE" },
+    );
+  }
+  return meta.wclZoneId;
+}

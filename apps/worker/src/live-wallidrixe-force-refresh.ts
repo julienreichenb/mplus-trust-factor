@@ -55,11 +55,17 @@ const refreshStartedAt = new Date().toISOString();
 const character = await worker.repositories.character.findByIdentity(identity);
 const season = character
   ? await requireEffectiveScoringSeasonRow(prisma, { regionId: character.regionId })
-  : { slug: "unknown" };
+  : { slug: "unknown", wclZoneId: null as number | null };
+if (season.wclZoneId == null) {
+  throw new Error(
+    `Effective scoring season ${season.slug} has no persisted wclZoneId — catalog not ready`,
+  );
+}
 const refreshContractHash = buildRefreshContractHash({
   scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
   scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
   activeSeasonId: season.slug,
+  zoneId: season.wclZoneId,
   env: process.env,
   allowFixtureZoneDefault: false,
 });

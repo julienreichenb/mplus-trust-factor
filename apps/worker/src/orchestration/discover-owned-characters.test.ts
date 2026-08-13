@@ -7,9 +7,16 @@ import {
   runRefreshEligibilityGate,
 } from "./refresh-eligibility-gate.js";
 import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
+import {
+  ACTIVE_MPLUS_SEASON_AUTHORITY_VERSION,
+  computeDungeonPoolHash,
+  computeSourceMetadataHash,
+} from "./active-mplus-season/index.js";
 import type { WorkerContainer } from "../container.js";
 
 const EU_REGION = { id: "region-eu", code: "EU" };
+
+const DISCOVERY_DUNGEON_SLUGS = ["dungeon-a", "dungeon-b"] as const;
 
 function mythicProfile(rating: number, seasonIds: number[] = [17]) {
   return {
@@ -24,30 +31,98 @@ function mythicProfile(rating: number, seasonIds: number[] = [17]) {
   };
 }
 
-function seasonPrismaMocks() {
+function readyActiveMplusCatalog(input: {
+  wclZoneId: number;
+  blizzardSeasonId: number;
+  dungeonSlugs?: readonly string[];
+}) {
+  const dungeonSlugs = [...(input.dungeonSlugs ?? DISCOVERY_DUNGEON_SLUGS)];
+  const dungeonPoolHash = computeDungeonPoolHash(dungeonSlugs);
+  const catalogVersion = `${ACTIVE_MPLUS_SEASON_AUTHORITY_VERSION}:zone-${input.wclZoneId}:pool-${dungeonPoolHash.slice(0, 12)}`;
+  return {
+    schemaVersion: "active-mplus-catalog-v1" as const,
+    wclZoneId: input.wclZoneId,
+    blizzardSeasonId: input.blizzardSeasonId,
+    expansionIdentity: "Test",
+    dungeonPoolHash,
+    sourceMetadataHash: computeSourceMetadataHash({
+      blizzardSeasonId: input.blizzardSeasonId,
+      wclZoneId: input.wclZoneId,
+      dungeonPoolHash,
+      catalogVersion,
+    }),
+    catalogVersion,
+    dungeonSlugs,
+    synchronizedAt: new Date().toISOString(),
+    validatedAt: new Date().toISOString(),
+    lastKnownGood: true,
+    authorityVersion: ACTIVE_MPLUS_SEASON_AUTHORITY_VERSION,
+  };
+}
+
+function seasonPrismaMocks(opts?: {
+  id?: string;
+  slug?: string;
+  blizzardSeasonId?: number;
+  regionId?: string;
+  wclZoneId?: number;
+}) {
+  const blizzardSeasonId = opts?.blizzardSeasonId ?? 17;
+  const wclZoneId = opts?.wclZoneId ?? 47;
+  const catalog = readyActiveMplusCatalog({ wclZoneId, blizzardSeasonId });
   const seasonRow = {
-    id: "season-1",
-    slug: "blizzard-season-17",
-    blizzardSeasonId: 17,
-    regionId: EU_REGION.id,
+    id: opts?.id ?? "season-1",
+    slug: opts?.slug ?? "blizzard-season-17",
+    name: opts?.slug ?? "blizzard-season-17",
+    blizzardSeasonId,
+    regionId: opts?.regionId ?? EU_REGION.id,
     isCurrent: true,
+    dungeonCount: catalog.dungeonSlugs.length,
+    startsAt: new Date("2025-01-01T00:00:00.000Z"),
+    endsAt: null as Date | null,
     metadata: {
-      blizzardSeasonId: 17,
+      blizzardSeasonId,
       source: "blizzard",
+      authoritySource: "season_index.current_season",
+      // Stale so synchronizeSeasonAuthority still hits the Blizzard season index in unit tests.
+      authorityVerifiedAt: "2020-01-01T00:00:00.000Z",
+      activeMplusCatalog: catalog,
     },
   };
   return {
     findFirst: vi.fn(async () => seasonRow),
+    findUnique: vi.fn(async () => seasonRow),
+    findMany: vi.fn(async () => [seasonRow]),
     updateMany: vi.fn(async () => ({ count: 0 })),
-    update: vi.fn(async ({ data }: { data?: Record<string, unknown> } = {}) => ({
-      ...seasonRow,
-      ...data,
-      metadata: {
-        ...seasonRow.metadata,
-        ...((data?.metadata as Record<string, unknown> | undefined) ?? {}),
-      },
-    })),
+    update: vi.fn(async ({ data }: { data?: Record<string, unknown> } = {}) => {
+      Object.assign(seasonRow, data);
+      if (data?.metadata && typeof data.metadata === "object") {
+        seasonRow.metadata = {
+          ...seasonRow.metadata,
+          ...(data.metadata as Record<string, unknown>),
+        };
+      }
+      return seasonRow;
+    }),
     create: vi.fn(async () => seasonRow),
+  };
+}
+
+function seasonDungeonPrismaMocks(seasonId = "season-1") {
+  return {
+    findMany: vi.fn(async () =>
+      DISCOVERY_DUNGEON_SLUGS.map((slug, i) => ({
+        seasonId,
+        dungeonId: `dungeon-${slug}`,
+        sortOrder: i,
+        dungeon: {
+          id: `dungeon-${slug}`,
+          slug,
+          name: slug,
+          wclZoneOrEncounterId: BigInt(i + 1),
+        },
+      })),
+    ),
   };
 }
 
@@ -158,6 +233,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -296,6 +372,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -385,6 +462,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -470,6 +548,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -559,6 +638,7 @@ describe("runDiscoverOwnedCharacters", () => {
           update: vi.fn(async () => ({})),
         },
         season: seasonPrismaMocks(),
+        seasonDungeon: seasonDungeonPrismaMocks(),
         runtimeSetting: { findUnique: vi.fn(async () => null) },
         verifiedCharacterOwnership: {
           findMany: vi.fn(async () => ownerships),
@@ -630,6 +710,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -757,6 +838,43 @@ describe("runDiscoverOwnedCharacters", () => {
       },
     ];
 
+    const euCatalog = readyActiveMplusCatalog({ wclZoneId: 47, blizzardSeasonId: 17 });
+    const usCatalog = readyActiveMplusCatalog({ wclZoneId: 46, blizzardSeasonId: 16 });
+    const euSeason = {
+      id: "s-eu",
+      slug: "blizzard-season-17",
+      name: "blizzard-season-17",
+      blizzardSeasonId: 17,
+      regionId: "region-eu",
+      isCurrent: true,
+      dungeonCount: euCatalog.dungeonSlugs.length,
+      startsAt: new Date("2025-01-01T00:00:00.000Z"),
+      endsAt: null as Date | null,
+      metadata: {
+        authoritySource: "season_index.current_season",
+        authorityVerifiedAt: "2020-01-01T00:00:00.000Z",
+        blizzardSeasonId: 17,
+        activeMplusCatalog: euCatalog,
+      },
+    };
+    const usSeason = {
+      id: "s-us",
+      slug: "blizzard-season-16",
+      name: "blizzard-season-16",
+      blizzardSeasonId: 16,
+      regionId: "region-us",
+      isCurrent: true,
+      dungeonCount: usCatalog.dungeonSlugs.length,
+      startsAt: new Date("2025-01-01T00:00:00.000Z"),
+      endsAt: null as Date | null,
+      metadata: {
+        authoritySource: "season_index.current_season",
+        authorityVerifiedAt: "2020-01-01T00:00:00.000Z",
+        blizzardSeasonId: 16,
+        activeMplusCatalog: usCatalog,
+      },
+    };
+
     const prisma = {
       battleNetAccount: {
         findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
@@ -766,71 +884,74 @@ describe("runDiscoverOwnedCharacters", () => {
         findFirst: vi.fn(async ({
           where,
         }: {
-          where: { regionId?: string; slug?: string; isCurrent?: boolean; id?: string };
+          where: {
+            regionId?: string;
+            slug?: string;
+            isCurrent?: boolean;
+            id?: string;
+            blizzardSeasonId?: number;
+          };
         }) => {
-          if (where.id === "s-eu" || where.slug === "blizzard-season-17") {
-            return {
-              id: "s-eu",
-              slug: "blizzard-season-17",
-              blizzardSeasonId: 17,
-              regionId: "region-eu",
-              isCurrent: true,
-              metadata: {},
-            };
+          if (where.id === "s-eu" || where.slug === "blizzard-season-17" || where.blizzardSeasonId === 17) {
+            return euSeason;
           }
-          if (where.id === "s-us" || where.slug === "blizzard-season-16") {
-            return {
-              id: "s-us",
-              slug: "blizzard-season-16",
-              blizzardSeasonId: 16,
-              regionId: "region-us",
-              isCurrent: true,
-              metadata: {},
-            };
+          if (where.id === "s-us" || where.slug === "blizzard-season-16" || where.blizzardSeasonId === 16) {
+            return usSeason;
           }
-          if (where.isCurrent === true && where.regionId === "region-eu") {
-            return {
-              id: "s-eu",
-              slug: "blizzard-season-17",
-              blizzardSeasonId: 17,
-              regionId: "region-eu",
-              isCurrent: true,
-              metadata: {},
-            };
-          }
-          if (where.isCurrent === true && where.regionId === "region-us") {
-            return {
-              id: "s-us",
-              slug: "blizzard-season-16",
-              blizzardSeasonId: 16,
-              regionId: "region-us",
-              isCurrent: true,
-              metadata: {},
-            };
-          }
+          if (where.isCurrent === true && where.regionId === "region-eu") return euSeason;
+          if (where.isCurrent === true && where.regionId === "region-us") return usSeason;
           return null;
         }),
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+          if (where.id === "s-eu") return euSeason;
+          if (where.id === "s-us") return usSeason;
+          return null;
+        }),
+        findMany: vi.fn(async ({ where }: { where?: { regionId?: string; blizzardSeasonId?: number } } = {}) => {
+          const rows = [euSeason, usSeason];
+          return rows.filter((s) => {
+            if (where?.regionId && s.regionId !== where.regionId) return false;
+            if (where?.blizzardSeasonId != null && s.blizzardSeasonId !== where.blizzardSeasonId) {
+              return false;
+            }
+            return true;
+          });
+        }),
         updateMany: vi.fn(async () => ({ count: 0 })),
-        update: vi.fn(async ({ data }: { data: { blizzardSeasonId?: number } }) => {
+        update: vi.fn(async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: { blizzardSeasonId?: number; metadata?: Record<string, unknown> };
+        }) => {
           if (data.blizzardSeasonId != null) seasonsCreated.push(data.blizzardSeasonId);
-          return {
-            id: data.blizzardSeasonId === 16 ? "s-us" : "s-eu",
-            slug: `blizzard-season-${data.blizzardSeasonId}`,
-            blizzardSeasonId: data.blizzardSeasonId,
-            isCurrent: true,
-            metadata: {},
-          };
+          const row = where.id === "s-us" ? usSeason : euSeason;
+          Object.assign(row, data);
+          if (data.metadata) {
+            row.metadata = { ...row.metadata, ...data.metadata };
+          }
+          return row;
         }),
         create: vi.fn(async ({ data }: { data: { blizzardSeasonId: number } }) => {
           seasonsCreated.push(data.blizzardSeasonId);
-          return {
-            id: data.blizzardSeasonId === 16 ? "s-us" : "s-eu",
-            slug: `blizzard-season-${data.blizzardSeasonId}`,
-            blizzardSeasonId: data.blizzardSeasonId,
-            isCurrent: true,
-            metadata: {},
-          };
+          return data.blizzardSeasonId === 16 ? usSeason : euSeason;
         }),
+      },
+      seasonDungeon: {
+        findMany: vi.fn(async ({ where }: { where: { seasonId: string } }) =>
+          DISCOVERY_DUNGEON_SLUGS.map((slug, i) => ({
+            seasonId: where.seasonId,
+            dungeonId: `dungeon-${slug}`,
+            sortOrder: i,
+            dungeon: {
+              id: `dungeon-${slug}`,
+              slug,
+              name: slug,
+              wclZoneOrEncounterId: BigInt(i + 1),
+            },
+          })),
+        ),
       },
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
@@ -950,6 +1071,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),
@@ -1138,6 +1260,7 @@ describe("runDiscoverOwnedCharacters", () => {
         update: vi.fn(async () => ({})),
       },
       season: seasonPrismaMocks(),
+      seasonDungeon: seasonDungeonPrismaMocks(),
       runtimeSetting: { findUnique: vi.fn(async () => null) },
       verifiedCharacterOwnership: {
         findMany: vi.fn(async () => ownerships),

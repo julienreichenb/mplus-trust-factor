@@ -172,7 +172,7 @@ function toSelectableCharacters(
       };
     }
 
-    if (!row.seasonSlug) {
+    if (!row.seasonSlug || row.wclZoneId == null) {
       return {
         characterId: row.characterId,
         region: row.region,
@@ -180,7 +180,8 @@ function toSelectableCharacters(
         name: row.name,
         mythicPlusScore: row.mythicPlusScore,
         hasCompatibleEvidence: false,
-        incompatibilityReason: "MISSING_CURRENT_SEASON",
+        incompatibilityReason:
+          row.seasonSlug == null ? "MISSING_CURRENT_SEASON" : "MISSING_SEASON_CATALOG_ZONE",
       };
     }
 
@@ -189,7 +190,7 @@ function toSelectableCharacters(
       scoringModelVersion: scoreModel.version,
       activeSeasonId: row.seasonSlug,
       providerMode: container.env.PROVIDER_MODE,
-      env: process.env,
+      zoneId: row.wclZoneId,
     });
     const verdict = evaluateRecalculateCompatibility({
       hasSeasonObservations: row.hasSeasonObservations,

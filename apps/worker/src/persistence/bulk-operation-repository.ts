@@ -46,6 +46,8 @@ export type BulkSelectableCharacterRow = {
   mythicPlusScore: number | null;
   seasonId: string | null;
   seasonSlug: string | null;
+  /** Persisted catalog WCL zone for the effective scoring season; null if catalog incomplete. */
+  wclZoneId: number | null;
   hasSeasonObservations: boolean;
   observationSchemaVersions: Array<string | null>;
   storedRefreshContract: unknown | null;
@@ -366,12 +368,24 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
           ? []
           : await prisma.season.findMany({
               where: { id: { in: [...seasonIdByRegion.values()] } },
-              select: { id: true, slug: true, regionId: true },
+              select: { id: true, slug: true, regionId: true, metadata: true },
             });
-      const seasonByRegion = new Map<string, { id: string; slug: string }>();
+      const seasonByRegion = new Map<
+        string,
+        { id: string; slug: string; wclZoneId: number | null }
+      >();
+      const { readActiveMplusCatalogMetadata } = await import(
+        "../orchestration/active-mplus-season/catalog-metadata.js"
+      );
       for (const [regionId, seasonId] of seasonIdByRegion) {
         const row = seasonRows.find((s) => s.id === seasonId);
-        if (row) seasonByRegion.set(regionId, { id: row.id, slug: row.slug });
+        if (row) {
+          seasonByRegion.set(regionId, {
+            id: row.id,
+            slug: row.slug,
+            wclZoneId: readActiveMplusCatalogMetadata(row.metadata)?.wclZoneId ?? null,
+          });
+        }
       }
 
       const result: BulkSelectableCharacterRow[] = [];
@@ -412,6 +426,7 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
           mythicPlusScore: character.snapshots[0]?.mythicRating ?? null,
           seasonId: season?.id ?? null,
           seasonSlug: season?.slug ?? null,
+          wclZoneId: season?.wclZoneId ?? null,
           hasSeasonObservations,
           observationSchemaVersions,
           storedRefreshContract,

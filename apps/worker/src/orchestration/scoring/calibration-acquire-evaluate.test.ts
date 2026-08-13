@@ -238,7 +238,26 @@ function baseContainer(overrides?: {
         }),
       },
       season: {
-        findUnique: async () => ({ id: SEASON_ID, slug: "test-season" }),
+        findUnique: async () => ({
+          id: SEASON_ID,
+          slug: "test-season",
+          metadata: {
+            activeMplusCatalog: {
+              schemaVersion: "active-mplus-catalog-v1",
+              wclZoneId: 45,
+              blizzardSeasonId: 13,
+              expansionIdentity: "Test",
+              dungeonPoolHash: "pool",
+              sourceMetadataHash: "src",
+              catalogVersion: "v",
+              dungeonSlugs: ["ara-kara", "city-of-threads"],
+              synchronizedAt: new Date().toISOString(),
+              validatedAt: new Date().toISOString(),
+              lastKnownGood: true,
+              authorityVersion: "active-mplus-season-v1",
+            },
+          },
+        }),
       },
       scoreModel: {
         findUnique: async () => ({

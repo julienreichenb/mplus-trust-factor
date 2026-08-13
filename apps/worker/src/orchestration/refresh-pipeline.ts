@@ -3768,12 +3768,13 @@ export async function runRefreshPipeline(
   // inside the publication transaction (publicationGuard).
   await assertNotCancelled("pre_publication");
 
+  // Same effective-season zone as job-start preflight — never rebuild without zoneId.
   const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
     scoringModelKey: model.key,
     scoringModelVersion: model.version,
     activeSeasonId: season.slug,
     providerMode: container.env.PROVIDER_MODE,
-    env: process.env,
+    zoneId: preflightEffective.wclZoneId,
   });
 
   if (

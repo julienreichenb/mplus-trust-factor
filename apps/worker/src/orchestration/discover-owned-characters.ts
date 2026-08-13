@@ -18,7 +18,10 @@ import type { QueueProducers } from "../queues.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
 import { synchronizeSeasonAuthority } from "./season-authority.js";
-import { peekEffectiveScoringSeasonRow } from "./active-mplus-season/effective-season-peek.js";
+import {
+  resolveEffectiveScoringSeason,
+  resolveScoringCatalogDiscoverer,
+} from "./active-mplus-season/effective-scoring-season.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
 export interface DiscoveryCounters {
@@ -66,7 +69,7 @@ type RegionalSeasonCache = {
   source: "season_index.current_season";
   season: Season;
   authorityVerifiedAt: Date;
-  wclZoneId: number | null;
+  wclZoneId: number;
 };
 
 /**
@@ -129,39 +132,39 @@ export async function runDiscoverOwnedCharacters(
           select: { id: true, slug: true, blizzardSeasonId: true },
         });
 
-        const authority = await synchronizeSeasonAuthority(
+        // Sync Blizzard detected current, then resolve READY effective scoring season
+        // (AUTO may bootstrap WCL catalog once). Never hash a refresh contract from a peek.
+        await synchronizeSeasonAuthority(
           { prisma, blizzard: providers.blizzard, logger },
           regionCode,
           regionId,
           { correlationId: requestId },
         );
-        if (authority.resolution === "provider") {
+
+        const effective = await resolveEffectiveScoringSeason({
+          prisma,
+          blizzard: providers.blizzard,
+          logger,
+          regionCode,
+          regionId,
+          allowProviderSync: true,
+          correlationId: requestId,
+          discoverActiveMplusCatalog: resolveScoringCatalogDiscoverer({
+            warcraftlogs: providers.warcraftlogs,
+            providerMode: env.PROVIDER_MODE,
+          }),
+        });
+        if (effective.detected.resolution === "provider") {
           counters.providerRequestCount += 1;
         }
 
-        const peek = await peekEffectiveScoringSeasonRow(prisma, { regionId });
-        if (!peek || peek.blizzardSeasonId == null) {
-          throw new Error(
-            `Effective scoring season missing after authority sync (detected ${authority.slug})`,
-          );
-        }
-        const season =
-          (await prisma.season.findFirst({
-            where: { id: peek.id },
-          })) ??
-          (await prisma.season.findFirst({
-            where: { regionId, slug: peek.slug },
-          }));
-        if (!season) {
-          throw new Error(`Season row missing after effective-season peek (${peek.slug})`);
-        }
         const entry: RegionalSeasonCache = {
-          seasonId: peek.blizzardSeasonId,
-          slug: peek.slug,
+          seasonId: effective.blizzardSeasonId,
+          slug: effective.seasonSlug,
           source: "season_index.current_season",
-          season,
-          authorityVerifiedAt: authority.authorityVerifiedAt,
-          wclZoneId: peek.wclZoneId,
+          season: effective.season,
+          authorityVerifiedAt: effective.detected.authorityVerifiedAt,
+          wclZoneId: effective.wclZoneId,
         };
         regionalSeasonByCode.set(key, entry);
 
@@ -175,8 +178,9 @@ export async function runDiscoverOwnedCharacters(
             authorityVerifiedAt: entry.authorityVerifiedAt.toISOString(),
             previousDatabaseSeasonId: previous?.id ?? null,
             previousDatabaseSeasonSlug: previous?.slug ?? null,
-            resultingDatabaseSeasonId: season.id,
-            resultingDatabaseSeasonSlug: season.slug,
+            resultingDatabaseSeasonId: effective.applicationSeasonId,
+            resultingDatabaseSeasonSlug: effective.seasonSlug,
+            wclZoneId: effective.wclZoneId,
             battleNetAccountId: account.id,
           },
           "discover_season_authority",
