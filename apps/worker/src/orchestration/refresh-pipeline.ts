@@ -90,6 +90,7 @@ import { aggregateCombatObservations } from "./aggregate-combat-observations.js"
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import {
   RefreshContractPreflightError,
+  assertPublicationContractMatchesJob,
   resolvePublicationRefreshContract,
   runRefreshContractPreflight,
 } from "./refresh-contract-preflight.js";
@@ -3960,6 +3961,25 @@ export async function runRefreshPipeline(
     realm: identity.realmSlug,
     characterName: identity.name,
     raiderIoProfile,
+    beforeCharacterScorePersist: async () => {
+      await assertPublicationContractMatchesJob(
+        {
+          prisma: container.prisma,
+          blizzard: providers.blizzard,
+          logger,
+          env: container.env,
+          getActiveModel: (key) => repositories.score.getActiveModel(key),
+          warcraftlogs: providers.warcraftlogs,
+        },
+        jobPayload,
+        {
+          expectedHash: jobPayload.refreshContractHash ?? computedContractHash,
+          scoringModelKey: model.key,
+          scoringModelVersion: model.version,
+          correlationId: ctx.correlationId ?? ctx.requestId,
+        },
+      );
+    },
   });
   const orch = scoringOutcome.scoreResult?.orchestration;
   logger.info(

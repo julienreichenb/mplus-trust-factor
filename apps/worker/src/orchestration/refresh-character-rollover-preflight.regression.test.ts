@@ -20,9 +20,12 @@ import {
 } from "./active-mplus-season/index.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import {
+  assertPublicationContractMatchesJob,
   resolvePublicationRefreshContract,
   runRefreshContractPreflight,
 } from "./refresh-contract-preflight.js";
+import { createMemoryOrchestrationPorts } from "./scoring/run-orchestration/memory-ports.js";
+import { scoreCharacter } from "./scoring/score-character.js";
 import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
 import type { RefreshCharacterJob } from "@mplus/contracts";
 
@@ -340,6 +343,8 @@ describe("refresh-character rollover preflight (real queue path)", () => {
     expect(barrierSrc).toMatch(/resolvePublicationRefreshContract/);
     expect(barrierSrc).toMatch(/publicationEffective/);
     expect(barrierSrc).not.toMatch(/zoneId:\s*preflightEffective\.wclZoneId/);
+    expect(publicationSrc).toMatch(/beforeCharacterScorePersist/);
+    expect(publicationSrc).toMatch(/assertPublicationContractMatchesJob/);
   });
 
   it("COLD AUTO: missing catalog bootstraps once, preflight builds contract with discovered zone", async () => {
@@ -823,4 +828,232 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
     expect(startHash === publication.hash).toBe(true);
   });
 });
+
+function scoringPersistPrisma(saved: Array<Record<string, unknown>> = []) {
+  return {
+    scoreWrites: () => saved.length,
+    scoreModel: {
+      findUnique: async () => ({ config: {} }),
+    },
+    characterScore: {
+      findUnique: async () => null,
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        const row = { id: `score-${saved.length + 1}`, ...create };
+        saved.push(row);
+        return row;
+      },
+    },
+  } as never & { scoreWrites: () => number };
+}
+
+function persistAfterBarrierInput(
+  prisma: never,
+  beforeCharacterScorePersist: () => Promise<void>,
+) {
+  return {
+    identity: {
+      characterId: "11111111-1111-4111-8111-111111111111",
+      region: "EU" as const,
+      realm: "tarren-mill",
+      characterName: "Rolloverchar",
+    },
+    seasonId: "s17",
+    seasonSlug: "blizzard-season-17",
+    role: "DPS" as const,
+    classSlug: "mage",
+    specSlug: "fire",
+    activeDungeonSlugs: ["a", "b"],
+    candidates: [],
+    evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
+    highKeyPolicyId: "policy-1",
+    scoringModelId: "model-1",
+    allowProviderCalls: false,
+    zoneId: 47,
+    persistCharacterScore: true,
+    beforeCharacterScorePersist,
+    ports: createMemoryOrchestrationPorts(),
+    artifacts: {} as never,
+    evidence: {} as never,
+    prisma,
+    ensurePerformanceAggregate: async () => ({
+      state: "UNAVAILABLE" as const,
+      data: null,
+      reason: "test",
+      cache: "MISS" as const,
+      providerCalls: 0,
+      created: false as const,
+      updated: false as const,
+      aggregateRowId: null,
+      contentHash: null,
+    }),
+  };
+}
+
+describe("CharacterScore persist barrier after publication TOCTOU", () => {
+  const previousMode = process.env.PROVIDER_MODE;
+  const slugs17 = ["a", "b"] as const;
+  const slugs18 = ["c", "d"] as const;
+  const Z17 = 47;
+  const Z18 = 48;
+
+  beforeEach(() => {
+    clearSeasonAuthorityCacheForTests();
+    process.env.PROVIDER_MODE = "live";
+    delete process.env.WCL_MPLUS_ZONE_ID;
+    delete process.env.WCL_MPLUS_ZONE_MODE;
+    delete process.env.WCL_MPLUS_ZONE_EXPIRES_AT;
+  });
+
+  afterEach(() => {
+    if (previousMode === undefined) delete process.env.PROVIDER_MODE;
+    else process.env.PROVIDER_MODE = previousMode;
+  });
+
+  function dualSeasonPrisma(selection: { mode: "AUTO" } | { mode: "PINNED"; blizzardSeasonId: number }) {
+    return makePrisma({
+      seasons: [
+        readySeason({
+          blizzardSeasonId: 17,
+          isCurrent: false,
+          wclZoneId: Z17,
+          dungeonSlugs: [...slugs17],
+        }),
+        readySeason({
+          blizzardSeasonId: 18,
+          isCurrent: true,
+          wclZoneId: Z18,
+          dungeonSlugs: [...slugs18],
+        }),
+      ],
+      runtimeSetting: { value: selection, version: 1 },
+    });
+  }
+
+  it("A: PINNED17 → AUTO18 after barrier/before write does not persist CharacterScore", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "PINNED", blizzardSeasonId: 17 });
+    const deps = livePreflightDeps(prisma, async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const job = buildJob(
+      resolveActiveRefreshContract({
+        scoringModelKey: "default",
+        scoringModelVersion: 6,
+        activeSeasonId: "blizzard-season-17",
+        providerMode: "live",
+        zoneId: Z17,
+      }).hash,
+      17,
+      "blizzard-season-17",
+    );
+
+    const barrier = await resolvePublicationRefreshContract(deps, job, {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+    expect(barrier.effective.blizzardSeasonId).toBe(17);
+    expect(barrier.hash).toBe(job.refreshContractHash);
+
+    await updateScoringSeasonSelection(prisma, { mode: "AUTO", expectedVersion: 1 }, null);
+
+    const saved: Array<Record<string, unknown>> = [];
+    const scoringPrisma = scoringPersistPrisma(saved);
+    await expect(
+      scoreCharacter(
+        persistAfterBarrierInput(scoringPrisma, async () => {
+          await assertPublicationContractMatchesJob(deps, job, {
+            expectedHash: barrier.hash,
+            scoringModelKey: "default",
+            scoringModelVersion: 6,
+          });
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "REFRESH_CONTRACT_HASH_MISMATCH" });
+    expect(saved).toHaveLength(0);
+  });
+
+  it("B: AUTO18 → PINNED17 after barrier/before write does not persist CharacterScore", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "AUTO" });
+    const deps = livePreflightDeps(prisma, async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const job = buildJob(
+      resolveActiveRefreshContract({
+        scoringModelKey: "default",
+        scoringModelVersion: 6,
+        activeSeasonId: "blizzard-season-18",
+        providerMode: "live",
+        zoneId: Z18,
+      }).hash,
+      18,
+      "blizzard-season-18",
+    );
+
+    const barrier = await resolvePublicationRefreshContract(deps, job, {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+    expect(barrier.effective.blizzardSeasonId).toBe(18);
+    expect(barrier.hash).toBe(job.refreshContractHash);
+
+    await updateScoringSeasonSelection(
+      prisma,
+      { mode: "PINNED", blizzardSeasonId: 17, expectedVersion: 1 },
+      null,
+    );
+
+    const saved: Array<Record<string, unknown>> = [];
+    const scoringPrisma = scoringPersistPrisma(saved);
+    await expect(
+      scoreCharacter(
+        persistAfterBarrierInput(scoringPrisma, async () => {
+          await assertPublicationContractMatchesJob(deps, job, {
+            expectedHash: barrier.hash,
+            scoringModelKey: "default",
+            scoringModelVersion: 6,
+          });
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "REFRESH_CONTRACT_HASH_MISMATCH" });
+    expect(saved).toHaveLength(0);
+  });
+
+  it("C: no setting change persists CharacterScore exactly once", async () => {
+    const { prisma } = dualSeasonPrisma({ mode: "PINNED", blizzardSeasonId: 17 });
+    const deps = livePreflightDeps(prisma, async () => {
+      throw new Error("catalog already ready — WorldData must not run");
+    });
+    const job = buildJob(
+      resolveActiveRefreshContract({
+        scoringModelKey: "default",
+        scoringModelVersion: 6,
+        activeSeasonId: "blizzard-season-17",
+        providerMode: "live",
+        zoneId: Z17,
+      }).hash,
+      17,
+      "blizzard-season-17",
+    );
+
+    const barrier = await resolvePublicationRefreshContract(deps, job, {
+      scoringModelKey: "default",
+      scoringModelVersion: 6,
+    });
+    expect(barrier.effective.blizzardSeasonId).toBe(17);
+
+    const saved: Array<Record<string, unknown>> = [];
+    const scoringPrisma = scoringPersistPrisma(saved);
+    const result = await scoreCharacter(
+      persistAfterBarrierInput(scoringPrisma, async () => {
+        await assertPublicationContractMatchesJob(deps, job, {
+          expectedHash: barrier.hash,
+          scoringModelKey: "default",
+          scoringModelVersion: 6,
+        });
+      }),
+    );
+    expect(result.characterScoreId).toBe("score-1");
+    expect(saved).toHaveLength(1);
+  });
+});
+
 

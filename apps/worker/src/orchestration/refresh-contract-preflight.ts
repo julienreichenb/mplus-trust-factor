@@ -296,6 +296,41 @@ export async function resolvePublicationRefreshContract(
   return { effective, contract, hash };
 }
 
+export const REFRESH_CONTRACT_HASH_MISMATCH = "REFRESH_CONTRACT_HASH_MISMATCH" as const;
+
+/**
+ * Fresh Effective Scoring Season comparison immediately before CharacterScore write.
+ * Re-resolves RuntimeSetting / detected season; never reuses a prior resolver result.
+ */
+export async function assertPublicationContractMatchesJob(
+  deps: RefreshContractPreflightDeps,
+  jobPayload: Pick<RefreshCharacterJob, "region" | "correlationId">,
+  opts: {
+    expectedHash: string;
+    scoringModelKey: string;
+    scoringModelVersion: number;
+    correlationId?: string | null;
+  },
+): Promise<PublicationRefreshContractResult> {
+  const resolved = await resolvePublicationRefreshContract(deps, jobPayload, {
+    scoringModelKey: opts.scoringModelKey,
+    scoringModelVersion: opts.scoringModelVersion,
+    correlationId: opts.correlationId,
+  });
+  if (opts.expectedHash !== resolved.hash) {
+    throw Object.assign(new Error("Refresh contract mismatch"), {
+      code: REFRESH_CONTRACT_HASH_MISMATCH,
+      retryable: false,
+      providerFailure: false,
+      requestedHash: opts.expectedHash,
+      computedHash: resolved.hash,
+      authoritativeSeasonSlug: resolved.effective.activeSeasonId,
+      wclZoneId: resolved.effective.wclZoneId,
+    });
+  }
+  return resolved;
+}
+
 /** True when an error is the dedicated non-retryable preflight barrier failure. */
 export function isRefreshContractPreflightError(error: unknown): error is RefreshContractPreflightError {
   if (error instanceof RefreshContractPreflightError) return true;

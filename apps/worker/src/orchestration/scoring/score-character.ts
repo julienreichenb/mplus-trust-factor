@@ -91,6 +91,12 @@ export interface ScoreCharacterInput {
    */
   persistCharacterScore?: boolean;
   /**
+   * Called immediately before CharacterScore persistence when persist is enabled.
+   * Refresh uses this to re-resolve Effective Scoring Season after calculation
+   * so a RuntimeSetting flip cannot publish a stale-season row.
+   */
+  beforeCharacterScorePersist?: () => Promise<void>;
+  /**
    * Optional prevalidated frozen manifest. When supplied, orchestration skips
    * run reselection (canary / provider-free replay). Production default: undefined.
    */
@@ -440,6 +446,9 @@ export async function scoreCharacter(
       ? performanceAggregate.data.compact
       : null;
   if (persistCharacterScore) {
+    if (input.beforeCharacterScorePersist) {
+      await input.beforeCharacterScorePersist();
+    }
     const scores = new CharacterScoreRepository(input.prisma);
     const saved = await scores.save({
       characterId: input.identity.characterId,
