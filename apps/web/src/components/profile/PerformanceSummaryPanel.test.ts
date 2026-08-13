@@ -276,4 +276,16 @@ describe("PerformanceSummaryPanel role-aware UI", () => {
       .map((node) => node.classes().filter((cls) => cls.startsWith("parse-pct--")));
     expect(new Set(pctClasses.flat()).size).toBeGreaterThan(1);
   });
+
+  it("Aspha: roleAware.HEALER renders healer table with Healing and Damage parse columns", () => {
+    const wrapper = mount(PerformanceSummaryPanel, {
+      props: { summary: roleAwareSummary("HEALER") },
+    });
+    expect(wrapper.find('[data-testid="performance-summary-healer-table"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Healing parse");
+    expect(wrapper.text()).toContain("Damage parse");
+    expect(wrapper.text()).toContain("Best");
+    expect(wrapper.text()).toContain("Median");
+    expect(wrapper.find('[data-testid="performance-summary-damage-table"]').exists()).toBe(false);
+  });
 });

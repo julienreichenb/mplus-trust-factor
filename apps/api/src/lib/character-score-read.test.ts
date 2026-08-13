@@ -531,6 +531,180 @@ describe("mapCharacterScoreToSnapshotDto role-aware performanceSummary", () => {
       .performanceSummary;
     expect(summary?.roleAware?.role).toBe("DPS");
   });
+
+  it("Aspha: public performanceSummary.roleAware is HEALER with both channels", async () => {
+    const {
+      CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+      CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      assertPersistedCharacterPerformanceAggregateV2,
+    } = await import("@mplus/contracts");
+    const {
+      computeRoleAwarePerformance,
+      extractPersistedRoleAwarePerformanceEvidence,
+    } = await import("@mplus/scoring");
+
+    const active = [
+      "ara-kara",
+      "city-of-threads",
+      "the-dawnbreaker",
+      "the-stonevault",
+      "mists-of-tirna-scithe",
+      "the-necrotic-wake",
+      "siege-of-boralus",
+      "grim-batol",
+    ];
+    const perDungeon = active.map((dungeonSlug) => ({
+      dungeonSlug,
+      bestParsePercentile: 80,
+      medianParsePercentile: 70,
+    }));
+    const roleAware = computeRoleAwarePerformance({
+      role: "HEALER",
+      specSlug: "restoration",
+      activeDungeonSlugs: active,
+      damage: {
+        kind: "damage",
+        metric: "points_and_damage",
+        bestPercentileAverage: 60,
+        medianPercentileAverage: 50,
+        partition: 1,
+        zoneId: 47,
+        totalLoggedRuns: 32,
+        observedSpecs: ["Restoration"],
+        specBinding: "EXACT_MATCH",
+        perDungeon: perDungeon.map((d) => ({
+          ...d,
+          bestParsePercentile: 60,
+          medianParsePercentile: 50,
+        })),
+      },
+      healing: {
+        kind: "healing",
+        metric: "points_and_healing",
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 70,
+        partition: 1,
+        zoneId: 47,
+        totalLoggedRuns: 32,
+        observedSpecs: ["Restoration"],
+        specBinding: "EXACT_MATCH",
+        perDungeon,
+      },
+      cooldownRuns: [],
+    });
+    const compact = assertPersistedCharacterPerformanceAggregateV2({
+      state: "OK",
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+      role: "HEALER",
+      targetSpecSlug: "restoration",
+      zoneId: 47,
+      partition: 1,
+      damage: {
+        metric: "points_and_damage",
+        dungeonAggregates: active.map((slug) => ({
+          dungeonSlug: slug,
+          dungeonName: slug,
+          encounterId: 1,
+          bestParsePercentile: 60,
+          medianParsePercentile: 50,
+          loggedRunCount: 4,
+          specialization: "Restoration",
+          keystoneLevel: 12,
+          bestDps: 1000,
+        })),
+        bestPercentileAverage: 60,
+        medianPercentileAverage: 50,
+        totalLoggedRuns: 32,
+        totalMythicPlusScore: 3000,
+        partition: 1,
+        zoneId: 47,
+        observedSpecs: ["Restoration"],
+        specBinding: "EXACT_MATCH",
+        wclBestPerformanceAverage: 60,
+        wclMedianPerformanceAverage: 50,
+      },
+      healing: {
+        metric: "points_and_healing",
+        dungeonAggregates: active.map((slug) => ({
+          dungeonSlug: slug,
+          dungeonName: slug,
+          encounterId: 1,
+          bestParsePercentile: 80,
+          medianParsePercentile: 70,
+          loggedRunCount: 4,
+          specialization: "Restoration",
+          keystoneLevel: 12,
+          bestDps: 1000,
+        })),
+        bestPercentileAverage: 80,
+        medianPercentileAverage: 70,
+        totalLoggedRuns: 32,
+        totalMythicPlusScore: 3000,
+        partition: 1,
+        zoneId: 47,
+        observedSpecs: ["Restoration"],
+        specBinding: "EXACT_MATCH",
+        wclBestPerformanceAverage: 80,
+        wclMedianPerformanceAverage: 70,
+      },
+      diagnostics: {
+        adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+        provenance: "AGGREGATE_ZONE_RANKINGS",
+        role: "HEALER",
+        targetSpecSlug: "restoration",
+        damageDungeonCount: 8,
+        healingDungeonCount: 8,
+        expectedDungeonCount: 8,
+        specBindingPolicy: "test",
+        limitations: [],
+      },
+    });
+
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        id: "score-aspha",
+        characterId: "char-aspha",
+        seasonId: "season-1",
+        scoringVersion: "scoring-v1",
+        performance: roleAware.score,
+        utility: null,
+        survival: null,
+        experience: null,
+        composite: roleAware.score,
+        confidence: roleAware.confidence,
+        calculatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        dimensionDetails: {
+          performance: {
+            confidence: roleAware.confidence,
+            state: roleAware.state,
+            roleAware: extractPersistedRoleAwarePerformanceEvidence({
+              roleAware,
+              activeDungeonSlugs: active,
+            }),
+          },
+          performanceAggregate: { compact },
+        },
+        season: { slug: "season-tww-3" },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+
+    const summary = (
+      dto.explanation as {
+        performanceSummary?: {
+          roleAware?: { role: string; healing: unknown; damage: unknown };
+        };
+      }
+    ).performanceSummary;
+    expect(summary?.roleAware?.role).toBe("HEALER");
+    expect(summary?.roleAware?.healing).not.toBeNull();
+    expect(summary?.roleAware?.damage).not.toBeNull();
+    expect(dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.state).toBe(
+      "AVAILABLE",
+    );
+  });
 });
 
 describe("resolveProfilePerformanceSummary", () => {

@@ -1,9 +1,12 @@
 import {
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
   ExternalApiError,
+  toPerformanceAggregatePartitionKey,
   type MythicRunDTO,
   type RecalculateScoreJob,
   type ScoreSnapshotDTO,
 } from "@mplus/contracts";
+import { CharacterPerformanceAggregateRepository } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { requirePersistedCatalogWclZoneId } from "./active-mplus-season/catalog-metadata.js";
@@ -13,6 +16,11 @@ import {
   buildCandidatesFromPersistedDigests,
   mergeEvidenceCandidates,
 } from "./scoring/digest-candidates.js";
+import {
+  resolveSeasonScoringIdentity,
+  seasonScoringIdentityLogFields,
+  wclSeasonEvidenceFromPersistedAggregate,
+} from "./scoring/season-scoring-identity.js";
 
 /**
  * Recomputes a character's score via scoreCharacter (provider-free when live calls are off).
@@ -125,14 +133,56 @@ export async function runRecalculateScore(
   });
   const candidates = mergeEvidenceCandidates(runCandidates, digestCandidates);
 
+  const profileIdentity = {
+    classSlug,
+    specSlug,
+    role,
+  };
+  let persistedWclEvidence = null;
+  try {
+    const aggregate = await new CharacterPerformanceAggregateRepository(
+      container.prisma,
+    ).findCompatibleForReplay({
+      characterId: job.characterId,
+      seasonId: season.id,
+      zoneId: wclZoneId,
+      partitionKey: toPerformanceAggregatePartitionKey(refreshContract.partition ?? null),
+      rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    });
+    if (aggregate?.compact) {
+      persistedWclEvidence = wclSeasonEvidenceFromPersistedAggregate(aggregate.compact);
+    }
+  } catch (error) {
+    container.logger.warn(
+      {
+        characterId: job.characterId,
+        seasonId: season.id,
+        err: error instanceof Error ? error.message : String(error),
+      },
+      "recalculate: persisted Performance aggregate unavailable for season identity",
+    );
+  }
+  const seasonScoringIdentity = resolveSeasonScoringIdentity({
+    profileIdentity,
+    wclPerformanceEvidence: persistedWclEvidence,
+    activeDungeonSlugs,
+  });
+  container.logger.info(
+    seasonScoringIdentityLogFields({
+      profileIdentity,
+      seasonIdentity: seasonScoringIdentity,
+    }),
+    "season_scoring_identity_resolved",
+  );
+
   const outcome = await runAuthoritativeScoring({
     container,
     characterId: job.characterId,
     seasonId: season.id,
     seasonSlug: season.slug,
-    role,
-    classSlug,
-    specSlug,
+    role: seasonScoringIdentity.role,
+    classSlug: seasonScoringIdentity.classSlug,
+    specSlug: seasonScoringIdentity.specSlug,
     refreshContract,
     evidenceCutoffAt: now.toISOString(),
     highKeyPolicyId: "high-key-policy-v1",

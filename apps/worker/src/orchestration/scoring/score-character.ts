@@ -55,9 +55,9 @@ import {
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
-/** Bumped when authoritative Utility Phase 3 toolkit scoring activates. */
+/** Bumped when season-scoped scoring identity (WCL M+ spec vs current profile) activates. */
 export const SCORING_VERSION =
-  "scoring-v1.performance-role-aware-v1.utility-phase3.survival-phase2";
+  "scoring-v1.performance-role-aware-v1.utility-phase3.survival-phase2.season-identity-v1";
 
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;

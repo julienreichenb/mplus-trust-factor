@@ -104,6 +104,7 @@ describe("runRecalculateScore — contract stability", () => {
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: true,
       },
+      logger: { info: vi.fn(), warn: vi.fn() },
       prisma: {
         character: {
           findUnique: vi.fn(async () => ({
@@ -120,6 +121,9 @@ describe("runRecalculateScore — contract stability", () => {
         realm: { findUnique: vi.fn(async () => ({ slug: "tarren-mill" })) },
         seasonDungeon: { findMany: vi.fn(async () => []) },
         runParticipant: { findMany: vi.fn(async () => []) },
+        characterPerformanceAggregate: {
+          findUnique: vi.fn(async () => null),
+        },
       },
       repositories: {
         character: {
@@ -147,6 +151,11 @@ describe("runRecalculateScore — contract stability", () => {
     });
 
     expect(runAuthoritativeScoring).toHaveBeenCalledTimes(1);
+    expect(runAuthoritativeScoring.mock.calls[0]?.[0]).toMatchObject({
+      role: "DPS",
+      classSlug: "mage",
+      specSlug: "fire",
+    });
     expect(saveScoreSnapshot).toHaveBeenCalledTimes(1);
     expect(
       (result.explanation as { refreshContractHash: string }).refreshContractHash,

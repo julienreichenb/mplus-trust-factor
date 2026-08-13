@@ -3823,6 +3823,11 @@ export async function runRefreshPipeline(
 
   // Authoritative scoring — scoreCharacter() only. No legacy calculateScore fallback.
   const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
+  const {
+    resolveSeasonScoringIdentity,
+    seasonIdentityAllowsDamageWarmHit,
+    seasonScoringIdentityLogFields,
+  } = await import("./scoring/season-scoring-identity.js");
   const { mythicRunToEvidenceCandidateMetadataList } = await import("@mplus/scoring");
   const { runAuthoritativeScoring } = await import("./scoring/refresh-bridge.js");
   const frozenIdentity = resolveFrozenCharacterIdentity({
@@ -3841,16 +3846,44 @@ export async function runRefreshPipeline(
         }
       : null,
   });
+  const seasonScoringIdentity = resolveSeasonScoringIdentity({
+    profileIdentity: {
+      classSlug: frozenIdentity.classSlug,
+      specSlug: frozenIdentity.specSlug,
+      role: frozenIdentity.role,
+    },
+    wclPerformanceEvidence: {
+      specRanks: Array.isArray(wclPerformanceRecord?.global?.specRanks)
+        ? (wclPerformanceRecord.global.specRanks as Array<{ spec?: string | null }>)
+        : [],
+      dungeonAggregates: wclDungeonAggregates,
+    },
+    activeDungeonSlugs,
+  });
+  logger.info(
+    {
+      ...logBase,
+      ...seasonScoringIdentityLogFields({
+        profileIdentity: {
+          classSlug: frozenIdentity.classSlug,
+          specSlug: frozenIdentity.specSlug,
+          role: frozenIdentity.role,
+        },
+        seasonIdentity: seasonScoringIdentity,
+      }),
+    },
+    "season_scoring_identity_resolved",
+  );
 
   // Persist discovery damage throughput as Performance aggregate V2 warm-hit for DPS/TANK.
   // Healers need aliased healing+damage — leave that to ensure (do not write incomplete V2).
+  // Use season scoring identity, not the current logout/profile spec.
   if (
     wclPerformanceRecord?.state === "OK" &&
     wclPerformanceRecord.raw != null &&
     typeof refreshContract.zoneId === "number" &&
     refreshContract.zoneId > 0 &&
-    frozenIdentity.role != null &&
-    (frozenIdentity.role === "DPS" || frozenIdentity.role === "TANK")
+    seasonIdentityAllowsDamageWarmHit(seasonScoringIdentity)
   ) {
     try {
       const { CharacterPerformanceAggregateRepository } = await import("@mplus/database");
@@ -3859,8 +3892,8 @@ export async function runRefreshPipeline(
         buildRoleAwarePerformanceAggregateRequestFingerprint,
       } = await import("@mplus/provider-warcraftlogs");
       const built = buildRoleAwareAggregateFromRaw({
-        role: frozenIdentity.role === "TANK" ? "TANK" : "DPS",
-        targetSpecSlug: frozenIdentity.specSlug,
+        role: seasonScoringIdentity.role === "TANK" ? "TANK" : "DPS",
+        targetSpecSlug: seasonScoringIdentity.specSlug,
         zoneId: refreshContract.zoneId,
         partition: refreshContract.partition,
         damageRaw: wclPerformanceRecord.raw,
@@ -3874,7 +3907,7 @@ export async function runRefreshPipeline(
           zoneId: refreshContract.zoneId,
           partition: refreshContract.partition,
           role: built.compact.role,
-          specSlug: frozenIdentity.specSlug,
+          specSlug: seasonScoringIdentity.specSlug,
         });
         const ttlSeconds = Math.max(
           1,
@@ -3945,9 +3978,9 @@ export async function runRefreshPipeline(
     characterId: character.id,
     seasonId: season.id,
     seasonSlug: season.slug,
-    role: frozenIdentity.role,
-    classSlug: frozenIdentity.classSlug,
-    specSlug: frozenIdentity.specSlug,
+    role: seasonScoringIdentity.role,
+    classSlug: seasonScoringIdentity.classSlug,
+    specSlug: seasonScoringIdentity.specSlug,
     refreshContract,
     evidenceCutoffAt: scoreCalculatedAt.toISOString(),
     highKeyPolicyId: "high-key-policy-v1",
