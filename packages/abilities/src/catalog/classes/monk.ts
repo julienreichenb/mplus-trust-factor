@@ -8,8 +8,11 @@ export const MONK_RULES: AbilityRule[] = [
     name: "Spear Hand Strike",
     spellIds: [116705],
     classSlug: "monk",
-    roles: ALL_ROLES,
+    // Midnight: Mistweaver no longer has an interrupt; WW + Brewmaster only.
+    specSlugs: ["brewmaster", "windwalker"],
+    roles: TANK_DPS,
     category: "INTERRUPT",
+    sharedAcrossSpecs: false,
     cooldownSeconds: 15,
     requiresSuccessfulTarget: true,
   }),

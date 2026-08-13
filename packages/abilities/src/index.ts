@@ -97,6 +97,13 @@ export {
 export {
   filterRulesByAvailability,
   getApplicableAbilityCategories,
+  resolveAbilityCapability,
+  resolveUtilityAbilityCapabilities,
+} from "./applicability.js";
+export type {
+  AbilityCapabilityResolution,
+  AbilityCapabilityState,
+  GetApplicableOptions,
 } from "./applicability.js";
 
 export { validateAbilityCatalog } from "./validation.js";

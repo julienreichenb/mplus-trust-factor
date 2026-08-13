@@ -413,6 +413,40 @@ function familyIncluded(
   return { include: true, reason: applicability.reason ?? "applicable" };
 }
 
+/** Runs where the family toolkit is confirmed available (or optional). */
+function factSetsWithFamilyOpportunity(
+  factSets: UtilityV2RunFactSet[],
+  family: UtilityV2FamilyKey,
+): UtilityV2RunFactSet[] {
+  return factSets.filter((set) => {
+    const state = familiesFromLegacyToolkit(set.toolkit)[family].state;
+    return state === "applicable" || state === "optional";
+  });
+}
+
+function aggregateFamilyApplicability(
+  factSets: UtilityV2RunFactSet[],
+  family: UtilityV2FamilyKey,
+): UtilityFamilyApplicabilityMap[UtilityV2FamilyKey] {
+  const states = factSets.map((s) => familiesFromLegacyToolkit(s.toolkit)[family]);
+  if (states.some((s) => s.state === "applicable")) {
+    const hit = states.find((s) => s.state === "applicable")!;
+    return { state: "applicable", reason: hit.reason };
+  }
+  if (states.some((s) => s.state === "optional")) {
+    const hit = states.find((s) => s.state === "optional")!;
+    return { state: "optional", reason: hit.reason };
+  }
+  if (states.some((s) => s.state === "uncertain")) {
+    const hit = states.find((s) => s.state === "uncertain")!;
+    return { state: "uncertain", reason: hit.reason };
+  }
+  return {
+    state: "not_applicable",
+    reason: states[0]?.reason ?? "not_applicable",
+  };
+}
+
 /**
  * Provider-free Utility V2 computation from manifest-bound fact sets.
  *
@@ -463,36 +497,18 @@ export function computeUtilityV2(
   const families = familiesFromLegacyToolkit(toolkit);
 
   const allAttempts = factSets.flatMap((f) => f.interruptAttempts);
-  const interruptCap = applyUnmatchedSpamCap(allAttempts, config);
+  const interruptCapAll = applyUnmatchedSpamCap(allAttempts, config);
   const allCc = factSets.flatMap((f) => f.ccActions);
-  const dedupedCc = dedupeStrategicCc(allCc, config.ccDedupeWindowMs);
   const allSupport = factSets.flatMap((f) => f.supportActions);
-  const groupSupportActions = allSupport.filter(
+  const groupSupportActionsAll = allSupport.filter(
     (a) =>
       a.semantic !== "PERSONAL_MOBILITY" &&
       a.semantic !== "EMERGENCY_SUPPORT",
   );
-  const movementActions = allSupport.filter((a) => a.semantic === "PERSONAL_MOBILITY");
-  const combatResActions = allSupport.filter((a) => a.semantic === "EMERGENCY_SUPPORT");
-  const support = scoreSupportCredit(groupSupportActions, config);
-  const dispelPurge = factSets.reduce((s, f) => s + f.dispelPurgeSuccessCount, 0);
-  const bloodlustCount = factSets.reduce((s, f) => s + (f.bloodlustSuccessCount ?? 0), 0);
-  const combinedSupportRaw =
-    support.rawCredit + dispelPurge * config.dispelPurgeEventCredit;
-  const supportWithDispel = {
-    rawCredit: round2(combinedSupportRaw),
-    diminishedCredit: round2(
-      combinedSupportRaw <= 0
-        ? 0
-        : Math.pow(combinedSupportRaw, config.supportDiminishingExponent),
-    ),
-    bySemantic: {
-      ...support.bySemantic,
-      PERSONAL_MOBILITY: movementActions.length,
-      EMERGENCY_SUPPORT: combatResActions.length,
-    },
-    passiveOrRotationalIgnored: support.passiveOrRotationalIgnored,
-  };
+  const movementActionsAll = allSupport.filter((a) => a.semantic === "PERSONAL_MOBILITY");
+  const combatResActionsAll = allSupport.filter((a) => a.semantic === "EMERGENCY_SUPPORT");
+  const dispelPurgeAll = factSets.reduce((s, f) => s + f.dispelPurgeSuccessCount, 0);
+  const bloodlustCountAll = factSets.reduce((s, f) => s + (f.bloodlustSuccessCount ?? 0), 0);
 
   const abilityCoverage =
     factSets.reduce((s, f) => s + f.catalogCoverage.abilityCatalogCoverage, 0) /
@@ -502,54 +518,91 @@ export function computeUtilityV2(
     factSets.reduce((s, f) => s + f.catalogCoverage.mechanicCatalogCoverage, 0) /
       factSets.length;
 
-  const usage: Record<UtilityV2FamilyKey, { events: number; credited: number; perHour: number }> = {
-    interrupt: {
-      events: allAttempts.length,
-      credited: interruptCap.creditedTotal,
-      perHour: interruptCap.creditedTotal / combatHours,
-    },
-    crowdControl: {
-      events: allCc.length,
-      credited: dedupedCc.length,
-      perHour: dedupedCc.length / combatHours,
-    },
-    dispelPurge: {
-      events: dispelPurge,
-      credited: dispelPurge,
-      perHour: dispelPurge / combatHours,
-    },
-    groupSupport: {
-      events: groupSupportActions.length,
-      credited: support.rawCredit,
-      perHour: support.diminishedCredit / combatHours,
-    },
-    movement: {
-      events: movementActions.length,
-      credited: movementActions.length,
-      perHour: movementActions.length / combatHours,
-    },
-    combatRes: {
-      events: combatResActions.length,
-      credited: combatResActions.length,
-      perHour: combatResActions.length / combatHours,
-    },
-    bloodlust: {
-      events: bloodlustCount,
-      credited: bloodlustCount,
-      perHour: bloodlustCount / combatHours,
-    },
-  };
-
   const domainBreakdown: UtilityV2DomainBreakdown[] = [];
   const unusedDomains: UtilityV2FamilyKey[] = [];
   const excludedDomains: Array<{ domain: UtilityV2FamilyKey; reason: string }> = [];
   const uncertainDomains: Array<{ domain: UtilityV2FamilyKey; reason: string }> = [];
 
+  // Per-family opportunity: only runs where the toolkit proves the family available.
+  let interruptCap = interruptCapAll;
+  let dedupedCc = dedupeStrategicCc(allCc, config.ccDedupeWindowMs);
+  let support = scoreSupportCredit(groupSupportActionsAll, config);
+  let movementActions = movementActionsAll;
+  let combatResActions = combatResActionsAll;
+  let dispelPurge = dispelPurgeAll;
+  let bloodlustCount = bloodlustCountAll;
+
   for (const family of UTILITY_V2_FAMILY_KEYS) {
-    const applicability = families[family];
-    const used = usage[family].credited > 0;
-    const { include, reason } = familyIncluded(family, applicability, used);
+    const applicability = aggregateFamilyApplicability(factSets, family);
+    const opportunitySets = factSetsWithFamilyOpportunity(factSets, family);
+    const familyCombatHours = Math.max(
+      opportunitySets.reduce((s, f) => s + f.activeCombatHours, 0),
+      1 / 60,
+    );
+
+    let events = 0;
+    let credited = 0;
+    let perHour = 0;
     const notes: string[] = [];
+
+    if (opportunitySets.length > 0) {
+      notes.push(`opportunity_runs=${opportunitySets.length}/${factSets.length}`);
+      if (family === "interrupt") {
+        const attempts = opportunitySets.flatMap((f) => f.interruptAttempts);
+        interruptCap = applyUnmatchedSpamCap(attempts, config);
+        events = attempts.length;
+        credited = interruptCap.creditedTotal;
+        perHour = credited / familyCombatHours;
+      } else if (family === "crowdControl") {
+        const cc = opportunitySets.flatMap((f) => f.ccActions);
+        dedupedCc = dedupeStrategicCc(cc, config.ccDedupeWindowMs);
+        events = cc.length;
+        credited = dedupedCc.length;
+        perHour = credited / familyCombatHours;
+      } else if (family === "dispelPurge") {
+        dispelPurge = opportunitySets.reduce((s, f) => s + f.dispelPurgeSuccessCount, 0);
+        events = dispelPurge;
+        credited = dispelPurge;
+        perHour = credited / familyCombatHours;
+      } else if (family === "groupSupport") {
+        const groupActions = opportunitySets
+          .flatMap((f) => f.supportActions)
+          .filter(
+            (a) =>
+              a.semantic !== "PERSONAL_MOBILITY" &&
+              a.semantic !== "EMERGENCY_SUPPORT",
+          );
+        support = scoreSupportCredit(groupActions, config);
+        events = groupActions.length;
+        credited = support.rawCredit;
+        perHour = support.diminishedCredit / familyCombatHours;
+      } else if (family === "movement") {
+        movementActions = opportunitySets
+          .flatMap((f) => f.supportActions)
+          .filter((a) => a.semantic === "PERSONAL_MOBILITY");
+        events = movementActions.length;
+        credited = movementActions.length;
+        perHour = credited / familyCombatHours;
+      } else if (family === "combatRes") {
+        combatResActions = opportunitySets
+          .flatMap((f) => f.supportActions)
+          .filter((a) => a.semantic === "EMERGENCY_SUPPORT");
+        events = combatResActions.length;
+        credited = combatResActions.length;
+        perHour = credited / familyCombatHours;
+      } else if (family === "bloodlust") {
+        bloodlustCount = opportunitySets.reduce(
+          (s, f) => s + (f.bloodlustSuccessCount ?? 0),
+          0,
+        );
+        events = bloodlustCount;
+        credited = bloodlustCount;
+        perHour = credited / familyCombatHours;
+      }
+    }
+
+    const used = credited > 0;
+    const { include, reason } = familyIncluded(family, applicability, used);
     const applicable = include;
     let raw: number | null = null;
 
@@ -570,15 +623,14 @@ export function computeUtilityV2(
         uncappedContribution: 0,
         cappedContribution: 0,
         capApplied: false,
-        events: usage[family].events,
-        creditedEvents: round2(usage[family].credited),
+        events,
+        creditedEvents: round2(credited),
         perCombatHour: null,
         notes,
       });
       continue;
     }
 
-    const perHour = usage[family].perHour;
     if (!used) {
       raw = floor;
       unusedDomains.push(family);
@@ -600,8 +652,11 @@ export function computeUtilityV2(
           notes.push("unmatched_spam_credit_share_capped");
         }
       }
-      if (family === "crowdControl" && allCc.length > dedupedCc.length) {
-        notes.push(`cc_deduped_${allCc.length - dedupedCc.length}`);
+      if (family === "crowdControl") {
+        const rawCc = opportunitySets.flatMap((f) => f.ccActions).length;
+        if (rawCc > dedupedCc.length) {
+          notes.push(`cc_deduped_${rawCc - dedupedCc.length}`);
+        }
       }
       if (family === "groupSupport" && support.passiveOrRotationalIgnored > 0) {
         notes.push(
@@ -620,12 +675,28 @@ export function computeUtilityV2(
       uncappedContribution: 0,
       cappedContribution: 0,
       capApplied: false,
-      events: usage[family].events,
-      creditedEvents: round2(usage[family].credited),
+      events,
+      creditedEvents: round2(credited),
       perCombatHour: round2(perHour),
       notes,
     });
   }
+
+  const supportWithDispel = {
+    rawCredit: round2(support.rawCredit + dispelPurge * config.dispelPurgeEventCredit),
+    diminishedCredit: round2(
+      (() => {
+        const combined = support.rawCredit + dispelPurge * config.dispelPurgeEventCredit;
+        return combined <= 0 ? 0 : Math.pow(combined, config.supportDiminishingExponent);
+      })(),
+    ),
+    bySemantic: {
+      ...support.bySemantic,
+      PERSONAL_MOBILITY: movementActions.length,
+      EMERGENCY_SUPPORT: combatResActions.length,
+    },
+    passiveOrRotationalIgnored: support.passiveOrRotationalIgnored,
+  };
 
   const included = domainBreakdown.filter((d) => d.applicable);
   const activeWeights = included.reduce((s, d) => s + d.weight, 0);

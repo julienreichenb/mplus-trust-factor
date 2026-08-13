@@ -504,6 +504,7 @@ function resolveToolkitFromDigest(
       : undefined,
     talentDataAvailable: talentPresent,
     includeRacials: true,
+    observedSpellIds: digest.utility.actions.map((a) => a.primarySpellId),
     observedFamilies,
   });
 }

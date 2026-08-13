@@ -8,8 +8,11 @@ export const PALADIN_RULES: AbilityRule[] = [
     name: "Rebuke",
     spellIds: [96231],
     classSlug: "paladin",
-    roles: ALL_ROLES,
+    // Midnight: healer specs lost interrupts (Holy has no Rebuke).
+    specSlugs: ["protection", "retribution"],
+    roles: TANK_DPS,
     category: "INTERRUPT",
+    sharedAcrossSpecs: false,
     cooldownSeconds: 15,
     requiresSuccessfulTarget: true,
   }),

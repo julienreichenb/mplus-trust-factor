@@ -28,6 +28,8 @@ export interface ResolveUtilityToolkitInput {
   role?: AbilityRole | "UNKNOWN" | null;
   knownTalentSpellIds?: number[];
   talentDataAvailable?: boolean;
+  /** Observed Utility spell IDs for this run (availability proof). */
+  observedSpellIds?: number[];
   includeRacials?: boolean;
   /** Families with observed usage — promote uncertain/not_applicable to applicable. */
   observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
@@ -164,6 +166,7 @@ export function resolveUtilityToolkitFromCatalog(
     specSlug,
     role,
     knownTalentSpellIds,
+    observedSpellIds: input.observedSpellIds,
     includeRacials: input.includeRacials ?? true,
   });
 

@@ -247,6 +247,7 @@ function resolveToolkit(input: {
   specSlug: string | null;
   knownTalentSpellIds?: number[];
   talentDataAvailable?: boolean;
+  observedSpellIds?: number[];
   observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
 }): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
   return resolveUtilityToolkitFromCatalog({
@@ -255,6 +256,7 @@ function resolveToolkit(input: {
     includeRacials: true,
     knownTalentSpellIds: input.knownTalentSpellIds,
     talentDataAvailable: input.talentDataAvailable,
+    observedSpellIds: input.observedSpellIds,
     observedFamilies: input.observedFamilies,
   });
 }
@@ -312,11 +314,19 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     supportActions: specialist.supportActions,
     bloodlustSuccessCount: specialist.bloodlustSuccessCount,
   });
+  const observedSpellIds = [
+    ...attemptSeeds.map((a) => a.abilityGameId),
+    ...confirmedInterrupts.map((e) => e.abilityGameId),
+    ...ccActions.map((a) => a.abilityGameId),
+    ...specialist.supportActions.map((a) => a.abilityGameId),
+    ...input.run.dispelPurgeEvents.map((e) => e.abilityGameID),
+  ].filter((id): id is number => typeof id === "number" && Number.isFinite(id));
   const resolvedToolkit = resolveToolkit({
     classSlug: input.classSlug,
     specSlug: input.specSlug,
     knownTalentSpellIds: input.knownTalentSpellIds,
     talentDataAvailable: input.talentDataAvailable,
+    observedSpellIds,
     observedFamilies,
   });
   const toolkit = resolvedToolkit.toolkit;

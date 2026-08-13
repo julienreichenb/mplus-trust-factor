@@ -8,8 +8,11 @@ export const EVOKER_RULES: AbilityRule[] = [
     name: "Quell",
     spellIds: [351338],
     classSlug: "evoker",
-    roles: ALL_ROLES,
+    // Midnight: Preservation lost interrupt; Resto Shaman is the healer exception.
+    specSlugs: ["devastation", "augmentation"],
+    roles: DPS,
     category: "INTERRUPT",
+    sharedAcrossSpecs: false,
     cooldownSeconds: 40,
     requiresSuccessfulTarget: true,
   }),
