@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { useRouter, RouterLink } from "vue-router";
+import type { ScoringSeasonSelectionStatusDTO } from "@mplus/contracts";
 import { formatPercentileBpsLabel } from "@mplus/contracts";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
 
 const props = defineProps<{ embedded?: boolean }>();
 
@@ -16,7 +18,7 @@ interface SeasonRow {
   id: string;
   slug: string;
   name: string;
-  isCurrent: boolean;
+  blizzardSeasonId: number | null;
 }
 interface ResolvedAnchor {
   percentileBps: number;
@@ -50,7 +52,7 @@ interface SeasonState {
   canonicalSpecializations: { classes: SpecClass[]; stepBandHelp: string; tierSemantics: Record<string, string> };
 }
 
-const seasons = ref<SeasonRow[]>([]);
+const scoringSeason = ref<ScoringSeasonSelectionStatusDTO | null>(null);
 const seasonId = ref("");
 const state = ref<SeasonState | null>(null);
 const error = ref<string | null>(null);
@@ -102,9 +104,29 @@ function assignmentTier(classSlug: string, specSlug: string): string {
   return hit ? String(hit.tier) : "";
 }
 
-async function loadSeasons(): Promise<void> {
-  const body = await fetchJson<{ seasons: SeasonRow[] }>("/api/v1/admin/seasons");
-  seasons.value = body.seasons;
+const scoringSeasonLabel = computed(() => {
+  const effective = scoringSeason.value?.effectiveScoringSeason;
+  if (!effective) return "—";
+  return formatScoringSeasonLabel(effective);
+});
+
+const scoringSeasonModeLabel = computed(() => {
+  const mode = scoringSeason.value?.selection.mode;
+  if (mode === "PINNED") return "Pinned";
+  if (mode === "AUTO") return "Auto";
+  return "—";
+});
+
+async function loadScoringSeasonAuthority(): Promise<void> {
+  const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(
+    "/api/v1/admin/misc/scoring-season?region=EU",
+  );
+  scoringSeason.value = status;
+  const id = status.effectiveScoringSeason?.id;
+  if (!id) {
+    throw new Error("No effective scoring season is resolved. Set it on Admin misc.");
+  }
+  seasonId.value = id;
 }
 
 async function loadState(): Promise<void> {
@@ -114,17 +136,11 @@ async function loadState(): Promise<void> {
 
 onMounted(async () => {
   try {
-    await loadSeasons();
+    await loadScoringSeasonAuthority();
     await loadState();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
-});
-
-watch(seasonId, () => {
-  void loadState().catch((err) => {
-    error.value = err instanceof Error ? err.message : String(err);
-  });
 });
 
 async function createDraft(): Promise<void> {
@@ -274,8 +290,8 @@ function removeAnchor(percentileBps: number): void {
     <header>
       <h2>Key + Meta Context</h2>
       <p class="muted">
-        Season-scoped factors applied after the raw P/S/U/E composite. Editing is bound to the selected
-        season, not the current effective scoring season.
+        Key + meta context for the platform scoring season. Change the scoring season on
+        <RouterLink to="/admin/misc">Admin misc</RouterLink>.
       </p>
     </header>
 
@@ -291,15 +307,16 @@ function removeAnchor(percentileBps: number): void {
       :message="`Published, but recalculation enqueue failed: ${recalc.error ?? 'unknown'}`"
     />
 
-    <label class="field">
-      Season
-      <select v-model="seasonId" data-testid="season-selector">
-        <option value="">Select a season…</option>
-        <option v-for="s in seasons" :key="s.id" :value="s.id">
-          {{ s.name }} ({{ s.slug }}){{ s.isCurrent ? " · current" : "" }}
-        </option>
-      </select>
-    </label>
+    <dl class="season-authority" data-testid="scoring-season-header">
+      <div>
+        <dt>Scoring season</dt>
+        <dd data-testid="scoring-season-label">{{ scoringSeasonLabel }}</dd>
+      </div>
+      <div>
+        <dt>Mode</dt>
+        <dd data-testid="scoring-season-mode">{{ scoringSeasonModeLabel }}</dd>
+      </div>
+    </dl>
 
     <p v-if="state" class="meta" data-testid="revision-status">
       Status: {{ displayed?.status ?? "none" }}
@@ -452,6 +469,20 @@ function removeAnchor(percentileBps: number): void {
 }
 .muted {
   color: var(--color-text-muted);
+}
+.season-authority {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+}
+.season-authority dt {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.season-authority dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
 }
 .warn {
   color: var(--color-gold-300);

@@ -185,4 +185,19 @@ describe("AdminMiscPage", () => {
     );
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/Auto/i);
   });
+
+  it("renders Mode and Season as designed AdminSelect controls on one row", async () => {
+    const wrapper = await mountPage();
+    const controls = wrapper.get(".scoring-season-controls");
+    expect(controls.find("[data-testid='scoring-season-mode']").exists()).toBe(true);
+    expect(controls.find("[data-testid='scoring-season-pin']").exists()).toBe(true);
+    expect(controls.text()).toContain("Mode");
+    expect(controls.text()).toContain("Season");
+    expect(wrapper.get("[data-testid='detected-blizzard-season']").text()).toBe(
+      "Blizzard Season 17 / Blizzard 17",
+    );
+    expect(wrapper.get("[data-testid='effective-scoring-season']").text()).toBe(
+      "Blizzard Season 17 / Blizzard 17",
+    );
+  });
 });

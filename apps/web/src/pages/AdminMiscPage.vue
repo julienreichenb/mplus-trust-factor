@@ -9,6 +9,8 @@ import type {
 import { api } from "../api/client";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import AdminSelect from "../components/admin/AdminSelect.vue";
+import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
 
 const router = useRouter();
 
@@ -48,6 +50,18 @@ const anyBusy = computed(() => busyAction.value !== null);
 const pinnableSeasons = computed(
   () => scoringSeasonStatus.value?.seasons.filter((s) => s.pinnable) ?? [],
 );
+
+const seasonSelectOptions = computed(() =>
+  pinnableSeasons.value.map((season) => ({
+    value: String(season.blizzardSeasonId),
+    label: `${formatScoringSeasonLabel(season)}${season.isBlizzardCurrent ? " (Blizzard current)" : ""}`,
+  })),
+);
+
+const modeSelectOptions = [
+  { value: "AUTO", label: "Auto" },
+  { value: "PINNED", label: "Pinned" },
+];
 
 const pinnedWarning = computed(() => {
   const status = scoringSeasonStatus.value;
@@ -267,53 +281,36 @@ onMounted(() => {
             <dt>Detected by Blizzard</dt>
             <dd data-testid="detected-blizzard-season">
               <template v-if="scoringSeasonStatus.detectedCurrentSeason">
-                {{ scoringSeasonStatus.detectedCurrentSeason.name }}
-                / Blizzard {{ scoringSeasonStatus.detectedCurrentSeason.blizzardSeasonId }}
+                {{ formatScoringSeasonLabel(scoringSeasonStatus.detectedCurrentSeason) }}
               </template>
               <template v-else>—</template>
             </dd>
           </div>
-          <div>
-            <dt>Mode</dt>
-            <dd>
-              <select
-                v-model="draftMode"
-                data-testid="scoring-season-mode"
-                :disabled="anyBusy"
-              >
-                <option value="AUTO">Auto</option>
-                <option value="PINNED">Pinned</option>
-              </select>
-            </dd>
-          </div>
-          <div v-if="draftMode === 'PINNED'">
-            <dt>Season</dt>
-            <dd>
-              <select
-                v-model.number="draftPinnedBlizzardSeasonId"
-                data-testid="scoring-season-pin"
-                :disabled="anyBusy || pinnableSeasons.length === 0"
-              >
-                <option
-                  v-for="season in pinnableSeasons"
-                  :key="season.id"
-                  :value="season.blizzardSeasonId!"
-                >
-                  {{ season.name }} / Blizzard {{ season.blizzardSeasonId }}
-                  <template v-if="season.isBlizzardCurrent"> (current)</template>
-                </option>
-              </select>
-              <p v-if="pinnableSeasons.length === 0" class="muted">
-                No pinnable seasons with a validated M+ catalog.
-              </p>
-            </dd>
+          <div class="scoring-season-controls">
+            <AdminSelect
+              :model-value="draftMode"
+              label="Mode"
+              :options="modeSelectOptions"
+              :disabled="anyBusy"
+              control-test-id="scoring-season-mode"
+              @update:model-value="draftMode = $event === 'PINNED' ? 'PINNED' : 'AUTO'"
+            />
+            <AdminSelect
+              :model-value="draftPinnedBlizzardSeasonId == null ? '' : String(draftPinnedBlizzardSeasonId)"
+              label="Season"
+              wide
+              :options="seasonSelectOptions"
+              :disabled="anyBusy || draftMode !== 'PINNED' || pinnableSeasons.length === 0"
+              control-test-id="scoring-season-pin"
+              :hint="pinnableSeasons.length === 0 ? 'No pinnable seasons with a validated M+ catalog.' : null"
+              @update:model-value="draftPinnedBlizzardSeasonId = $event ? Number($event) : null"
+            />
           </div>
           <div>
             <dt>Effective scoring season</dt>
             <dd data-testid="effective-scoring-season">
               <template v-if="scoringSeasonStatus.effectiveScoringSeason">
-                {{ scoringSeasonStatus.effectiveScoringSeason.name }}
-                / Blizzard {{ scoringSeasonStatus.effectiveScoringSeason.blizzardSeasonId }}
+                {{ formatScoringSeasonLabel(scoringSeasonStatus.effectiveScoringSeason) }}
               </template>
               <template v-else>—</template>
             </dd>
@@ -497,16 +494,18 @@ code {
   gap: 0.75rem;
   margin: 0;
 }
+.scoring-season-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
 .scoring-season-grid dt {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
 .scoring-season-grid dd {
   margin: 0.15rem 0 0;
-}
-.scoring-season-grid select {
-  min-height: 2.25rem;
-  max-width: 100%;
 }
 .pinned-warning {
   margin: 0;

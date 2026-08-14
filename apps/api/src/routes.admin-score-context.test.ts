@@ -105,6 +105,15 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     expect(write.statusCode).toBe(401);
   });
 
+  it("does not expose a generic all-seasons list", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/seasons",
+      headers,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
   it("reads empty season context state", async () => {
     const response = await app.inject({
       method: "GET",

@@ -15823,19 +15823,6 @@
         }
       }
     },
-    "/api/v1/admin/seasons": {
-      "get": {
-        "summary": "List seasons for score-context administration",
-        "tags": [
-          "admin"
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
     "/api/v1/admin/score-context/specializations": {
       "get": {
         "summary": "Canonical class/spec matrix for meta assignment",

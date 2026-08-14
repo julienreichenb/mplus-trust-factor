@@ -11,6 +11,8 @@ import MetaChip from "../common/MetaChip.vue";
 import TrustRadarChart from "../charts/TrustRadarChart.vue";
 import HeroInsightAccordion from "./HeroInsightAccordion.vue";
 import ActiveRerolls from "../character/ActiveRerolls.vue";
+import ScoreContextBreakdown from "./ScoreContextBreakdown.vue";
+import ScoreContextPopover from "./ScoreContextPopover.vue";
 import type { ActiveRerollCharacterDTO } from "@mplus/contracts";
 
 const props = defineProps<{
@@ -64,6 +66,25 @@ const classSpec = computed(() => {
   ].filter(Boolean);
   return parts.join(" ");
 });
+
+const scoreContext = computed(() => props.profile.score?.scoreContext ?? null);
+
+const combinedFactor = computed(() => {
+  const value = scoreContext.value?.combinedFactor;
+  return value != null && Number.isFinite(value) ? value : null;
+});
+
+const showContextChip = computed(() => {
+  const factor = combinedFactor.value;
+  return factor != null && Math.abs(factor - 1) >= 0.005;
+});
+
+const contextChipLabel = computed(() => {
+  const factor = combinedFactor.value;
+  if (factor == null) return "";
+  const formatted = `×${factor.toFixed(2)}`;
+  return factor > 1 ? `Bonus ${formatted}` : `Malus ${formatted}`;
+});
 </script>
 
 <template>
@@ -85,8 +106,26 @@ const classSpec = computed(() => {
             <span class="trust__meta-title">{{ grade.title }}</span>
             <span class="trust__meta-label">{{ grade.interpretation }}</span>
           </div>
-          <div v-if="!grade.isUnrated" class="trust__value-row">
-            <span class="trust__scale-label">{{ profile.score?.scoreContext ? "Final Trust Score" : "Trust Score" }}</span>
+          <ScoreContextPopover v-if="!grade.isUnrated && scoreContext">
+            <div class="trust__value-row">
+              <span class="trust__value mpts-data" data-testid="overall-score">{{
+                formatScore(profile.score?.overallScore, 0)
+              }}</span>
+              <span class="trust__scale">/ 100</span>
+            </div>
+            <span
+              v-if="showContextChip"
+              class="trust__context-chip"
+              :data-kind="combinedFactor != null && combinedFactor > 1 ? 'bonus' : 'malus'"
+              data-testid="score-context-chip"
+            >
+              {{ contextChipLabel }}
+            </span>
+            <template #panel>
+              <ScoreContextBreakdown :score="profile.score" />
+            </template>
+          </ScoreContextPopover>
+          <div v-else-if="!grade.isUnrated" class="trust__value-row">
             <span class="trust__value mpts-data" data-testid="overall-score">{{
               formatScore(profile.score?.overallScore, 0)
             }}</span>
@@ -479,9 +518,28 @@ const classSpec = computed(() => {
 }
 
 .trust__scale {
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
-  font-size: var(--text-base);
-  font-weight: 600;
+}
+
+.trust__context-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: rgb(255 255 255 / 5%);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.trust__context-chip[data-kind="bonus"] {
+  color: var(--color-gold-300);
+}
+
+.trust__context-chip[data-kind="malus"] {
+  color: #fca5a5;
 }
 
 .trust__stats {

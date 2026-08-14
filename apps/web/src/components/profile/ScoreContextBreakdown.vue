@@ -28,95 +28,109 @@ function statusReason(status: string | undefined, reason: string | null | undefi
 </script>
 
 <template>
-  <section v-if="visible && ctx" class="score-context" data-testid="score-context-breakdown">
-    <h2>Score context</h2>
-    <ol class="flow" data-testid="context-flow">
-      <li>
-        Raw Trust Score
-        <strong class="mpts-data" data-testid="context-raw">{{ formatScore(ctx.rawScoreBeforeContext, 3) }}</strong>
-      </li>
-      <li>
-        Key difficulty {{ factorLabel(ctx.keyContext.factor) }}
-        <span class="muted">{{
-          statusReason(ctx.keyContext.status, ctx.keyContext.reason, "Season distribution unavailable")
-        }}</span>
-      </li>
-      <li>
-        Meta {{ factorLabel(ctx.metaContext.factor) }}
-        <span class="muted">{{
-          statusReason(ctx.metaContext.status, ctx.metaContext.reason, "No meta tier configured for this specialization")
-        }}</span>
-      </li>
-      <li>
-        Combined {{ factorLabel(ctx.combinedFactor) }}
-      </li>
-      <li v-if="ctx.wasClamped" data-testid="context-clamp">
-        Pre-clamp {{ formatScore(ctx.preClampAdjustedScore, 3) }} → capped at 100
-      </li>
-      <li>
-        Final Trust Score
-        <strong class="mpts-data" data-testid="context-final">{{ formatScore(ctx.finalScore, 3) }}</strong>
-        <span v-if="ctx.finalGrade" data-testid="context-final-grade">{{ ctx.finalGrade }}</span>
-      </li>
-    </ol>
-
-    <div class="detail" data-testid="key-context-detail">
-      <h3>Key difficulty</h3>
-      <p v-if="ctx.keyContext.status === 'AVAILABLE'">
-        Median key: +{{ ctx.keyContext.medianKeyLevel }}
-        · Difficulty band: {{ ctx.keyContext.appliedAnchorPercentileLabel ?? "step band" }}
-        threshold (+{{ ctx.keyContext.appliedAnchorKeyThreshold }})
-        · Factor: {{ factorLabel(ctx.keyContext.factor) }}
-      </p>
-      <p v-else data-testid="key-unknown">
-        {{ factorLabel(1) }}
-        ·
-        {{ statusReason(ctx.keyContext.status, ctx.keyContext.reason, "Season distribution unavailable") }}
-      </p>
-      <ul v-if="canonicalRuns.length" data-testid="canonical-runs">
+  <div v-if="visible && ctx" class="score-context" data-testid="score-context-breakdown">
+    <dl class="rows" data-testid="context-flow">
+      <div>
+        <dt>Raw Trust Score</dt>
+        <dd class="mpts-data" data-testid="context-raw">{{ formatScore(ctx.rawScoreBeforeContext, 1) }}</dd>
+      </div>
+      <div data-testid="key-context-detail">
+        <dt>Key difficulty</dt>
+        <dd>
+          {{ factorLabel(ctx.keyContext.factor) }}
+          <template v-if="ctx.keyContext.status === 'AVAILABLE'">
+            <span class="muted">Median key +{{ ctx.keyContext.medianKeyLevel }}</span>
+            <span class="muted">
+              Band {{ ctx.keyContext.appliedAnchorPercentileLabel ?? "step band" }}
+              threshold (+{{ ctx.keyContext.appliedAnchorKeyThreshold }})
+            </span>
+          </template>
+          <span v-else class="muted" data-testid="key-unknown">{{
+            statusReason(ctx.keyContext.status, ctx.keyContext.reason, "Season distribution unavailable")
+          }}</span>
+        </dd>
+      </div>
+      <div data-testid="meta-context-detail">
+        <dt>Meta</dt>
+        <dd>
+          {{ factorLabel(ctx.metaContext.factor) }}
+          <span v-if="ctx.metaContext.status === 'AVAILABLE'" class="muted" data-testid="meta-available">
+            {{ humanizeSlug(ctx.metaContext.specSlug) }}
+            {{ humanizeSlug(ctx.metaContext.classSlug) }}
+            · Tier {{ ctx.metaContext.tier }}
+          </span>
+          <span v-else-if="ctx.metaContext.status === 'SPEC_UNKNOWN'" class="muted" data-testid="meta-spec-unknown">
+            Specialization unknown
+          </span>
+          <span v-else class="muted" data-testid="meta-unconfigured">
+            No meta tier configured
+          </span>
+        </dd>
+      </div>
+      <div>
+        <dt>Combined adjustment</dt>
+        <dd>{{ factorLabel(ctx.combinedFactor) }}</dd>
+      </div>
+      <div v-if="ctx.wasClamped" data-testid="context-clamp">
+        <dt>Pre-clamp</dt>
+        <dd>
+          {{ formatScore(ctx.preClampAdjustedScore, 1) }}
+          <span class="muted">Final {{ formatScore(ctx.finalScore, 1) }} · capped at 100</span>
+        </dd>
+      </div>
+      <div>
+        <dt>Final Trust Score</dt>
+        <dd>
+          <strong class="mpts-data" data-testid="context-final">{{ formatScore(ctx.finalScore, 1) }}</strong>
+          <span v-if="ctx.finalGrade" data-testid="context-final-grade">{{ ctx.finalGrade }}</span>
+        </dd>
+      </div>
+    </dl>
+    <details v-if="canonicalRuns.length" data-testid="canonical-runs">
+      <summary>Dungeon representatives</summary>
+      <ul>
         <li v-for="run in canonicalRuns" :key="run.canonicalRunId">
           {{ humanizeSlug(run.dungeonSlug) }} +{{ run.keyLevel }}
         </li>
       </ul>
-    </div>
-
-    <div class="detail" data-testid="meta-context-detail">
-      <h3>Meta</h3>
-      <p v-if="ctx.metaContext.status === 'AVAILABLE'" data-testid="meta-available">
-        {{ humanizeSlug(ctx.metaContext.specSlug) }}
-        {{ humanizeSlug(ctx.metaContext.classSlug) }}
-        · Meta Tier {{ ctx.metaContext.tier }}
-        · {{ factorLabel(ctx.metaContext.factor) }}
-      </p>
-      <p v-else-if="ctx.metaContext.status === 'SPEC_UNKNOWN'" data-testid="meta-spec-unknown">
-        {{ factorLabel(1) }} · Specialization unknown
-      </p>
-      <p v-else data-testid="meta-unconfigured">
-        {{ factorLabel(1) }} · No meta tier configured for this specialization
-      </p>
-    </div>
-  </section>
+    </details>
+  </div>
 </template>
 
 <style scoped>
 .score-context {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  gap: 0.45rem;
 }
-.flow {
-  margin: 0;
-  padding-left: 1.2rem;
+.rows {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  margin: 0;
+}
+.rows > div {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 40%) 1fr;
+  gap: 0.35rem 0.6rem;
+  align-items: start;
+}
+dt {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+dd {
+  margin: 0;
+  display: grid;
+  gap: 0.1rem;
 }
 .muted {
   color: var(--color-text-muted);
   font-weight: 500;
 }
-.detail ul {
+details {
+  margin-top: 0.25rem;
+}
+details ul {
   margin: 0.35rem 0 0;
   padding-left: 1.1rem;
 }

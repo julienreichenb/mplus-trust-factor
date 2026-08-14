@@ -51,17 +51,6 @@ export function buildAdminScoreContextRoutes(container: ApiContainer): FastifyPl
     );
 
     app.get(
-      "/api/v1/admin/seasons",
-      {
-        schema: {
-          tags: ["admin"],
-          summary: "List seasons for score-context administration",
-        },
-      },
-      async () => service.listSeasons(),
-    );
-
-    app.get(
       "/api/v1/admin/score-context/specializations",
       {
         schema: {

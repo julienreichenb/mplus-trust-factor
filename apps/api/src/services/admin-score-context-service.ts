@@ -116,31 +116,6 @@ export class AdminScoreContextService {
     });
   }
 
-  async listSeasons() {
-    const rows = await this.prisma.season.findMany({
-      orderBy: [{ isCurrent: "desc" }, { name: "asc" }],
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        blizzardSeasonId: true,
-        isCurrent: true,
-        region: { select: { code: true } },
-      },
-      take: 200,
-    });
-    return {
-      seasons: rows.map((s) => ({
-        id: s.id,
-        slug: s.slug,
-        name: s.name,
-        blizzardSeasonId: s.blizzardSeasonId,
-        isCurrent: s.isCurrent,
-        regionCode: s.region?.code ?? null,
-      })),
-    };
-  }
-
   canonicalSpecializations() {
     return {
       classes: getRetailClassMatrix().map((cls) => ({

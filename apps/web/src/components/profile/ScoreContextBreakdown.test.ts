@@ -98,13 +98,13 @@ describe("ScoreContextBreakdown", () => {
         }),
       },
     });
-    expect(wrapper.find("[data-testid='context-raw']").text()).toContain("73.421");
-    expect(wrapper.find("[data-testid='context-final']").text()).toContain("73.421");
+    expect(wrapper.find("[data-testid='context-raw']").text()).toContain("73.4");
+    expect(wrapper.find("[data-testid='context-final']").text()).toContain("73.4");
   });
 
   it("B/D/F: positive context, 8 canonical runs, meta tier", () => {
     const wrapper = mount(ScoreContextBreakdown, { props: { score: score() } });
-    expect(wrapper.find("[data-testid='context-final']").text()).toContain("86.625");
+    expect(wrapper.find("[data-testid='context-final']").text()).toContain("86.6");
     expect(wrapper.find("[data-testid='canonical-runs']").findAll("li")).toHaveLength(8);
     expect(wrapper.find("[data-testid='key-context-detail']").text()).toContain("P99");
     expect(wrapper.find("[data-testid='meta-available']").text()).toContain("Tier 4");
