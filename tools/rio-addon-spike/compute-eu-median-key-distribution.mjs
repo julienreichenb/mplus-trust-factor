@@ -259,7 +259,6 @@ function main() {
     let withAllEight = 0;
     let withAnyKey = 0;
     let withScore = 0;
-    let missingDungeonSlots = 0;
     const samples = [];
     const completeness = new Array(9).fill(0);
 
@@ -272,7 +271,6 @@ function main() {
         completeness[present] += 1;
         if (rec.currentScore > 0) withScore += 1;
         if (present > 0) withAnyKey += 1;
-        if (present < 8) missingDungeonSlots += 8 - present;
         if (present === 8) {
           withAllEight += 1;
           medians.push(characterMedian(rec.dungeonLevels));
