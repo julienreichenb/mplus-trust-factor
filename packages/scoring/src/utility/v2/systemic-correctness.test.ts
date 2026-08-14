@@ -90,6 +90,12 @@ describe("racial race-scoped capability", () => {
   const shadowmeld = getAllRegisteredRules().find(
     (r) => r.canonicalKey === "shared.racial.shadowmeld",
   )!;
+  const fireblood = getAllRegisteredRules().find(
+    (r) => r.canonicalKey === "shared.racial.fireblood",
+  )!;
+  const spatialRift = getAllRegisteredRules().find(
+    (r) => r.canonicalKey === "shared.racial.spatial-rift",
+  )!;
   const escapeArtist = getAllRegisteredRules().find(
     (r) => r.canonicalKey === "shared.racial.escape-artist",
   )!;
@@ -137,10 +143,20 @@ describe("racial race-scoped capability", () => {
     expect(toolkit.toolkit.families?.movement.state).not.toBe("applicable");
   });
 
-  it("Stoneform is dispelPurge family, Shadowmeld is not Utility movement", () => {
-    expect(stoneform.category).toBe("DISPEL");
-    expect(shadowmeld.category).toBe("DEFENSIVE_MINOR");
-    expect(escapeArtist.category).toBe("MOVEMENT_UTILITY");
+  it("Void Elf does not inherit Shadowmeld; Dark Iron does not inherit Stoneform", () => {
+    expect(
+      resolveAbilityCapability(shadowmeld, { raceSlug: "void-elf" }).state,
+    ).toBe("NOT_AVAILABLE");
+    expect(
+      resolveAbilityCapability(spatialRift, { raceSlug: "void-elf" }).state,
+    ).toBe("AVAILABLE");
+    expect(spatialRift.category).toBe("MOVEMENT_UTILITY");
+    expect(
+      resolveAbilityCapability(stoneform, { raceSlug: "dark-iron-dwarf" }).state,
+    ).toBe("NOT_AVAILABLE");
+    expect(
+      resolveAbilityCapability(fireblood, { raceSlug: "dark-iron-dwarf" }).state,
+    ).toBe("AVAILABLE");
   });
 });
 

@@ -15,12 +15,12 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     roles: ALL_ROLES,
     category: "DISPEL",
     availability: "SHARED",
-    raceSlugs: ["dwarf", "dark-iron-dwarf"],
+    raceSlugs: ["dwarf"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
     notes:
-      "Dwarf racial self-dispel (dispelPurge family). Not movement. Race-gated.",
+      "Dwarf racial self-dispel (dispelPurge family). Not movement. Not Dark Iron (Fireblood is separate).",
   }),
   rule({
     canonicalKey: "shared.racial.fireblood",
@@ -39,7 +39,7 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
     notes:
-      "Dark Iron Dwarf racial — dual-use dispel + offensive secondary; race-gated.",
+      "Dark Iron Dwarf racial — dual-use dispel + offensive secondary. Not Stoneform.",
   }),
   rule({
     canonicalKey: "shared.racial.escape-artist",
@@ -63,12 +63,28 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     roles: ALL_ROLES,
     category: "DEFENSIVE_MINOR",
     availability: "SHARED",
-    raceSlugs: ["night-elf", "void-elf"],
+    raceSlugs: ["night-elf"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
     notes:
-      "Night Elf racial — Survival personal defensive, not a Utility V2 family / not movement.",
+      "Night Elf racial only — Survival personal defensive, not a Utility V2 family / not movement. Void Elf uses Spatial Rift.",
+  }),
+  rule({
+    canonicalKey: "shared.racial.spatial-rift",
+    name: "Spatial Rift",
+    spellIds: [256948],
+    aliases: [257040],
+    classSlug: null,
+    roles: ALL_ROLES,
+    category: "MOVEMENT_UTILITY",
+    availability: "SHARED",
+    raceSlugs: ["void-elf"],
+    sharedAcrossSpecs: true,
+    cooldownSeconds: 180,
+    supportCertainty: "uncertain",
+    notes:
+      "Void Elf racial mobility (place rift 256948 / traverse 257040). Not Shadowmeld.",
   }),
 
   // Performance offensive cooldowns (canonical AbilityRule entries).
