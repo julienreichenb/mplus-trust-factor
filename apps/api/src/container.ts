@@ -10,6 +10,7 @@ import {
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
   keyDistributionRefreshJobSchema,
+  scoringSeasonDataSyncJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeEvidenceSlotJobV2,
@@ -324,6 +325,22 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
         enqueued: true,
       };
     },
+
+    async enqueueScoringSeasonDataSync(input): Promise<EnqueueResult> {
+      const payload = scoringSeasonDataSyncJobSchema.parse({
+        trigger: input.trigger ?? "admin",
+        blizzardSeasonId: input.blizzardSeasonId,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      return {
+        jobId: `scoring-season-data-sync-${payload.requestedAt}`,
+        dedupeKey: `scoring-season-data-sync:${payload.trigger}:${payload.blizzardSeasonId ?? "effective"}`,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async registerScoringSeasonDataSyncSchedule(): Promise<void> {},
 
     async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
       const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({

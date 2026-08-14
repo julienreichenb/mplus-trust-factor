@@ -2362,9 +2362,12 @@ model CharacterScore {
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  contextDistributionSnapshotId String? @map("context_distribution_snapshot_id") @db.Uuid
+
   character       Character                     @relation(fields: [characterId], references: [id], onDelete: Cascade)
   season          Season                        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   contextRevision SeasonScoreContextRevision?   @relation(fields: [contextRevisionId], references: [id], onDelete: SetNull)
+  contextDistributionSnapshot SeasonMedianKeyDistributionSnapshot? @relation(fields: [contextDistributionSnapshotId], references: [id], onDelete: SetNull)
 
   @@unique([characterId, seasonId, scoringVersion, contextRevisionKey], map: "character_scores_ctx_rev_uidx")
   @@index([characterId, seasonId])
@@ -2390,7 +2393,8 @@ model SeasonMedianKeyDistributionSnapshot {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   season    Season                       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  revisions SeasonScoreContextRevision[]
+  regionBindings ScoreContextRevisionRegionSnapshot[]
+  characterScores CharacterScore[]
   refreshes ScoreContextKeyDistributionRefresh[]
 
   @@index([seasonId, collectedAt(sort: Desc)])
@@ -2422,15 +2426,16 @@ model ScoreContextKeyDistributionRefresh {
 }
 
 /**
- * Season-scoped key+meta context policy. Published revisions are immutable.
- * Exactly one PUBLISHED revision per season is enforced in the publish transaction.
+ * Shared Key+Meta policy for one Blizzard season (not regional).
+ * Exactly one PUBLISHED revision per blizzardSeasonId is enforced on publish.
+ * Regional median-key snapshots are frozen via ScoreContextRevisionRegionSnapshot.
  */
 model SeasonScoreContextRevision {
   id                       String                            @id @default(uuid()) @db.Uuid
-  seasonId                 String                            @map("season_id") @db.Uuid
+  blizzardSeasonId         Int                               @map("blizzard_season_id")
+  seasonId                 String?                           @map("season_id") @db.Uuid
   version                  Int
   status                   SeasonScoreContextRevisionStatus  @default(DRAFT)
-  distributionSnapshotId   String?                           @map("distribution_snapshot_id") @db.Uuid
   tierFactors              Json                              @map("tier_factors")
   specAssignments          Json                              @map("spec_assignments")
   percentileAnchors        Json                              @map("percentile_anchors")
@@ -2439,14 +2444,34 @@ model SeasonScoreContextRevision {
   publishedAt              DateTime?                         @map("published_at") @db.Timestamptz(3)
   updatedAt                DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  season                 Season                                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  distributionSnapshot   SeasonMedianKeyDistributionSnapshot?   @relation(fields: [distributionSnapshotId], references: [id], onDelete: Restrict)
+  originSeason           Season?                                @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   createdBy              User?                                  @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   characterScores        CharacterScore[]
+  regionSnapshots        ScoreContextRevisionRegionSnapshot[]
 
-  @@unique([seasonId, version])
-  @@index([seasonId, status])
+  @@unique([blizzardSeasonId, version])
+  @@index([blizzardSeasonId, status])
   @@map("season_score_context_revisions")
+}
+
+/**
+ * Publication binding: one frozen regional distribution snapshot per region
+ * for a shared policy revision. Draft bindings may be updated by adopt-latest;
+ * published bindings are immutable.
+ */
+model ScoreContextRevisionRegionSnapshot {
+  id                       String   @id @default(uuid()) @db.Uuid
+  revisionId               String   @map("revision_id") @db.Uuid
+  regionCode               String   @map("region_code")
+  distributionSnapshotId   String   @map("distribution_snapshot_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  revision               SeasonScoreContextRevision          @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  distributionSnapshot   SeasonMedianKeyDistributionSnapshot @relation(fields: [distributionSnapshotId], references: [id], onDelete: Restrict)
+
+  @@unique([revisionId, regionCode])
+  @@index([distributionSnapshotId])
+  @@map("score_context_revision_region_snapshots")
 }
 
 /**

@@ -97,20 +97,25 @@ function inflateRaw(input: Buffer, expectedSize: number): Promise<Buffer> {
   });
 }
 
-export function findRequiredAddonEntries(entries: ZipEntry[]) {
+export function findRequiredAddonEntries(entries: ZipEntry[], regionCode: string) {
+  const region = regionCode.trim().toUpperCase();
+  const folder = `${region}_M`;
+  const lookupName = new RegExp(`db_mythicplus_${region.toLowerCase()}_lookup\\.lua$`, "i");
+  const charactersName = new RegExp(`db_mythicplus_${region.toLowerCase()}_characters\\.lua$`, "i");
+  const folderRe = new RegExp(folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
   const lookup =
-    entries.find((e) => /db_mythicplus_eu_lookup\.lua$/i.test(e.name) && /EU_M/i.test(e.name.replace(/\\/g, "/"))) ??
-    entries.find((e) => /db_mythicplus_eu_lookup\.lua$/i.test(e.name));
+    entries.find((e) => lookupName.test(e.name) && folderRe.test(e.name.replace(/\\/g, "/"))) ??
+    entries.find((e) => lookupName.test(e.name));
   const characters =
-    entries.find((e) => /db_mythicplus_eu_characters\.lua$/i.test(e.name) && /EU_M/i.test(e.name.replace(/\\/g, "/"))) ??
-    entries.find((e) => /db_mythicplus_eu_characters\.lua$/i.test(e.name));
+    entries.find((e) => charactersName.test(e.name) && folderRe.test(e.name.replace(/\\/g, "/"))) ??
+    entries.find((e) => charactersName.test(e.name));
   const dungeons = entries.find((e) => /(^|[\\/])db_dungeons\.lua$/i.test(e.name));
   const toc = entries.find((e) => /(^|[\\/])RaiderIO\.toc$/i.test(e.name) && !/DB_/i.test(e.name));
   if (!lookup || !characters || !dungeons) {
     const sample = entries.slice(0, 30).map((e) => e.name).join(", ");
     throw new AddonDbFormatError(
       "ZIP_LAYOUT",
-      `Expected RaiderIO_DB_EU_M mythicplus lua files and db_dungeons.lua were not found. sample=${sample}`,
+      `Expected RaiderIO_DB_${folder} mythicplus lua files and db_dungeons.lua were not found. sample=${sample}`,
     );
   }
   return { lookup, characters, dungeons, toc: toc ?? null };
@@ -119,11 +124,13 @@ export function findRequiredAddonEntries(entries: ZipEntry[]) {
 export async function extractRequiredAddonFiles(
   zipPath: string,
   destDir: string,
+  regionCode = "EU",
 ): Promise<{ lookupPath: string; charactersPath: string; dungeonsPath: string; tocText: string | null }> {
+  const region = regionCode.trim().toLowerCase();
   const entries = await listZipEntries(zipPath);
-  const required = findRequiredAddonEntries(entries);
-  const lookupPath = path.join(destDir, "db_mythicplus_eu_lookup.lua");
-  const charactersPath = path.join(destDir, "db_mythicplus_eu_characters.lua");
+  const required = findRequiredAddonEntries(entries, regionCode);
+  const lookupPath = path.join(destDir, `db_mythicplus_${region}_lookup.lua`);
+  const charactersPath = path.join(destDir, `db_mythicplus_${region}_characters.lua`);
   const dungeonsPath = path.join(destDir, "db_dungeons.lua");
   await writeFile(lookupPath, await extractZipEntryToBuffer(zipPath, required.lookup));
   await writeFile(charactersPath, await extractZipEntryToBuffer(zipPath, required.characters));

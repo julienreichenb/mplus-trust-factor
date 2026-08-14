@@ -37,6 +37,8 @@ function stubProducers(enqueueBulk: ReturnType<typeof vi.fn>): QueueProducers {
     enqueueAnalyzeEvidenceSlot: ok,
     enqueueFinalizeEvidenceBatch: ok,
     enqueueKeyDistributionRefresh: ok,
+    enqueueScoringSeasonDataSync: ok,
+    registerScoringSeasonDataSyncSchedule: async () => undefined,
     getRefreshCharacterQueue: () => null,
     getCalibrationRunQueue: () => null,
     close: async () => undefined,
@@ -68,6 +70,7 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
         slug: uniqueName("ctx-a"),
         name: "Context Season A",
         regionId: region.id,
+        blizzardSeasonId: 87101,
       },
     });
     const b = await prisma.season.create({
@@ -76,6 +79,7 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
         slug: uniqueName("ctx-b"),
         name: "Context Season B",
         regionId: region.id,
+        blizzardSeasonId: 87102,
         isCurrent: true,
       },
     });
@@ -141,6 +145,7 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
         slug: uniqueName("ctx-key-dist"),
         name: "Key Dist Season",
         regionId: region.id,
+        blizzardSeasonId: 87301,
       },
     });
     const character = await prisma.character.create({
@@ -197,6 +202,15 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       { percentileBps: 9900, medianKeyThreshold: 22 },
       { percentileBps: 9990, medianKeyThreshold: 24 },
     ]);
+    expect(loaded.json().keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
+      row.percentileLabel,
+      row.thresholds.EU,
+    ])).toEqual(
+      expect.arrayContaining([
+        ["P75", null],
+        ["P90", null],
+      ]),
+    );
 
     const draft = await app.inject({
       method: "POST",
@@ -204,19 +218,29 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       headers,
     });
     expect(draft.statusCode).toBe(200);
-    expect(
-      draft.json().resolvedAnchors.map((a: { percentileLabel: string; medianKeyThreshold: number }) => [
-        a.percentileLabel,
-        a.medianKeyThreshold,
+    const adopted = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/score-context/revisions/${draft.json().id}/use-latest-distribution`,
+      headers,
+    });
+    expect(adopted.statusCode).toBe(200);
+    const afterAdopt = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${isolated.id}/score-context`,
+      headers,
+    });
+    expect(afterAdopt.json().keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
+      row.percentileLabel,
+      row.thresholds.EU,
+    ])).toEqual(
+      expect.arrayContaining([
+        ["P75", 15],
+        ["P90", 18],
+        ["P99", 22],
+        ["P99.9", 24],
       ]),
-    ).toEqual([
-      ["P50", 12],
-      ["P75", 15],
-      ["P90", 18],
-      ["P95", 20],
-      ["P99", 22],
-      ["P99.9", 24],
-    ]);
+    );
+    expect(draft.json().percentileAnchors.length).toBeGreaterThan(0);
   });
 
   it("imports a valid distribution and rejects malformed points", async () => {
@@ -271,7 +295,6 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       url: `/api/v1/admin/score-context/revisions/${draftId}`,
       headers,
       payload: {
-        distributionSnapshotId: distId,
         tierFactors: { 1: 0.9, 2: 0.95, 3: 1, 4: 1.05, 5: 1.1 },
         specAssignments: [{ classSlug: "mage", specSlug: "frost", tier: 4 }],
         percentileAnchors: [
@@ -281,8 +304,30 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       },
     });
     expect(patched.statusCode).toBe(200);
-    expect(patched.json().resolvedAnchors[0].medianKeyThreshold).toBe(18);
-    expect(patched.json().resolvedAnchors[0].percentileLabel).toBe("P90");
+    expect(patched.json().percentileAnchors[0].percentileBps).toBe(9000);
+
+    const adopted = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/score-context/revisions/${draftId}/use-latest-distribution`,
+      headers,
+    });
+    expect(adopted.statusCode).toBe(200);
+
+    const afterPatchState = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${seasonA}/score-context`,
+      headers,
+    });
+    expect(afterPatchState.statusCode).toBe(200);
+    expect(afterPatchState.json().keyRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          percentileBps: 9000,
+          thresholds: expect.objectContaining({ EU: expect.any(Number) }),
+        }),
+      ]),
+    );
+    expect(afterPatchState.json().policy).toBeTruthy();
 
     const published1 = await app.inject({
       method: "POST",

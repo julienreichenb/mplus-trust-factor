@@ -29,6 +29,10 @@ export interface ApplyScoreContextInput {
   rawScoreBeforeContext: number | null;
   canonicalRunSelection: ScoringRunSelection | null;
   seasonContextRevision: SeasonScoreContextRevisionDoc | null;
+  /** Character's regional distribution. Prefer this over revision.distribution. */
+  regionalDistribution?: SeasonScoreContextRevisionDoc["distribution"];
+  /** True when this region's snapshot is missing — never fall back to another region. */
+  regionalDistributionMissing?: boolean;
   seasonScoringSpec: SeasonScoringSpecInput | null;
   gradeThresholds?: { S: number; A: number; B: number; C: number };
 }
@@ -81,7 +85,10 @@ function toCanonicalRuns(selection: ScoringRunSelection | null): ScoreContextCan
 function resolveKeyContext(input: ApplyScoreContextInput): ScoreContextKeyBreakdown {
   const runs = toCanonicalRuns(input.canonicalRunSelection);
   const revision = input.seasonContextRevision;
-  const dist = revision?.distribution ?? null;
+  const dist =
+    input.regionalDistribution !== undefined
+      ? input.regionalDistribution
+      : (revision?.distribution ?? null);
 
   if (!isCompleteCanonicalRunSelection(input.canonicalRunSelection)) {
     return emptyKey(runs, {
@@ -103,6 +110,14 @@ function resolveKeyContext(input: ApplyScoreContextInput): ScoreContextKeyBreakd
       status: "UNKNOWN",
       medianKeyLevel: median,
       reason: "CONTEXT_REVISION_NOT_PUBLISHED",
+    });
+  }
+
+  if (input.regionalDistributionMissing) {
+    return emptyKey(runs, {
+      status: "UNKNOWN",
+      medianKeyLevel: median,
+      reason: "REGIONAL_DISTRIBUTION_MISSING",
     });
   }
 
@@ -269,7 +284,7 @@ export function applyScoreContext(input: ApplyScoreContextInput): AppliedScoreCo
     contextRevisionId: revision?.id ?? null,
     contextRevisionKey: revision?.id ?? NONE_CONTEXT_REVISION_KEY,
     contextRevisionVersion: revision?.version ?? null,
-    distributionSnapshotId: revision?.distribution?.id ?? null,
+    distributionSnapshotId: key.distributionSnapshotId,
     rawScoreBeforeContext: rawOk ? raw : null,
     key,
     meta,

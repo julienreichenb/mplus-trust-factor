@@ -13,6 +13,7 @@ export interface CharacterScoreIdentity {
 
 export interface SaveCharacterScoreInput extends CharacterScoreIdentity {
   contextRevisionId?: string | null;
+  contextDistributionSnapshotId?: string | null;
   performance?: number | null;
   utility?: number | null;
   survival?: number | null;
@@ -110,6 +111,7 @@ export class CharacterScoreRepository {
         scoringVersion: input.scoringVersion,
         contextRevisionKey,
         contextRevisionId: input.contextRevisionId ?? null,
+        contextDistributionSnapshotId: input.contextDistributionSnapshotId ?? null,
         performance: input.performance ?? null,
         utility: input.utility ?? null,
         survival: input.survival ?? null,
@@ -124,6 +126,7 @@ export class CharacterScoreRepository {
       },
       update: {
         contextRevisionId: input.contextRevisionId ?? null,
+        contextDistributionSnapshotId: input.contextDistributionSnapshotId ?? null,
         performance: input.performance ?? null,
         utility: input.utility ?? null,
         survival: input.survival ?? null,

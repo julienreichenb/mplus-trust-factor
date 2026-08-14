@@ -3,8 +3,8 @@ defineProps<{
   rows: Array<{
     percentileBps: number;
     percentileLabel: string | null;
-    medianKeyThreshold: number | null;
     factor: number;
+    thresholds: { EU: number | null; US: number | null; KR: number | null; TW: number | null };
   }>;
   unavailable: boolean;
   readOnly: boolean;
@@ -29,7 +29,10 @@ function formatKey(threshold: number | null): string {
       <thead>
         <tr>
           <th>Percentile</th>
-          <th>Season median key</th>
+          <th>EU</th>
+          <th>US</th>
+          <th>KR</th>
+          <th>TW</th>
           <th>Factor</th>
         </tr>
       </thead>
@@ -45,14 +48,14 @@ function formatKey(threshold: number | null): string {
               data-testid="key-percentile-readonly"
             />
           </td>
-          <td>
-            <span data-testid="anchor-threshold">{{ formatKey(row.medianKeyThreshold) }}</span>
+          <td v-for="region in (['EU', 'US', 'KR', 'TW'] as const)" :key="region">
+            <span :data-testid="`anchor-threshold-${region}`">{{ formatKey(row.thresholds[region]) }}</span>
             <input
               class="sr-only"
-              :value="formatKey(row.medianKeyThreshold)"
+              :value="formatKey(row.thresholds[region])"
               readonly
               tabindex="-1"
-              data-testid="key-threshold-readonly"
+              :data-testid="`key-threshold-readonly-${region}`"
             />
           </td>
           <td>

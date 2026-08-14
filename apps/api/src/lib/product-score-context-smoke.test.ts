@@ -78,6 +78,7 @@ describe.skipIf(!dbAvailable)("product-read score context smoke", () => {
         slug: uniqueName("smoke-s"),
         name: "Smoke Season",
         regionId: realm.regionId,
+        blizzardSeasonId: 87201,
       },
     });
     const character = await prisma.character.create({
@@ -108,10 +109,10 @@ describe.skipIf(!dbAvailable)("product-read score context smoke", () => {
     const revN = await prisma.seasonScoreContextRevision.create({
       data: {
         id: randomUUID(),
+        blizzardSeasonId: 87201,
         seasonId: season.id,
         version: 1,
         status: "ARCHIVED",
-        distributionSnapshotId: snapshot.id,
         tierFactors: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
         specAssignments: [],
         percentileAnchors: [{ percentileBps: 9900, factor: 1 }],
@@ -121,14 +122,21 @@ describe.skipIf(!dbAvailable)("product-read score context smoke", () => {
     const revN1 = await prisma.seasonScoreContextRevision.create({
       data: {
         id: randomUUID(),
+        blizzardSeasonId: 87201,
         seasonId: season.id,
         version: 2,
         status: "PUBLISHED",
-        distributionSnapshotId: snapshot.id,
         tierFactors: { 1: 1, 2: 1, 3: 1, 4: 1.05, 5: 1 },
         specAssignments: [{ classSlug: "mage", specSlug: "frost", tier: 4 }],
         percentileAnchors: [{ percentileBps: 9900, factor: 1.1 }],
         publishedAt: new Date("2026-08-03T00:00:00.000Z"),
+      },
+    });
+    await prisma.scoreContextRevisionRegionSnapshot.create({
+      data: {
+        revisionId: revN1.id,
+        regionCode: "EU",
+        distributionSnapshotId: snapshot.id,
       },
     });
 

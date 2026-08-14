@@ -11,8 +11,8 @@ import {
   ScoringSeasonSelectionConflictError,
   ScoringSeasonNotPinnableError,
   isNonProductSeasonSlug,
-  ensureSeasonDataReady,
-  requestKeyDistributionRefreshJob,
+  synchronizeScoringSeasonData,
+  withSharedAddonIngestSession,
   readActiveMplusCatalogMetadata,
   resolveScoringCatalogDiscoverer,
 } from "@mplus/worker";
@@ -235,6 +235,10 @@ export class AdminMiscService {
       if (!region) {
         throw HttpError.badRequest("REGION_NOT_FOUND", `Region ${regionCode} not found`);
       }
+      await this.runSeasonDataSync({
+        blizzardSeasonId: input.body.blizzardSeasonId,
+        selectionMode: "PINNED",
+      });
       const season = await prisma.season.findFirst({
         where: { regionId: region.id, blizzardSeasonId: input.body.blizzardSeasonId },
       });
@@ -244,12 +248,6 @@ export class AdminMiscService {
           `No Season row for Blizzard season ${input.body.blizzardSeasonId} in ${regionCode}`,
         );
       }
-      await this.runSeasonDataSync({
-        regionId: region.id,
-        regionCode,
-        blizzardSeasonId: input.body.blizzardSeasonId,
-        selectionMode: "PINNED",
-      });
       const readiness = await evaluateSeasonCatalogReadiness(prisma, await prisma.season.findUniqueOrThrow({ where: { id: season.id } }));
       if (!readiness.ready) {
         throw HttpError.badRequest(
@@ -300,8 +298,6 @@ export class AdminMiscService {
         : null;
       if (region && current?.blizzardSeasonId != null) {
         await this.runSeasonDataSync({
-          regionId: region.id,
-          regionCode,
           blizzardSeasonId: current.blizzardSeasonId,
           selectionMode: "AUTO",
         });
@@ -313,17 +309,10 @@ export class AdminMiscService {
 
   async synchronizeSeasonData(input: { regionCode?: string | null }): Promise<{
     ok: true;
-    sync: Awaited<ReturnType<typeof ensureSeasonDataReady>>;
+    sync: Awaited<ReturnType<typeof synchronizeScoringSeasonData>>;
     status: ScoringSeasonSelectionStatusDTO;
   }> {
-    const prisma = this.container.worker.prisma;
     const regionCode = (input.regionCode ?? "EU").trim().toUpperCase();
-    const region = await prisma.region.findFirst({
-      where: { code: { equals: regionCode, mode: "insensitive" } },
-    });
-    if (!region) {
-      throw HttpError.badRequest("REGION_NOT_FOUND", `Region ${regionCode} not found`);
-    }
     const status = await this.getScoringSeasonSelectionStatus({ regionCode });
     const blizzardSeasonId = status.effectiveScoringSeason?.blizzardSeasonId;
     if (blizzardSeasonId == null) {
@@ -333,8 +322,6 @@ export class AdminMiscService {
       );
     }
     const sync = await this.runSeasonDataSync({
-      regionId: region.id,
-      regionCode,
       blizzardSeasonId,
       selectionMode: status.selection.mode,
     });
@@ -346,8 +333,6 @@ export class AdminMiscService {
   }
 
   private async runSeasonDataSync(input: {
-    regionId: string;
-    regionCode: string;
     blizzardSeasonId: number;
     selectionMode: "AUTO" | "PINNED";
   }) {
@@ -362,23 +347,23 @@ export class AdminMiscService {
             providerMode: this.container.env.PROVIDER_MODE,
           })
         : undefined;
-    return ensureSeasonDataReady({
-      prisma: this.container.worker.prisma,
-      logger,
-      regionId: input.regionId,
-      regionCode: input.regionCode,
-      blizzardSeasonId: input.blizzardSeasonId,
-      selectionMode: input.selectionMode,
-      discoverActiveMplusCatalog: discoverer,
-      requestDistributionRefresh: async ({ seasonId, regionCode }) => {
-        await requestKeyDistributionRefreshJob({
-          prisma: this.container.worker.prisma,
-          seasonId,
-          regionCode,
-          enqueue: (job) => this.container.producers.enqueueKeyDistributionRefresh(job),
-        });
+    return withSharedAddonIngestSession(
+      {
+        prisma: this.container.worker.prisma,
+        logger,
       },
-    });
+      async (session) =>
+        synchronizeScoringSeasonData({
+          prisma: this.container.worker.prisma,
+          logger,
+          blizzardSeasonId: input.blizzardSeasonId,
+          selectionMode: input.selectionMode,
+          discoverActiveMplusCatalog: discoverer,
+          requestDistributionRefresh: async ({ seasonId, regionCode }) => {
+            await session.refreshRegion({ seasonId, regionCode });
+          },
+        }),
+    );
   }
 
   private async buildSeasonDataStatus(input: {

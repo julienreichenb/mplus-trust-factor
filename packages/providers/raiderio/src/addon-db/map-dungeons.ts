@@ -1,4 +1,3 @@
-import { ADMIN_SCORING_DEFAULT_REGION } from "@mplus/contracts";
 import { AddonDbFormatError, type RioAddonDungeon, type SeasonDungeonIdentity } from "./types.js";
 
 export interface DungeonMapping {
@@ -56,8 +55,16 @@ function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-export function assertEuRegion(region: string): void {
-  if (region.toUpperCase() !== ADMIN_SCORING_DEFAULT_REGION) {
-    throw new AddonDbFormatError("REGION", `Expected ${ADMIN_SCORING_DEFAULT_REGION} Mythic+ module, got ${region}`);
+export function assertRequestedAddonRegion(headerRegion: string, requestedRegion: string): void {
+  if (headerRegion.toUpperCase() !== requestedRegion.toUpperCase()) {
+    throw new AddonDbFormatError(
+      "REGION",
+      `Expected ${requestedRegion.toUpperCase()} Mythic+ module, got ${headerRegion}`,
+    );
   }
+}
+
+/** @deprecated Use assertRequestedAddonRegion */
+export function assertEuRegion(region: string): void {
+  assertRequestedAddonRegion(region, "EU");
 }

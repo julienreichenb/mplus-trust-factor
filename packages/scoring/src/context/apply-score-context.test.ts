@@ -42,6 +42,7 @@ function selection(keys: number[], expected = 8): ScoringRunSelection {
 function revision(overrides: Partial<SeasonScoreContextRevisionDoc> = {}): SeasonScoreContextRevisionDoc {
   return {
     id: "rev-1",
+    blizzardSeasonId: 17,
     seasonId: "season-a",
     version: 1,
     status: "PUBLISHED",
@@ -54,6 +55,7 @@ function revision(overrides: Partial<SeasonScoreContextRevisionDoc> = {}): Seaso
       { percentileBps: 9900, factor: 1.1 },
       { percentileBps: 9990, factor: 1.5 },
     ],
+    regionSnapshots: [],
     distribution: {
       id: "dist-1",
       seasonId: "season-a",
@@ -550,3 +552,122 @@ describe("raw vs final grade", () => {
     expect(applied.finalGrade).toBe("S");
   });
 });
+
+describe("shared percentile policy across regional distributions", () => {
+  const policy = revision({
+    distribution: null,
+    percentileAnchors: [
+      { percentileBps: 6000, factor: 0.9 },
+      { percentileBps: 7500, factor: 0.95 },
+      { percentileBps: 9000, factor: 1.1 },
+      { percentileBps: 9900, factor: 1.1 },
+      { percentileBps: 9990, factor: 1.2 },
+    ],
+  });
+  const euDist = {
+    id: "snap-eu",
+    seasonId: "eu-s17",
+    source: "RAIDER_IO_ADDON",
+    provenance: {},
+    sourceVersion: "v1",
+    collectedAt: "2026-01-01T00:00:00.000Z",
+    effectiveAt: null,
+    contentHash: "eu",
+    points: [
+      { percentileBps: 6000, medianKeyThreshold: 14 },
+      { percentileBps: 7500, medianKeyThreshold: 16 },
+      { percentileBps: 9000, medianKeyThreshold: 18 },
+      { percentileBps: 9900, medianKeyThreshold: 22 },
+      { percentileBps: 9990, medianKeyThreshold: 23 },
+    ],
+  };
+  const usDist = {
+    ...euDist,
+    id: "snap-us",
+    seasonId: "us-s17",
+    contentHash: "us",
+    points: [
+      { percentileBps: 6000, medianKeyThreshold: 13 },
+      { percentileBps: 7500, medianKeyThreshold: 15 },
+      { percentileBps: 9000, medianKeyThreshold: 17 },
+      { percentileBps: 9900, medianKeyThreshold: 21 },
+      { percentileBps: 9990, medianKeyThreshold: 22 },
+    ],
+  };
+
+  it("A: EU +18 and US +17 both resolve to shared P90 factor", () => {
+    const eu = applyScoreContext({
+      seasonId: "eu-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([18, 18, 18, 18, 18, 18, 18, 18]),
+      seasonContextRevision: policy,
+      regionalDistribution: euDist,
+      seasonScoringSpec: null,
+    });
+    const us = applyScoreContext({
+      seasonId: "us-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([17, 17, 17, 17, 17, 17, 17, 17]),
+      seasonContextRevision: policy,
+      regionalDistribution: usDist,
+      seasonScoringSpec: null,
+    });
+    expect(eu.key.appliedAnchorPercentileBps).toBe(9000);
+    expect(us.key.appliedAnchorPercentileBps).toBe(9000);
+    expect(eu.key.factor).toBe(1.1);
+    expect(us.key.factor).toBe(1.1);
+    expect(eu.key.appliedAnchorKeyThreshold).toBe(18);
+    expect(us.key.appliedAnchorKeyThreshold).toBe(17);
+  });
+
+  it("C: missing US snapshot is UNKNOWN ×1 and does not use EU", () => {
+    const us = applyScoreContext({
+      seasonId: "us-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([18, 18, 18, 18, 18, 18, 18, 18]),
+      seasonContextRevision: policy,
+      regionalDistribution: null,
+      regionalDistributionMissing: true,
+      seasonScoringSpec: null,
+    });
+    expect(us.key.factor).toBe(1);
+    expect(us.key.status).toBe("UNKNOWN");
+    expect(us.key.reason).toBe("REGIONAL_DISTRIBUTION_MISSING");
+    expect(us.key.appliedAnchorKeyThreshold).toBeNull();
+  });
+
+  it("D: different regional thresholds at the same percentile keep the same factor", () => {
+    const eu = applyScoreContext({
+      seasonId: "eu-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([18, 18, 18, 18, 18, 18, 18, 18]),
+      seasonContextRevision: policy,
+      regionalDistribution: euDist,
+      seasonScoringSpec: null,
+    });
+    const us = applyScoreContext({
+      seasonId: "us-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([17, 17, 17, 17, 17, 17, 17, 17]),
+      seasonContextRevision: policy,
+      regionalDistribution: usDist,
+      seasonScoringSpec: null,
+    });
+    expect(eu.key.factor).toBe(us.key.factor);
+  });
+
+  it("M: applied context pins policy revision id and regional snapshot id", () => {
+    const applied = applyScoreContext({
+      seasonId: "eu-s17",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: selection([18, 18, 18, 18, 18, 18, 18, 18]),
+      seasonContextRevision: policy,
+      regionalDistribution: euDist,
+      seasonScoringSpec: null,
+    });
+    expect(applied.contextRevisionId).toBe(policy.id);
+    expect(applied.distributionSnapshotId).toBe("snap-eu");
+    expect(applied.key.distributionSnapshotId).toBe("snap-eu");
+  });
+});
+

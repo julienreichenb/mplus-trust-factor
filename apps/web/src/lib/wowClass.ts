@@ -39,6 +39,29 @@ export function classColor(classSlug: string | null | undefined): string {
   return CLASS_COLORS[classSlug.toLowerCase()] ?? "var(--color-text)";
 }
 
+function hexToRgb(hex: string): [number, number, number] | null {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const digits = match?.[1];
+  if (!digits) return null;
+  const n = Number.parseInt(digits, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function relativeLuminance(r: number, g: number, b: number): number {
+  const channel = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+/** Pick black or white text for WCAG contrast against a hex background. */
+export function contrastingTextColor(backgroundHex: string): "#000000" | "#ffffff" {
+  const rgb = hexToRgb(backgroundHex);
+  if (!rgb) return "#ffffff";
+  return relativeLuminance(...rgb) > 0.179 ? "#000000" : "#ffffff";
+}
+
 export function classIconUrl(classSlug: string | null | undefined): string | null {
   if (!classSlug) return null;
   return CLASS_ICON_URLS[classSlug.toLowerCase()] ?? null;

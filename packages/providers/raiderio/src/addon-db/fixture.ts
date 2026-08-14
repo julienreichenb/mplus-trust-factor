@@ -42,10 +42,11 @@ export function buildLookupLua(records: Uint8Array[]): string {
 export function buildCharactersLua(input: {
   date?: string;
   names: string[];
+  region?: string;
 }): string {
   const quoted = input.names.map((n) => `"${n}"`).join(",");
   return [
-    `ns.region = "EU"`,
+    `ns.region = "${(input.region ?? "EU").toUpperCase()}"`,
     `ns.date = "${input.date ?? "2026-08-14T00:00:00Z"}"`,
     `ns.currentSeasonId = 0`,
     `ns.numCharacters = ${input.names.length}`,

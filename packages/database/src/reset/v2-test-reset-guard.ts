@@ -166,6 +166,7 @@ export const SCORING_RESET_TRUNCATE_TABLES = [
   "character_red_flags",
   "character_scores",
   "season_score_context_revisions",
+  "score_context_revision_region_snapshots",
   "score_context_key_distribution_refreshes",
   "season_median_key_distribution_snapshots",
   "refresh_cost_ledger_entries",

@@ -1,20 +1,21 @@
 import { readFile } from "node:fs/promises";
 import {
-  ADMIN_SCORING_DEFAULT_REGION,
   KEY_CONTEXT_PERCENTILE_BPS,
+  KEY_CONTEXT_REGION_CODES,
   KEY_DISTRIBUTION_INCLUSION_ALL_8,
   RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+  type KeyContextRegionCode,
 } from "@mplus/contracts";
 import { medianKeySnapshotIdentityHash, pointsFromHistogram } from "@mplus/scoring";
 import { accumulateEligibleMedianHistogram } from "./histogram.js";
-import { assertEuRegion, mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
+import { assertRequestedAddonRegion, mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
 import { loadLookupBuffer, parseNamedCharacterOffsets, parseTocInterface, validateHeader } from "./parse-characters.js";
 import { parseDbDungeonsLua } from "./parse-lua-meta.js";
 import { AddonDbFormatError, type SeasonDungeonIdentity } from "./types.js";
 
 export interface AddonDistributionResult {
   source: typeof RAIDER_IO_ADDON_DISTRIBUTION_SOURCE;
-  region: typeof ADMIN_SCORING_DEFAULT_REGION;
+  region: KeyContextRegionCode;
   points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
   population: {
     indexedCharacters: number;
@@ -25,7 +26,16 @@ export interface AddonDistributionResult {
   contentHash: string;
 }
 
-export async function ingestEuMythicPlusAddonFiles(input: {
+function normalizeRegionCode(regionCode: string): KeyContextRegionCode {
+  const code = regionCode.trim().toUpperCase();
+  if (!(KEY_CONTEXT_REGION_CODES as readonly string[]).includes(code)) {
+    throw new AddonDbFormatError("REGION", `Unsupported Mythic+ region ${regionCode}`);
+  }
+  return code as KeyContextRegionCode;
+}
+
+export async function ingestMythicPlusAddonFiles(input: {
+  regionCode: string;
   lookupLuaPath: string;
   charactersLuaPath: string;
   dungeonsLuaPath: string;
@@ -37,11 +47,12 @@ export async function ingestEuMythicPlusAddonFiles(input: {
   githubPublishedAt?: string | null;
   collectedAt?: Date;
 }): Promise<AddonDistributionResult> {
+  const region = normalizeRegionCode(input.regionCode);
   const lookupText = await readFile(input.lookupLuaPath, "utf8");
   const lookup = loadLookupBuffer(lookupText);
   const { header, named } = await parseNamedCharacterOffsets(input.charactersLuaPath);
   validateHeader(header);
-  assertEuRegion(header.region);
+  assertRequestedAddonRegion(header.region, region);
   if (lookup.length % 30 !== 0) {
     throw new AddonDbFormatError("LOOKUP_LENGTH", "truncated/corrupted lookup payload");
   }
@@ -71,7 +82,7 @@ export async function ingestEuMythicPlusAddonFiles(input: {
   });
   return {
     source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
-    region: ADMIN_SCORING_DEFAULT_REGION,
+    region,
     points,
     population: {
       indexedCharacters,
@@ -86,7 +97,7 @@ export async function ingestEuMythicPlusAddonFiles(input: {
       assetSha256: input.assetSha256,
       githubPublishedAt: input.githubPublishedAt ?? null,
       providerDatabaseDate: header.date,
-      region: ADMIN_SCORING_DEFAULT_REGION,
+      region,
       currentSeasonId: header.currentSeasonId,
       dungeonSet: rioDungeons.map((d) => ({
         name: d.name,
@@ -99,4 +110,11 @@ export async function ingestEuMythicPlusAddonFiles(input: {
       collectedAt: (input.collectedAt ?? new Date()).toISOString(),
     },
   };
+}
+
+/** @deprecated Use ingestMythicPlusAddonFiles({ regionCode: "EU", ... }) */
+export async function ingestEuMythicPlusAddonFiles(
+  input: Omit<Parameters<typeof ingestMythicPlusAddonFiles>[0], "regionCode">,
+): Promise<AddonDistributionResult> {
+  return ingestMythicPlusAddonFiles({ ...input, regionCode: "EU" });
 }

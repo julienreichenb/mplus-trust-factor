@@ -105,7 +105,7 @@ function revision(status: "DRAFT" | "PUBLISHED", distMissing: boolean) {
   };
 }
 
-function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean) {
+function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean, newerDistribution = false) {
   const season = id === "season-18" ? season18 : season17;
   const rev = revision(status, distMissing);
   return {
@@ -133,6 +133,45 @@ function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean) 
           ],
         },
     distributionMissing: distMissing,
+    keyRows: distMissing
+      ? []
+      : [
+          { percentileBps: 6000, percentileLabel: "P60", factor: 0.9, thresholds: { EU: 14, US: 13, KR: 15, TW: 14 } },
+          { percentileBps: 7500, percentileLabel: "P75", factor: 0.95, thresholds: { EU: 16, US: 15, KR: 16, TW: 15 } },
+          { percentileBps: 9000, percentileLabel: "P90", factor: 1, thresholds: { EU: 18, US: 17, KR: 18, TW: 17 } },
+          { percentileBps: 9900, percentileLabel: "P99", factor: 1.15, thresholds: { EU: 22, US: 21, KR: 22, TW: 21 } },
+          { percentileBps: 9990, percentileLabel: "P99.9", factor: 1.3, thresholds: { EU: 23, US: 22, KR: 23, TW: 22 } },
+        ],
+    regions: {
+      EU: {
+        seasonId: id,
+        catalogReady: true,
+        latestDistribution: null,
+        hasNewerDistribution: newerDistribution,
+        boundSnapshotId: distMissing ? null : "dist-1",
+        refreshStatus: distMissing
+          ? { status: "Idle" as const, refreshId: null, errorMessage: null, snapshotId: null }
+          : { status: "Available" as const, refreshId: null, errorMessage: null, snapshotId: "dist-1" },
+      },
+      US: {
+        seasonId: null,
+        catalogReady: false,
+        latestDistribution: null,
+        refreshStatus: { status: "Available" as const, refreshId: null, errorMessage: null, snapshotId: "dist-us" },
+      },
+      KR: {
+        seasonId: null,
+        catalogReady: false,
+        latestDistribution: null,
+        refreshStatus: { status: "Idle" as const, refreshId: null, errorMessage: null, snapshotId: null },
+      },
+      TW: {
+        seasonId: null,
+        catalogReady: false,
+        latestDistribution: null,
+        refreshStatus: { status: "Idle" as const, refreshId: null, errorMessage: null, snapshotId: null },
+      },
+    },
     keyDistributionRefresh: distMissing
       ? { status: "Idle" as const, refreshId: null, errorMessage: null, snapshotId: null }
       : { status: "Available" as const, refreshId: null, errorMessage: null, snapshotId: "dist-1" },
@@ -144,7 +183,17 @@ function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean) 
   };
 }
 
-async function mountPage(authority = scoringSeason("PINNED", season17), contextId = "season-17") {
+function headerValue(init: unknown, name: string): string | null {
+  const headers = (init as { headers?: HeadersInit } | undefined)?.headers;
+  if (!headers) return null;
+  return new Headers(headers).get(name);
+}
+
+async function mountPage(
+  authority = scoringSeason("PINNED", season17),
+  contextId = "season-17",
+  options?: { hasNewerDistribution?: boolean },
+) {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
     const path = String(url);
@@ -154,8 +203,31 @@ async function mountPage(authority = scoringSeason("PINNED", season17), contextI
     if (path.includes(`/seasons/${contextId}/score-context/draft`) && init?.method === "POST") {
       return jsonResponse(revision("DRAFT", contextId !== "season-17"));
     }
+    if (path.includes("/publish") && init?.method === "POST") {
+      return jsonResponse({
+        recalc: { status: "QUEUED", bulkOperationId: "bulk-1", error: null, retryAvailable: true },
+      });
+    }
+    if (path.includes("/key-distribution/refresh") && init?.method === "POST") {
+      return jsonResponse({ ok: true });
+    }
+    if (path.includes("/use-latest-distribution") && init?.method === "POST") {
+      return jsonResponse({ ok: true });
+    }
+    if (path.includes("/score-context/recalculate") && init?.method === "POST") {
+      return jsonResponse({
+        recalc: { status: "QUEUED", bulkOperationId: "bulk-2", error: null, retryAvailable: false },
+      });
+    }
     if (path.includes(`/seasons/${contextId}/score-context`)) {
-      return jsonResponse(state(contextId, contextId === "season-17" ? "DRAFT" : "PUBLISHED", contextId !== "season-17"));
+      return jsonResponse(
+        state(
+          contextId,
+          contextId === "season-17" ? "DRAFT" : "PUBLISHED",
+          contextId !== "season-17",
+          options?.hasNewerDistribution,
+        ),
+      );
     }
     if (path.includes("/score-context/revisions/") && init?.method === "PATCH") {
       return jsonResponse({ ok: true });
@@ -197,18 +269,20 @@ describe("AdminScoreContextPage", () => {
   it("Key table shows season percentiles and only factor is editable", async () => {
     const wrapper = await mountPage();
     const table = wrapper.get("[data-testid='anchor-table']");
-    expect(table.text()).toContain("P50");
+    expect(table.text()).toContain("P60");
     expect(table.text()).toContain("P75");
     expect(table.text()).toContain("P90");
-    expect(table.text()).toContain("P95");
     expect(table.text()).toContain("P99");
     expect(table.text()).toContain("P99.9");
-    expect(table.text()).toContain("+12");
+    expect(table.text()).toContain("EU");
+    expect(table.text()).toContain("US");
+    expect(table.text()).toContain("KR");
+    expect(table.text()).toContain("TW");
     expect(table.text()).toContain("+18");
-    expect(table.text()).toContain("+24");
+    expect(table.text()).toContain("+17");
     expect(wrapper.find("[data-testid='add-anchor']").exists()).toBe(false);
     expect(wrapper.find("[data-testid='key-percentile-readonly']").attributes("readonly")).toBeDefined();
-    expect(wrapper.find("[data-testid='key-threshold-readonly']").attributes("readonly")).toBeDefined();
+    expect(wrapper.find("[data-testid='key-threshold-readonly-EU']").attributes("readonly")).toBeDefined();
     const factor = wrapper.get("[data-testid='key-factor-9000']");
     expect(factor.attributes("disabled")).toBeUndefined();
     await factor.setValue("0.95");
@@ -241,6 +315,10 @@ describe("AdminScoreContextPage", () => {
     const frostIcon = wrapper.get("[data-testid='spec-mage-frost']").find("[data-testid='wow-icon']");
     expect(frostIcon.exists()).toBe(true);
     expect(frostIcon.attributes("src") ?? "").toContain(specIconName("mage", "frost") ?? "missing");
+    expect(wrapper.find(".spec-tile__move").exists()).toBe(false);
+    expect(wrapper.get("[data-testid='spec-mage-frost']").attributes("style") ?? "").toContain(
+      "background-color: rgb(63, 199, 235)",
+    );
   });
 
   it("dragging Frost Mage from Tier 3 to Tier 5 updates only that spec", async () => {
@@ -294,6 +372,46 @@ describe("AdminScoreContextPage", () => {
     expect(patch).toBeTruthy();
     const body = JSON.parse(String(patch![1]?.body));
     expect(body.percentileAnchors.find((a: { percentileBps: number }) => a.percentileBps === 9000).factor).toBe(0.95);
+    expect(headerValue(patch![1], "Content-Type")).toBe("application/json");
+    expect(headerValue(patch![1], "Accept")).toBe("application/json");
+  });
+
+  it("empty-body POSTs omit JSON Content-Type and still reach the mocked endpoints", async () => {
+    const wrapper = await mountPage(scoringSeason("PINNED", season17), "season-17", { hasNewerDistribution: true });
+
+    await wrapper.get("[data-testid='publish-draft']").trigger("click");
+    await flushPromises();
+    const publish = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/publish") && call[1]?.method === "POST",
+    );
+    expect(publish).toBeTruthy();
+    expect(headerValue(publish![1], "Content-Type")).toBeNull();
+    expect(headerValue(publish![1], "Accept")).toBe("application/json");
+    expect(wrapper.text()).toContain("Recalculation queued");
+
+    await wrapper.get("[data-testid='refresh-rio-distribution']").trigger("click");
+    await flushPromises();
+    const refresh = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/key-distribution/refresh") && call[1]?.method === "POST",
+    );
+    expect(refresh).toBeTruthy();
+    expect(headerValue(refresh![1], "Content-Type")).toBeNull();
+
+    await wrapper.get("[data-testid='use-latest-distribution']").trigger("click");
+    await flushPromises();
+    const adopt = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/use-latest-distribution") && call[1]?.method === "POST",
+    );
+    expect(adopt).toBeTruthy();
+    expect(headerValue(adopt![1], "Content-Type")).toBeNull();
+
+    await wrapper.get("[data-testid='retry-recalc']").trigger("click");
+    await flushPromises();
+    const retry = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/score-context/recalculate") && call[1]?.method === "POST",
+    );
+    expect(retry).toBeTruthy();
+    expect(headerValue(retry![1], "Content-Type")).toBeNull();
   });
 
   it("AUTO uses the resolved effective scoring season", async () => {

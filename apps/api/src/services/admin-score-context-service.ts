@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { getRetailClassMatrix } from "@mplus/abilities";
 import {
   formatPercentileBpsLabel,
-  ADMIN_SCORING_DEFAULT_REGION,
   KEY_CONTEXT_PERCENTILE_BPS,
+  KEY_CONTEXT_REGION_CODES,
+  type KeyContextRegionCode,
   type SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import {
@@ -11,7 +12,6 @@ import {
   type PrismaClient,
 } from "@mplus/database";
 import {
-  resolveAnchorsAgainstDistribution,
   validateMedianKeyDistributionPoints,
 } from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
@@ -51,6 +51,15 @@ function mapRepoError(error: unknown): never {
   if (code === "DISTRIBUTION_SNAPSHOT_SEASON_MISMATCH") {
     throw HttpError.badRequest(code, "Distribution snapshot belongs to a different season");
   }
+  if (code === "CROSS_REGION_SNAPSHOT_BINDING") {
+    throw HttpError.badRequest(code, "Snapshot region does not match the policy region binding");
+  }
+  if (code === "CROSS_BLIZZARD_SEASON_SNAPSHOT_BINDING") {
+    throw HttpError.badRequest(code, "Snapshot Blizzard season does not match the policy season");
+  }
+  if (code === "INVALID_REGION_CODE" || code === "DUPLICATE_REGION_SNAPSHOT_BINDING") {
+    throw HttpError.badRequest(code, "Invalid regional snapshot binding");
+  }
   if (
     code === "INVALID_TIER_FACTORS" ||
     code === "INVALID_PERCENTILE_ANCHORS" ||
@@ -62,39 +71,14 @@ function mapRepoError(error: unknown): never {
   throw error;
 }
 
-function assertAnchorsCompatibleWithDistribution(revision: SeasonScoreContextRevisionDoc): void {
-  if (!revision.distribution || revision.percentileAnchors.length === 0) return;
-  const resolved = resolveAnchorsAgainstDistribution({
-    anchors: revision.percentileAnchors,
-    points: revision.distribution.points,
-  });
-  if (resolved.length !== revision.percentileAnchors.length) {
-    throw HttpError.badRequest(
-      "ANCHORS_INCOMPATIBLE_WITH_SNAPSHOT",
-      "Every percentile anchor must exist on the selected distribution snapshot",
-    );
-  }
+function assertAnchorsCompatibleWithDistribution(_revision: SeasonScoreContextRevisionDoc): void {
+  // Factors are percentile-identity; regional thresholds are not policy identity.
 }
 
 export function toAdminRevisionView(revision: SeasonScoreContextRevisionDoc) {
-  const resolvedAnchors = revision.distribution
-    ? resolveAnchorsAgainstDistribution({
-        anchors: revision.percentileAnchors,
-        points: revision.distribution.points,
-      }).map((a) => ({
-        percentileBps: a.percentileBps,
-        percentileLabel: formatPercentileBpsLabel(a.percentileBps),
-        medianKeyThreshold: a.keyThreshold,
-        factor: a.factor,
-      }))
-    : revision.percentileAnchors.map((a) => ({
-        percentileBps: a.percentileBps,
-        percentileLabel: formatPercentileBpsLabel(a.percentileBps),
-        medianKeyThreshold: null as number | null,
-        factor: a.factor,
-      }));
   return {
     id: revision.id,
+    blizzardSeasonId: revision.blizzardSeasonId,
     seasonId: revision.seasonId,
     version: revision.version,
     status: revision.status,
@@ -102,9 +86,15 @@ export function toAdminRevisionView(revision: SeasonScoreContextRevisionDoc) {
     tierFactors: revision.tierFactors,
     specAssignments: revision.specAssignments,
     percentileAnchors: revision.percentileAnchors,
-    distribution: revision.distribution,
-    resolvedAnchors,
-    distributionMissing: revision.distribution == null,
+    regionSnapshots: revision.regionSnapshots,
+    distribution: null,
+    resolvedAnchors: revision.percentileAnchors.map((a) => ({
+      percentileBps: a.percentileBps,
+      percentileLabel: formatPercentileBpsLabel(a.percentileBps),
+      medianKeyThreshold: null as number | null,
+      factor: a.factor,
+    })),
+    distributionMissing: false,
   };
 }
 
@@ -163,14 +153,150 @@ export class AdminScoreContextService {
       },
     });
     if (!season) throw HttpError.notFound("SEASON_NOT_FOUND", `Season ${seasonId} was not found`);
+    const blizzardSeasonId = season.blizzardSeasonId;
     const repo = this.repo();
-    const [published, draft, history, distributions] = await Promise.all([
-      repo.findPublishedForSeason(seasonId),
-      repo.findDraftForSeason(seasonId),
-      repo.listRevisionsForSeason(seasonId),
-      repo.listDistributionsForSeason(seasonId),
-    ]);
+    const [published, draft, history] =
+      blizzardSeasonId != null
+        ? await Promise.all([
+            repo.findPublishedForBlizzardSeason(blizzardSeasonId),
+            repo.findDraftForBlizzardSeason(blizzardSeasonId),
+            repo.listRevisionsForBlizzardSeason(blizzardSeasonId),
+          ])
+        : await Promise.all([
+            repo.findPublishedForSeason(seasonId),
+            repo.findDraftForSeason(seasonId),
+            repo.listRevisionsForSeason(seasonId),
+          ]);
+    const regionalSeasons =
+      blizzardSeasonId != null
+        ? await this.prisma.season.findMany({
+            where: { blizzardSeasonId },
+            select: {
+              id: true,
+              region: { select: { code: true } },
+            },
+          })
+        : [{ id: season.id, region: season.region }];
+    type DistView = {
+      id: string;
+      source: string;
+      sourceVersion: string | null;
+      collectedAt: string;
+      points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
+      provenance: Record<string, unknown>;
+    };
+    const toDistView = (row: {
+      id: string;
+      source: string;
+      sourceVersion: string | null;
+      collectedAt: Date;
+      points: unknown;
+      provenance: unknown;
+    } | null): DistView | null => {
+      if (!row) return null;
+      const parsed = validateMedianKeyDistributionPoints(row.points);
+      if (!parsed?.ok) return null;
+      return {
+        id: row.id,
+        source: row.source,
+        sourceVersion: row.sourceVersion,
+        collectedAt: row.collectedAt.toISOString(),
+        points: parsed.value.points,
+        provenance: asRecord(row.provenance),
+      };
+    };
+    const policyDoc = draft ?? published;
+    const boundByRegion: Record<string, DistView | null> = {
+      EU: null,
+      US: null,
+      KR: null,
+      TW: null,
+    };
+    if (policyDoc) {
+      for (const binding of policyDoc.regionSnapshots) {
+        const code = binding.regionCode.toUpperCase();
+        const dist = await repo.findFrozenRegionalSnapshot({
+          revisionId: policyDoc.id,
+          regionCode: code,
+        });
+        boundByRegion[code] = dist
+          ? {
+              id: dist.id,
+              source: dist.source,
+              sourceVersion: dist.sourceVersion,
+              collectedAt: dist.collectedAt,
+              points: dist.points,
+              provenance: asRecord(dist.provenance),
+            }
+          : null;
+      }
+    }
+    const regions: Record<
+      string,
+      {
+        seasonId: string | null;
+        catalogReady: boolean;
+        latestDistribution: DistView | null;
+        hasNewerDistribution: boolean;
+        boundSnapshotId: string | null;
+        refreshStatus: Awaited<ReturnType<AdminScoreContextService["getKeyDistributionStatus"]>>;
+        provenance: Record<string, unknown> | null;
+      }
+    > = {};
+    for (const code of KEY_CONTEXT_REGION_CODES) {
+      const row = regionalSeasons.find((s) => s.region?.code?.toUpperCase() === code);
+      if (!row) {
+        regions[code] = {
+          seasonId: null,
+          catalogReady: false,
+          latestDistribution: null,
+          hasNewerDistribution: false,
+          boundSnapshotId: boundByRegion[code]?.id ?? null,
+          refreshStatus: { status: "Idle", refreshId: null, errorMessage: null, snapshotId: null },
+          provenance: null,
+        };
+        continue;
+      }
+      const [dists, dungeonCount, refreshStatus] = await Promise.all([
+        repo.listDistributionsForSeason(row.id),
+        this.prisma.seasonDungeon.count({ where: { seasonId: row.id } }),
+        this.getKeyDistributionStatus(row.id),
+      ]);
+      const latestDistribution = toDistView(dists[0] ?? null);
+      const boundId = boundByRegion[code]?.id ?? null;
+      regions[code] = {
+        seasonId: row.id,
+        catalogReady: dungeonCount === 8,
+        latestDistribution,
+        hasNewerDistribution: Boolean(latestDistribution && latestDistribution.id !== boundId),
+        boundSnapshotId: boundId,
+        refreshStatus,
+        provenance: latestDistribution?.provenance ?? null,
+      };
+    }
+    const keyRows = KEY_CONTEXT_PERCENTILE_BPS.map((percentileBps) => {
+      const factor =
+        policyDoc?.percentileAnchors.find((a) => a.percentileBps === percentileBps)?.factor ?? 1;
+      const threshold = (code: KeyContextRegionCode) =>
+        boundByRegion[code]?.points.find((p) => p.percentileBps === percentileBps)?.medianKeyThreshold ??
+        null;
+      return {
+        percentileBps,
+        percentileLabel: formatPercentileBpsLabel(percentileBps),
+        factor,
+        thresholds: {
+          EU: threshold("EU"),
+          US: threshold("US"),
+          KR: threshold("KR"),
+          TW: threshold("TW"),
+        },
+      };
+    });
+    const publishedView = published ? toAdminRevisionView(published) : null;
+    const draftView = draft ? toAdminRevisionView(draft) : null;
+    const missingRegionCoverage = KEY_CONTEXT_REGION_CODES.filter((code) => !boundByRegion[code]);
     return {
+      blizzardSeasonId,
       season: {
         id: season.id,
         slug: season.slug,
@@ -179,81 +305,74 @@ export class AdminScoreContextService {
         isCurrent: season.isCurrent,
         regionCode: season.region?.code ?? null,
       },
-      published: published ? toAdminRevisionView(published) : null,
-      draft: draft ? toAdminRevisionView(draft) : null,
+      policy: {
+        displayedRevision: draftView ?? publishedView,
+        regionalSnapshots: {
+          EU: boundByRegion.EU,
+          US: boundByRegion.US,
+          KR: boundByRegion.KR,
+          TW: boundByRegion.TW,
+        },
+        missingRegionCoverage,
+        published: publishedView,
+        draft: draftView,
+        history: history.map((row) => ({
+          id: row.id,
+          version: row.version,
+          status: row.status,
+          publishedAt: row.publishedAt,
+        })),
+      },
+      regions,
+      keyRows,
+      published: publishedView,
+      draft: draftView,
       history: history.map((row) => ({
         id: row.id,
         version: row.version,
         status: row.status,
         publishedAt: row.publishedAt,
-        distributionSource: row.distribution?.source ?? null,
-        distributionVersion: row.distribution?.sourceVersion ?? null,
+        distributionSource: null,
+        distributionVersion: null,
       })),
-      distributions: distributions.map((d) => ({
-        id: d.id,
-        source: d.source,
-        sourceVersion: d.sourceVersion,
-        collectedAt: d.collectedAt.toISOString(),
-        effectiveAt: d.effectiveAt?.toISOString() ?? null,
-        contentHash: d.contentHash,
-        pointCount: Array.isArray(d.points) ? d.points.length : 0,
-      })),
-      latestDistribution: (() => {
-        const latest = distributions[0];
-        if (!latest) return null;
-        const parsed = validateMedianKeyDistributionPoints(latest.points);
-        return {
-          id: latest.id,
-          source: latest.source,
-          sourceVersion: latest.sourceVersion,
-          collectedAt: latest.collectedAt.toISOString(),
-          points: parsed.ok ? parsed.value.points : [],
-          provenance: asRecord(latest.provenance),
-        };
-      })(),
-      distributionMissing: distributions.length === 0,
-      keyDistributionRefresh: await this.getKeyDistributionStatus(seasonId),
+      distributions: [],
+      latestDistribution:
+        regions[season.region?.code?.toUpperCase() ?? "EU"]?.latestDistribution ??
+        KEY_CONTEXT_REGION_CODES.map((code) => regions[code]?.latestDistribution).find(Boolean) ??
+        null,
+      distributionMissing: KEY_CONTEXT_REGION_CODES.every((code) => !boundByRegion[code]),
+      keyDistributionRefresh: regions.EU?.refreshStatus,
       canonicalSpecializations: this.canonicalSpecializations(),
     };
   }
 
   async createOrGetDraft(seasonId: string, ctx: ScoreContextAuditCtx, createdByUserId: string | null) {
-    await this.getSeasonState(seasonId);
+    const state = await this.getSeasonState(seasonId);
     const repo = this.repo();
-    const existing = await repo.findDraftForSeason(seasonId);
+    const blizzardSeasonId = state.blizzardSeasonId;
+    if (blizzardSeasonId == null) {
+      throw HttpError.badRequest("SEASON_NOT_BLIZZARD_BACKED", "Season is not a Blizzard scoring season");
+    }
+    const existing = await repo.findDraftForBlizzardSeason(blizzardSeasonId);
     if (existing) return toAdminRevisionView(existing);
-    const published = await repo.findPublishedForSeason(seasonId);
-    const snapshots = await repo.listDistributionsForSeason(seasonId);
-    const latestSnapshot = snapshots[0] ?? null;
-    const snapshotPoints = latestSnapshot
-      ? validateMedianKeyDistributionPoints(latestSnapshot.points)
-      : null;
-    const snapshotAnchors =
-      snapshotPoints?.ok
-        ? snapshotPoints.value.points.map((point) => {
-            const existingFactor = published?.percentileAnchors.find(
-              (a) => a.percentileBps === point.percentileBps,
-            )?.factor;
-            return { percentileBps: point.percentileBps, factor: existingFactor ?? 1 };
-          })
-        : null;
+    const published = await repo.findPublishedForBlizzardSeason(blizzardSeasonId);
+    const isFirstPolicy = published == null;
     const defaultNeutralAnchors = KEY_CONTEXT_PERCENTILE_BPS.map((percentileBps) => ({
       percentileBps,
       factor: 1,
     }));
     try {
       const created = await repo.createDraft({
+        blizzardSeasonId,
         seasonId,
         createdByUserId,
-        distributionSnapshotId: published?.distribution?.id ?? latestSnapshot?.id ?? null,
-        tierFactors: published?.tierFactors,
-        specAssignments: published?.specAssignments ?? [],
+        bindLatestValidRegionalSnapshots: isFirstPolicy,
+        tierFactors: isFirstPolicy ? undefined : published.tierFactors,
+        specAssignments: isFirstPolicy ? [] : (published.specAssignments ?? []),
         percentileAnchors:
-          snapshotAnchors && snapshotAnchors.length > 0
-            ? snapshotAnchors
-            : published?.percentileAnchors && published.percentileAnchors.length > 0
-              ? published.percentileAnchors
-              : defaultNeutralAnchors,
+          !isFirstPolicy && published.percentileAnchors.length > 0
+            ? published.percentileAnchors
+            : defaultNeutralAnchors,
       });
       const doc = await repo.findById(created.id);
       if (!doc) {
@@ -263,7 +382,12 @@ export class AdminScoreContextService {
         action: "admin.score_context.draft.create",
         resourceType: "season_score_context_revision",
         resourceId: created.id,
-        metadata: { seasonId, version: created.version },
+        metadata: {
+          seasonId,
+          version: created.version,
+          firstPolicy: isFirstPolicy,
+          boundSnapshotCount: doc.regionSnapshots.length,
+        },
       });
       return toAdminRevisionView(doc);
     } catch (error) {
@@ -394,7 +518,7 @@ export class AdminScoreContextService {
       },
     });
 
-    const recalc = await this.enqueueRecalc(published.seasonId, ctx, createdByUserId, published);
+    const recalc = await this.enqueueRecalc(published.blizzardSeasonId, ctx, createdByUserId, published);
     return {
       revision: toAdminRevisionView(published),
       recalc,
@@ -406,64 +530,71 @@ export class AdminScoreContextService {
     if (!published) {
       throw HttpError.conflict("NO_PUBLISHED_CONTEXT_REVISION", "Publish a draft before recalculating");
     }
-    const recalc = await this.enqueueRecalc(seasonId, ctx, createdByUserId, published);
+    const recalc = await this.enqueueRecalc(published.blizzardSeasonId, ctx, createdByUserId, published);
     return { revision: toAdminRevisionView(published), recalc };
   }
 
   private async enqueueRecalc(
-    seasonId: string,
+    blizzardSeasonId: number,
     ctx: ScoreContextAuditCtx,
     createdByUserId: string | null,
     published: SeasonScoreContextRevisionDoc,
   ) {
-    const characterIds = await this.repo().listCharacterIdsWithScoresForSeason(seasonId);
-    if (characterIds.length === 0) {
+    const regionalSeasons = await this.repo().listRegionalSeasonsForBlizzardSeason(blizzardSeasonId);
+    const bulk = new BulkCharacterProcessingService(this.container);
+    let characterCount = 0;
+    let lastOperationId: string | null = null;
+    try {
+    for (const regional of regionalSeasons) {
+      const characterIds = await this.repo().listCharacterIdsWithScoresForSeason(regional.id);
+      characterCount += characterIds.length;
+      if (characterIds.length === 0) continue;
+      const operation = await bulk.enqueueRecalculateForSeasonScores({
+        seasonId: regional.id,
+        scoreModelId: null,
+        characterIds,
+        createdByUserId,
+        logicalKeyPrefix: `season-context:${blizzardSeasonId}:${regional.region?.code ?? regional.id}:v${published.version}:${randomUUID().slice(0, 8)}`,
+      });
+      lastOperationId = operation?.id ?? lastOperationId;
+    }
+    if (characterCount === 0) {
       await this.audit(ctx, {
         action: "admin.score_context.recalculate",
         resourceType: "season_score_context_revision",
         resourceId: published.id,
-        metadata: { seasonId, version: published.version, characterCount: 0, status: "NO_SCORES" },
+        metadata: { blizzardSeasonId, version: published.version, characterCount: 0, status: "NO_SCORES" },
       });
       return {
         status: "NO_SCORES" as const,
-        pinnedSeasonId: seasonId,
+        pinnedSeasonId: published.seasonId,
         bulkOperationId: null,
         characterCount: 0,
         error: null,
         retryAvailable: false,
       };
     }
-    try {
-      const bulk = new BulkCharacterProcessingService(this.container);
-      const operation = await bulk.enqueueRecalculateForSeasonScores({
-        seasonId,
-        scoreModelId: null,
-        characterIds,
-        createdByUserId,
-        logicalKeyPrefix: `season-context:${seasonId}:v${published.version}:${randomUUID().slice(0, 8)}`,
-      });
-      await this.audit(ctx, {
-        action: "admin.score_context.recalculate",
-        resourceType: "bulk_operation",
-        resourceId: operation?.id ?? published.id,
-        metadata: {
-          seasonId,
-          pinnedSeasonId: seasonId,
-          contextRevisionId: published.id,
-          version: published.version,
-          bulkOperationId: operation?.id ?? null,
-          characterCount: characterIds.length,
-          status: "QUEUED",
-        },
-      });
-      return {
-        status: "QUEUED" as const,
-        pinnedSeasonId: seasonId,
-        bulkOperationId: operation?.id ?? null,
-        characterCount: characterIds.length,
-        error: null,
-        retryAvailable: false,
-      };
+    await this.audit(ctx, {
+      action: "admin.score_context.recalculate",
+      resourceType: "bulk_operation",
+      resourceId: lastOperationId ?? published.id,
+      metadata: {
+        blizzardSeasonId,
+        contextRevisionId: published.id,
+        version: published.version,
+        bulkOperationId: lastOperationId,
+        characterCount,
+        status: "QUEUED",
+      },
+    });
+    return {
+      status: "QUEUED" as const,
+      pinnedSeasonId: published.seasonId,
+      bulkOperationId: lastOperationId,
+      characterCount,
+      error: null,
+      retryAvailable: false,
+    };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.audit(ctx, {
@@ -472,9 +603,7 @@ export class AdminScoreContextService {
         resourceId: published.id,
         outcome: "FAILURE",
         metadata: {
-          seasonId,
-          pinnedSeasonId: seasonId,
-          contextRevisionId: published.id,
+          blizzardSeasonId,
           version: published.version,
           status: "ENQUEUE_FAILED",
           error: message.slice(0, 300),
@@ -482,9 +611,9 @@ export class AdminScoreContextService {
       });
       return {
         status: "ENQUEUE_FAILED" as const,
-        pinnedSeasonId: seasonId,
+        pinnedSeasonId: published.seasonId,
         bulkOperationId: null,
-        characterCount: characterIds.length,
+        characterCount,
         error: message,
         retryAvailable: true,
       };
@@ -513,7 +642,9 @@ export class AdminScoreContextService {
           ? ("Refreshing" as const)
           : latest.status === "FAILED"
             ? ("Failed" as const)
-            : hasSnapshot
+            : latest.status === "SKIPPED"
+              ? ("Unavailable" as const)
+              : hasSnapshot
               ? ("Available" as const)
               : ("Idle" as const);
     return {
@@ -525,71 +656,42 @@ export class AdminScoreContextService {
   }
 
   async enqueueKeyDistributionRefresh(seasonId: string, ctx: ScoreContextAuditCtx, userId: string | null) {
-    await this.getSeasonState(seasonId);
-    const inflight = await this.prisma.scoreContextKeyDistributionRefresh.findFirst({
-      where: { seasonId, status: { in: ["QUEUED", "RUNNING"] } },
-      orderBy: { createdAt: "desc" },
-    });
-    if (inflight) {
-      return { refreshId: inflight.id, status: inflight.status === "RUNNING" ? "Refreshing" : "Queued" };
-    }
-    const refreshId = randomUUID();
-    await this.prisma.scoreContextKeyDistributionRefresh.create({
-      data: {
-        id: refreshId,
-        seasonId,
-        region: ADMIN_SCORING_DEFAULT_REGION,
-        status: "QUEUED",
-        requestedByUserId: userId,
-      },
+    const state = await this.getSeasonState(seasonId);
+    const queued = await this.container.producers.enqueueScoringSeasonDataSync({
+      trigger: "admin",
+      blizzardSeasonId: state.blizzardSeasonId ?? undefined,
     });
     await this.audit(ctx, {
       action: "admin.score_context.key_distribution.refresh.requested",
-      resourceType: "score_context_key_distribution_refresh",
-      resourceId: refreshId,
-      metadata: { seasonId, region: ADMIN_SCORING_DEFAULT_REGION },
+      resourceType: "season_score_context_revision",
+      resourceId: seasonId,
+      metadata: {
+        blizzardSeasonId: state.blizzardSeasonId,
+        jobId: queued.jobId,
+        requestedByUserId: userId,
+      },
     });
-    await this.container.producers.enqueueKeyDistributionRefresh({
-      refreshId,
-      seasonId,
-      region: ADMIN_SCORING_DEFAULT_REGION,
-    });
-    return { refreshId, status: "Queued" as const };
+    return { refreshId: queued.jobId, status: "Queued" as const, regions: [] };
   }
 
   async useLatestDistribution(revisionId: string, ctx: ScoreContextAuditCtx) {
     const repo = this.repo();
-    const draft = await repo.findById(revisionId);
-    if (!draft) throw HttpError.notFound("CONTEXT_REVISION_NOT_FOUND", "Context revision was not found");
-    const snapshots = await repo.listDistributionsForSeason(draft.seasonId);
-    const latest = snapshots[0];
-    if (!latest) throw HttpError.conflict("DISTRIBUTION_SNAPSHOT_NOT_FOUND", "No season distribution snapshot exists");
-    const parsed = validateMedianKeyDistributionPoints(latest.points);
-    const published = await repo.findPublishedForSeason(draft.seasonId);
-    const anchors = parsed.ok
-      ? parsed.value.points.map((point) => ({
-          percentileBps: point.percentileBps,
-          factor:
-            draft.percentileAnchors.find((a) => a.percentileBps === point.percentileBps)?.factor ??
-            published?.percentileAnchors.find((a) => a.percentileBps === point.percentileBps)?.factor ??
-            1,
-        }))
-      : draft.percentileAnchors;
-    const updated = await this.updateDraft(
-      revisionId,
-      { distributionSnapshotId: latest.id, percentileAnchors: anchors },
-      ctx,
-    );
-    await this.audit(ctx, {
-      action: "admin.score_context.distribution.adopted",
-      resourceType: "season_score_context_revision",
-      resourceId: revisionId,
-      metadata: {
-        seasonId: draft.seasonId,
-        snapshotId: latest.id,
-        sourceVersion: latest.sourceVersion,
-      },
-    });
-    return updated;
+    try {
+      const result = await repo.adoptLatestRegionalDistributions(revisionId);
+      await this.audit(ctx, {
+        action: "admin.score_context.distribution.adopted",
+        resourceType: "season_score_context_revision",
+        resourceId: revisionId,
+        metadata: {
+          blizzardSeasonId: result.revision.blizzardSeasonId,
+          adopted: result.adopted,
+          unchanged: result.unchanged,
+        },
+      });
+      return toAdminRevisionView(result.revision);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      mapRepoError(error);
+    }
   }
 }

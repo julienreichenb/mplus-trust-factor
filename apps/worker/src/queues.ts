@@ -19,6 +19,7 @@ import {
   type DiscoverOwnedCharactersJob,
   type FinalizeEvidenceBatchJobV2,
   keyDistributionRefreshJobSchema,
+  scoringSeasonDataSyncJobSchema,
   type KeyDistributionRefreshJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
@@ -109,6 +110,12 @@ export interface QueueProducers {
   enqueueKeyDistributionRefresh(
     input: Omit<KeyDistributionRefreshJob, "requestedAt"> & { requestedAt?: string },
   ): Promise<EnqueueResult>;
+  enqueueScoringSeasonDataSync(input: {
+    trigger?: "schedule" | "admin" | "startup";
+    blizzardSeasonId?: number;
+    requestedAt?: string;
+  }): Promise<EnqueueResult>;
+  registerScoringSeasonDataSyncSchedule(): Promise<void>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -150,6 +157,9 @@ export function createQueueProducers(
       connection,
     }),
     [QUEUE_NAMES.keyDistributionRefresh]: new Queue(QUEUE_NAMES.keyDistributionRefresh, {
+      connection,
+    }),
+    [QUEUE_NAMES.scoringSeasonDataSync]: new Queue(QUEUE_NAMES.scoringSeasonDataSync, {
       connection,
     }),
   } as const;
@@ -429,6 +439,38 @@ export function createQueueProducers(
         reused: false,
         enqueued: true,
       };
+    },
+
+    async enqueueScoringSeasonDataSync(input) {
+      const payload = scoringSeasonDataSyncJobSchema.parse({
+        trigger: input.trigger ?? "admin",
+        blizzardSeasonId: input.blizzardSeasonId,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const job = await queues[QUEUE_NAMES.scoringSeasonDataSync].add(
+        QUEUE_NAMES.scoringSeasonDataSync,
+        payload,
+      );
+      return {
+        jobId: job.id ?? `scoring-season-data-sync-${payload.requestedAt}`,
+        dedupeKey: `scoring-season-data-sync:${payload.trigger}:${payload.blizzardSeasonId ?? "effective"}`,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async registerScoringSeasonDataSyncSchedule() {
+      await queues[QUEUE_NAMES.scoringSeasonDataSync].upsertJobScheduler(
+        "daily-scoring-season-data-sync",
+        { every: 24 * 60 * 60 * 1000 },
+        {
+          name: QUEUE_NAMES.scoringSeasonDataSync,
+          data: {
+            trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          },
+        },
+      );
     },
 
     getRefreshCharacterQueue() {

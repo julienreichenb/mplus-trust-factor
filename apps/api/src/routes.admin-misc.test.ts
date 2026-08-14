@@ -51,24 +51,22 @@ vi.mock("@mplus/worker", async (importOriginal) => {
       },
       changed: true,
     })),
-    ensureSeasonDataReady: vi.fn(async (input: { blizzardSeasonId: number }) => ({
-      seasonId: "s17",
+    synchronizeScoringSeasonData: vi.fn(async (input: { blizzardSeasonId: number }) => ({
       blizzardSeasonId: input.blizzardSeasonId,
-      regionCode: "EU",
-      selectionMode: "AUTO",
-      catalogReadyBefore: false,
-      catalogReadyAfter: true,
-      dungeonCount: 8,
-      expectedDungeonCount: 8,
-      wclZoneId: 47,
-      reasons: [],
-      catalogSource: "zone_catalog_registry",
-      skippedReady: false,
-      catalogSynced: true,
-      activated: false,
-      distributionRequested: true,
-      distributionError: null,
-      status: "ready",
+      regions: [
+        {
+          regionCode: "EU",
+          ok: true,
+          error: null,
+          seasonId: "s17",
+          result: {
+            seasonId: "s17",
+            blizzardSeasonId: input.blizzardSeasonId,
+            regionCode: "EU",
+            status: "ready",
+          },
+        },
+      ],
     })),
   };
 });
@@ -207,8 +205,8 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
     });
   });
 
-  it("synchronize-data calls ensureSeasonDataReady", async () => {
-    const { ensureSeasonDataReady } = await import("@mplus/worker");
+  it("synchronize-data calls synchronizeScoringSeasonData", async () => {
+    const { synchronizeScoringSeasonData } = await import("@mplus/worker");
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/admin/misc/scoring-season/synchronize-data",
@@ -218,7 +216,7 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
     expect(response.statusCode).not.toBe(404);
     expect(response.statusCode).not.toBe(405);
     if (response.statusCode === 200) {
-      expect(ensureSeasonDataReady).toHaveBeenCalled();
+      expect(synchronizeScoringSeasonData).toHaveBeenCalled();
     }
   });
 });

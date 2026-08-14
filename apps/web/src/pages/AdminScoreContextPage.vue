@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import type { ScoringSeasonSelectionStatusDTO } from "@mplus/contracts";
 import { formatPercentileBpsLabel } from "@mplus/contracts";
-import { ApiClientError } from "../api/live-client";
+import { ApiClientError, jsonFetchHeaders } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import ScoreContextKeyTable from "../components/admin/ScoreContextKeyTable.vue";
 import ScoreContextMetaTierList, {
@@ -50,9 +50,39 @@ interface SpecClass {
   specs: Array<{ slug: string; name: string; role: string }>;
 }
 interface SeasonState {
+  blizzardSeasonId?: number;
   season: SeasonRow & { blizzardSeasonId: number | null; regionCode: string | null };
   published: RevisionView | null;
   draft: RevisionView | null;
+  policy?: { published: RevisionView | null; draft: RevisionView | null };
+  keyRows?: Array<{
+    percentileBps: number;
+    percentileLabel: string | null;
+    factor: number;
+    thresholds: { EU: number | null; US: number | null; KR: number | null; TW: number | null };
+  }>;
+  regions?: Record<
+    string,
+    {
+      seasonId: string | null;
+      catalogReady: boolean;
+      latestDistribution: {
+        id?: string;
+        sourceVersion: string | null;
+        collectedAt: string;
+        points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
+        provenance?: Record<string, unknown>;
+      } | null;
+      hasNewerDistribution?: boolean;
+      boundSnapshotId?: string | null;
+      refreshStatus: {
+        status: "Idle" | "Queued" | "Refreshing" | "Available" | "Failed" | "Unavailable";
+        refreshId: string | null;
+        errorMessage: string | null;
+        snapshotId: string | null;
+      };
+    }
+  >;
   history: Array<{ id: string; version: number; status: string; publishedAt: string | null }>;
   distributions: Array<{ id: string; source: string; sourceVersion: string | null; collectedAt: string; pointCount: number }>;
   latestDistribution: {
@@ -65,7 +95,7 @@ interface SeasonState {
   } | null;
   distributionMissing: boolean;
   keyDistributionRefresh?: {
-    status: "Idle" | "Queued" | "Refreshing" | "Available" | "Failed";
+    status: "Idle" | "Queued" | "Refreshing" | "Available" | "Failed" | "Unavailable";
     refreshId: string | null;
     errorMessage: string | null;
     snapshotId: string | null;
@@ -86,10 +116,11 @@ const recalc = ref<{ status: RecalcStatus; bulkOperationId: string | null; error
 );
 
 async function fetchJson<T>(path: string, init?: { method?: string; body?: string }): Promise<T> {
+  const hasBody = init?.body !== undefined && init.body !== "";
   const response = await fetch(`${apiBase}${path}`, {
     credentials: "include",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
     ...init,
+    headers: jsonFetchHeaders(hasBody),
   });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: { message?: string } };
   if (!response.ok) {
@@ -119,22 +150,15 @@ const scoringSeasonModeLabel = computed(() => {
 });
 
 const keyRows = computed(() => {
-  const latest = state.value?.latestDistribution;
-  const revision = working.value;
-  if (latest?.points.length) {
-    const factorByBps = new Map((revision?.percentileAnchors ?? []).map((a) => [a.percentileBps, a.factor]));
-    const resolvedByBps = new Map((revision?.resolvedAnchors ?? []).map((a) => [a.percentileBps, a]));
-    return latest.points.map((point) => {
-      const resolved = resolvedByBps.get(point.percentileBps);
-      return {
-        percentileBps: point.percentileBps,
-        percentileLabel: formatPercentileBpsLabel(point.percentileBps),
-        medianKeyThreshold: point.medianKeyThreshold,
-        factor: resolved?.factor ?? factorByBps.get(point.percentileBps) ?? 1,
-      };
-    });
+  const fromApi = state.value?.keyRows;
+  if (fromApi?.length) {
+    const factorByBps = new Map((working.value?.percentileAnchors ?? []).map((a) => [a.percentileBps, a.factor]));
+    return fromApi.map((row) => ({
+      ...row,
+      factor: factorByBps.get(row.percentileBps) ?? row.factor,
+    }));
   }
-  return revision?.resolvedAnchors ?? [];
+  return [];
 });
 
 const distributionUnavailable = computed(() => Boolean(state.value?.distributionMissing));
@@ -144,11 +168,13 @@ const provenanceEligible = computed(() => {
   return typeof n === "number" ? n : null;
 });
 
-const draftNeedsLatest = computed(() => {
-  const latestId = state.value?.latestDistribution?.id;
-  const draftId = working.value?.distribution?.id;
-  return Boolean(latestId && working.value?.status === "DRAFT" && draftId && latestId !== draftId);
-});
+const draftNeedsLatest = computed(() =>
+  ["EU", "US", "KR", "TW"].some((code) => Boolean(state.value?.regions?.[code]?.hasNewerDistribution)),
+);
+
+const newerRegionCodes = computed(() =>
+  ["EU", "US", "KR", "TW"].filter((code) => state.value?.regions?.[code]?.hasNewerDistribution),
+);
 
 const provenanceLabel = computed(() => {
   const source = working.value?.distribution?.source ?? state.value?.latestDistribution?.source;
@@ -392,8 +418,13 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
         · {{ provenanceEligible.toLocaleString("en-GB") }} eligible characters
       </span>
     </p>
+    <p v-if="newerRegionCodes.length" class="warn" data-testid="newer-distribution-banner">
+      New Raider.IO data available for {{ newerRegionCodes.join(", ") }}
+    </p>
     <p class="muted" data-testid="key-distribution-status">
-      Status: {{ state?.keyDistributionRefresh?.status ?? "Idle" }}
+      <span v-for="code in ['EU', 'US', 'KR', 'TW']" :key="code" class="region-status">
+        {{ code }} {{ state?.regions?.[code]?.refreshStatus.status ?? "Idle" }}
+      </span>
     </p>
     <p v-if="state?.keyDistributionRefresh?.status === 'Failed'" class="warn">
       Refresh failed: {{ state.keyDistributionRefresh.errorMessage ?? "unknown" }}
@@ -404,7 +435,7 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
         Save draft
       </button>
       <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="refresh-rio-distribution" @click="refreshKeyDistribution">
-        {{ distributionUnavailable ? "Refresh Raider.IO data" : "Refresh" }}
+        Refresh Raider.IO data
       </button>
       <button
         v-if="draftNeedsLatest"
@@ -414,7 +445,7 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
         data-testid="use-latest-distribution"
         @click="useLatestDistribution"
       >
-        Use latest season distribution
+        Use latest regional distributions
       </button>
       <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="publish-draft" @click="publish">
         Publish

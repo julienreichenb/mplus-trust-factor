@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { decodeMythicPlusRecord, sliceRecord } from "./decode-record.js";
 import { encodeMythicPlusRecord, buildLookupLua, buildCharactersLua, buildDungeonsLua } from "./fixture.js";
-import { ingestEuMythicPlusAddonFiles } from "./ingest.js";
+import { ingestMythicPlusAddonFiles } from "./ingest.js";
 import { AddonDbFormatError } from "./types.js";
 import { loadLookupBuffer } from "./parse-characters.js";
 import { accumulateEligibleMedianHistogram } from "./histogram.js";
@@ -89,7 +89,7 @@ describe("season dungeon mapping", () => {
   });
 });
 
-describe("ingestEuMythicPlusAddonFiles", () => {
+describe("ingestMythicPlusAddonFiles", () => {
   it("computes locked percentiles from a tiny synthetic population", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "rio-addon-"));
     const levelsFor = (medianPair: [number, number]) => {
@@ -107,7 +107,8 @@ describe("ingestEuMythicPlusAddonFiles", () => {
       buildCharactersLua({ names: records.map((_, i) => `Char${i}`) }),
     );
     await writeFile(path.join(dir, "dungeons.lua"), buildDungeonsLua());
-    const result = await ingestEuMythicPlusAddonFiles({
+    const result = await ingestMythicPlusAddonFiles({
+      regionCode: "EU",
       lookupLuaPath: path.join(dir, "lookup.lua"),
       charactersLuaPath: path.join(dir, "chars.lua"),
       dungeonsLuaPath: path.join(dir, "dungeons.lua"),
@@ -123,7 +124,8 @@ describe("ingestEuMythicPlusAddonFiles", () => {
     expect(result.points.find((p) => p.percentileBps === 9000)?.medianKeyThreshold).toBe(16);
     expect(result.points.find((p) => p.percentileBps === 9900)?.medianKeyThreshold).toBe(18);
     expect(result.contentHash).toHaveLength(64);
-    const again = await ingestEuMythicPlusAddonFiles({
+    const again = await ingestMythicPlusAddonFiles({
+      regionCode: "EU",
       lookupLuaPath: path.join(dir, "lookup.lua"),
       charactersLuaPath: path.join(dir, "chars.lua"),
       dungeonsLuaPath: path.join(dir, "dungeons.lua"),
@@ -145,7 +147,42 @@ describe("ingestEuMythicPlusAddonFiles", () => {
     );
     await writeFile(path.join(dir, "dungeons.lua"), buildDungeonsLua());
     await expect(
-      ingestEuMythicPlusAddonFiles({
+      ingestMythicPlusAddonFiles({
+        regionCode: "EU",
+        lookupLuaPath: path.join(dir, "lookup.lua"),
+        charactersLuaPath: path.join(dir, "chars.lua"),
+        dungeonsLuaPath: path.join(dir, "dungeons.lua"),
+        expectedDungeons,
+        releaseTag: "v1",
+        assetName: "x.zip",
+        assetSha256: "x",
+      }),
+    ).rejects.toBeInstanceOf(AddonDbFormatError);
+  });
+
+  it("E/F: same ingest implementation for US and fails closed on region mismatch", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "rio-addon-us-"));
+    const rec = encodeMythicPlusRecord({ dungeonLevels: [10, 11, 12, 13, 14, 15, 16, 17] });
+    await writeFile(path.join(dir, "lookup.lua"), buildLookupLua([rec]));
+    await writeFile(
+      path.join(dir, "chars.lua"),
+      buildCharactersLua({ names: ["A"], region: "US" }),
+    );
+    await writeFile(path.join(dir, "dungeons.lua"), buildDungeonsLua());
+    const us = await ingestMythicPlusAddonFiles({
+      regionCode: "US",
+      lookupLuaPath: path.join(dir, "lookup.lua"),
+      charactersLuaPath: path.join(dir, "chars.lua"),
+      dungeonsLuaPath: path.join(dir, "dungeons.lua"),
+      expectedDungeons,
+      releaseTag: "v1",
+      assetName: "x.zip",
+      assetSha256: "x",
+    });
+    expect(us.region).toBe("US");
+    await expect(
+      ingestMythicPlusAddonFiles({
+        regionCode: "EU",
         lookupLuaPath: path.join(dir, "lookup.lua"),
         charactersLuaPath: path.join(dir, "chars.lua"),
         dungeonsLuaPath: path.join(dir, "dungeons.lua"),
@@ -165,5 +202,16 @@ describe("lookup lua round-trip", () => {
     const buf = loadLookupBuffer(lua);
     expect(buf.length).toBe(30);
     expect([...decodeMythicPlusRecord(buf).dungeonLevels]).toEqual([8, 8, 8, 8, 8, 8, 8, 8]);
+  });
+});
+
+describe("parseGithubAssetDigest", () => {
+  it("parses sha256 hex from GitHub digest and rejects other formats", async () => {
+    const { parseGithubAssetDigest } = await import("./github-releases.js");
+    expect(parseGithubAssetDigest("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).toBe(
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    expect(parseGithubAssetDigest("md5:abc")).toBeNull();
+    expect(parseGithubAssetDigest(null)).toBeNull();
   });
 });

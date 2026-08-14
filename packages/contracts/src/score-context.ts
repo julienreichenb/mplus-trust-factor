@@ -36,7 +36,11 @@ export const RAIDER_IO_ADDON_DISTRIBUTION_SOURCE = "RAIDER_IO_ADDON" as const;
 export const KEY_DISTRIBUTION_INCLUSION_ALL_8 =
   "ALL_8_CURRENT_DUNGEON_LEVELS_GT_0" as const;
 
-/** Admin Key/Meta scoring region for this workstream. */
+/** Retail regions that carry independent median-key distributions. */
+export const KEY_CONTEXT_REGION_CODES = ["EU", "US", "KR", "TW"] as const;
+export type KeyContextRegionCode = (typeof KEY_CONTEXT_REGION_CODES)[number];
+
+/** Admin default region for scoring-season peek / identity (not policy ownership). */
 export const ADMIN_SCORING_DEFAULT_REGION = "EU" as const;
 
 export type ScoreContextStatus =
@@ -79,15 +83,24 @@ export interface ScoreContextSpecAssignment {
 
 export type ScoreContextTierFactors = Record<MetaTier, number>;
 
+export interface ScoreContextRegionSnapshotBinding {
+  regionCode: KeyContextRegionCode | string;
+  distributionSnapshotId: string;
+}
+
 export interface SeasonScoreContextRevisionDoc {
   id: string;
-  seasonId: string;
+  blizzardSeasonId: number;
+  /** Optional originating regional Season id; not the policy identity. */
+  seasonId: string | null;
   version: number;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   publishedAt: string | null;
   tierFactors: ScoreContextTierFactors;
   specAssignments: ScoreContextSpecAssignment[];
   percentileAnchors: ScoreContextPercentileAnchor[];
+  regionSnapshots: ScoreContextRegionSnapshotBinding[];
+  /** @deprecated Scoring uses a regional snapshot passed separately. */
   distribution: SeasonMedianKeyDistribution | null;
 }
 

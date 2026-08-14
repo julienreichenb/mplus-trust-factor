@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import WowIcon from "../ability-catalog/WowIcon.vue";
+import { CLASS_COLORS, contrastingTextColor } from "../../lib/wowClass";
 import { specIconName } from "../../lib/wowIcons";
 
 export type MetaTier = 1 | 2 | 3 | 4 | 5;
@@ -87,12 +88,13 @@ function onDrop(tier: MetaTier | null): void {
   emit("move-spec", classSlug, specSlug, tier);
 }
 
-function keyboardMove(spec: SpecTile, raw: string): void {
-  if (!raw) {
-    emit("move-spec", spec.classSlug, spec.specSlug, null);
-    return;
-  }
-  emit("move-spec", spec.classSlug, spec.specSlug, Number(raw) as MetaTier);
+function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; borderColor: string } {
+  const backgroundColor = CLASS_COLORS[spec.classSlug.toLowerCase()] ?? "#3a3a40";
+  return {
+    backgroundColor,
+    color: contrastingTextColor(backgroundColor),
+    borderColor: backgroundColor,
+  };
 }
 </script>
 
@@ -118,6 +120,7 @@ function keyboardMove(spec: SpecTile, raw: string): void {
           :key="specKey(spec.classSlug, spec.specSlug)"
           class="spec-tile"
           :class="{ 'spec-tile--dragging': draggingKey === specKey(spec.classSlug, spec.specSlug) }"
+          :style="tileStyle(spec)"
           :draggable="!readOnly"
           :title="`${spec.specName}\n${spec.className}`"
           :data-testid="`spec-${spec.classSlug}-${spec.specSlug}`"
@@ -126,20 +129,6 @@ function keyboardMove(spec: SpecTile, raw: string): void {
         >
           <WowIcon :icon-name="iconFor(spec)" :alt="spec.specName" :width="28" :height="28" :lazy="false" />
           <span class="spec-tile__name">{{ spec.specName }}</span>
-          <select
-            class="spec-tile__move"
-            :disabled="readOnly"
-            :aria-label="`Move ${spec.specName} ${spec.className}`"
-            :value="String(tier)"
-            @change="keyboardMove(spec, ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="5">Tier 5</option>
-            <option value="4">Tier 4</option>
-            <option value="3">Tier 3</option>
-            <option value="2">Tier 2</option>
-            <option value="1">Tier 1</option>
-            <option value="">Unassigned</option>
-          </select>
         </div>
       </div>
       <label class="tier-row__factor" :data-testid="`tier-factor-wrap-${tier}`">
@@ -173,6 +162,7 @@ function keyboardMove(spec: SpecTile, raw: string): void {
           v-for="spec in specsIn(null)"
           :key="specKey(spec.classSlug, spec.specSlug)"
           class="spec-tile"
+          :style="tileStyle(spec)"
           :draggable="!readOnly"
           :title="`${spec.specName}\n${spec.className}`"
           :data-testid="`spec-${spec.classSlug}-${spec.specSlug}`"
@@ -181,20 +171,6 @@ function keyboardMove(spec: SpecTile, raw: string): void {
         >
           <WowIcon :icon-name="iconFor(spec)" :alt="spec.specName" :width="28" :height="28" :lazy="false" />
           <span class="spec-tile__name">{{ spec.specName }}</span>
-          <select
-            class="spec-tile__move"
-            :disabled="readOnly"
-            :aria-label="`Move ${spec.specName} ${spec.className}`"
-            value=""
-            @change="keyboardMove(spec, ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">Unassigned</option>
-            <option value="5">Tier 5</option>
-            <option value="4">Tier 4</option>
-            <option value="3">Tier 3</option>
-            <option value="2">Tier 2</option>
-            <option value="1">Tier 1</option>
-          </select>
         </div>
       </div>
       <div class="tier-row__factor muted" aria-hidden="true"></div>
@@ -253,10 +229,9 @@ function keyboardMove(spec: SpecTile, raw: string): void {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.2rem 0.4rem 0.2rem 0.2rem;
-  border: 1px solid rgb(255 255 255 / 16%);
+  padding: 0.2rem 0.45rem 0.2rem 0.2rem;
+  border: 1px solid transparent;
   border-radius: 0.35rem;
-  background: rgb(12 12 16 / 55%);
   cursor: grab;
   max-width: 9.5rem;
 }
@@ -265,19 +240,10 @@ function keyboardMove(spec: SpecTile, raw: string): void {
 }
 .spec-tile__name {
   font-size: 0.78rem;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.spec-tile__move {
-  width: 0.9rem;
-  min-width: 0.9rem;
-  opacity: 0.7;
-  font-size: 0.7rem;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
 }
 .muted {
   color: var(--color-text-muted);

@@ -205,43 +205,16 @@ async function main(): Promise<void> {
   const workers = createWorkers(connection, container);
 
   try {
-    const { listPersistedRegionsForAuthority } = await import("./orchestration/season-authority.js");
-    const { peekEffectiveScoringSeasonRow } = await import(
-      "./orchestration/active-mplus-season/effective-season-peek.js"
+    const { runScheduledScoringSeasonDataSync } = await import(
+      "./orchestration/active-mplus-season/scoring-season-data-sync.js"
     );
-    const { ensureSeasonDataReady, requestKeyDistributionRefreshJob } = await import(
-      "./orchestration/active-mplus-season/ensure-season-data-ready.js"
-    );
-    const { resolveScoringCatalogDiscoverer } = await import(
-      "./orchestration/active-mplus-season/effective-scoring-season.js"
-    );
-    const discoverer = resolveScoringCatalogDiscoverer({
+    await producers.registerScoringSeasonDataSyncSchedule();
+    await runScheduledScoringSeasonDataSync({
+      prisma: container.prisma,
+      logger: container.logger,
       warcraftlogs: container.providers.warcraftlogs,
       providerMode: env.PROVIDER_MODE,
     });
-    const regions = await listPersistedRegionsForAuthority(container.prisma);
-    for (const region of regions) {
-      const peek = await peekEffectiveScoringSeasonRow(container.prisma, { regionId: region.id });
-      const blizzardSeasonId = peek?.blizzardSeasonId;
-      if (blizzardSeasonId == null || !peek) continue;
-      await ensureSeasonDataReady({
-        prisma: container.prisma,
-        logger: container.logger,
-        regionId: region.id,
-        regionCode: region.code,
-        blizzardSeasonId,
-        selectionMode: peek.selectionMode,
-        discoverActiveMplusCatalog: peek.selectionMode === "AUTO" ? discoverer : undefined,
-        requestDistributionRefresh: async ({ seasonId, regionCode }) => {
-          await requestKeyDistributionRefreshJob({
-            prisma: container.prisma,
-            seasonId,
-            regionCode,
-            enqueue: (job) => producers.enqueueKeyDistributionRefresh(job),
-          });
-        },
-      });
-    }
   } catch (error) {
     container.logger.warn(
       { err: error, event: "season_data_sync_failed" },

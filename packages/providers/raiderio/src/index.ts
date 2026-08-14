@@ -73,12 +73,14 @@ export {
   decodeMythicPlusRecord,
   sliceRecord,
 } from "./addon-db/decode-record.js";
-export { ingestEuMythicPlusAddonFiles } from "./addon-db/ingest.js";
+export { ingestMythicPlusAddonFiles, ingestEuMythicPlusAddonFiles } from "./addon-db/ingest.js";
 export {
   downloadReleaseZip,
+  parseGithubAssetDigest,
   selectLatestMainlineAddonRelease,
   withTempDir,
 } from "./addon-db/github-releases.js";
+export type { SelectedAddonRelease } from "./addon-db/github-releases.js";
 export { extractRequiredAddonFiles } from "./addon-db/zip-extract.js";
 export { mapRioDungeonsToSeasonPool } from "./addon-db/map-dungeons.js";
 export type { SeasonDungeonIdentity } from "./addon-db/types.js";

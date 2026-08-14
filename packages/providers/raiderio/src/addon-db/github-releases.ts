@@ -18,6 +18,8 @@ export interface SelectedAddonRelease {
   assetName: string;
   assetUrl: string;
   githubAssetId: number;
+  /** SHA-256 hex from GitHub asset digest when the API provides it. */
+  assetSha256: string | null;
 }
 
 interface GithubRelease {
@@ -25,7 +27,20 @@ interface GithubRelease {
   draft?: boolean;
   prerelease?: boolean;
   published_at?: string | null;
-  assets?: Array<{ id: number; name: string; browser_download_url: string; content_type?: string }>;
+  assets?: Array<{
+    id: number;
+    name: string;
+    browser_download_url: string;
+    content_type?: string;
+    digest?: string | null;
+  }>;
+}
+
+export function parseGithubAssetDigest(digest: string | null | undefined): string | null {
+  if (!digest) return null;
+  const match = /^sha256:([a-fA-F0-9]{64})$/.exec(digest.trim());
+  const hex = match?.[1];
+  return hex ? hex.toLowerCase() : null;
 }
 
 export async function selectLatestMainlineAddonRelease(fetchImpl: typeof fetch = fetch): Promise<SelectedAddonRelease> {
@@ -53,6 +68,7 @@ export async function selectLatestMainlineAddonRelease(fetchImpl: typeof fetch =
       assetName: asset.name,
       assetUrl: asset.browser_download_url,
       githubAssetId: asset.id,
+      assetSha256: parseGithubAssetDigest(asset.digest),
     };
   }
   throw new AddonDbFormatError("GITHUB", "No valid mainline Raider.IO addon release found");

@@ -433,18 +433,40 @@ export async function scoreCharacter(
   const composite = partial.composite;
   const confidence = partial.confidence;
 
+  const contextRepo = new SeasonScoreContextRepository(input.prisma);
   const seasonContextRevision =
     input.seasonContextRevision !== undefined
       ? input.seasonContextRevision
-      : await new SeasonScoreContextRepository(input.prisma).findPublishedForSeason(
-          input.seasonId,
-        );
+      : await contextRepo.findPublishedForSeason(input.seasonId);
+
+  let regionalDistribution: SeasonScoreContextRevisionDoc["distribution"] | undefined;
+  let regionalDistributionMissing = false;
+  if (input.seasonContextRevision === undefined && seasonContextRevision) {
+    const seasonRow = await input.prisma.season?.findUnique?.({
+      where: { id: input.seasonId },
+      select: { region: { select: { code: true } } },
+    });
+    const regionCode = seasonRow?.region?.code;
+    if (!regionCode) {
+      regionalDistributionMissing = true;
+      regionalDistribution = null;
+    } else {
+      const frozen = await contextRepo.findFrozenRegionalSnapshot({
+        revisionId: seasonContextRevision.id,
+        regionCode,
+      });
+      regionalDistribution = frozen;
+      regionalDistributionMissing = frozen == null;
+    }
+  }
 
   const appliedContext = applyScoreContext({
     seasonId: input.seasonId,
     rawScoreBeforeContext: composite,
     canonicalRunSelection: input.canonicalRunSelection ?? null,
     seasonContextRevision,
+    regionalDistribution,
+    regionalDistributionMissing,
     seasonScoringSpec: {
       classSlug: input.classSlug,
       specSlug: input.specSlug,
@@ -493,6 +515,7 @@ export async function scoreCharacter(
       scoringVersion,
       contextRevisionKey: appliedContext.contextRevisionKey,
       contextRevisionId: appliedContext.contextRevisionId,
+      contextDistributionSnapshotId: appliedContext.key.distributionSnapshotId,
       performance: performance?.score ?? null,
       utility: utility?.score ?? null,
       survival: survival?.score ?? null,

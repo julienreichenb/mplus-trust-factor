@@ -4,7 +4,6 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Logger } from "@mplus/observability";
-import { ADMIN_SCORING_DEFAULT_REGION } from "@mplus/contracts";
 import type { PrismaClient, Season } from "@mplus/database";
 import { evaluateSeasonCatalogReadiness, type CatalogReadinessResult } from "./catalog-readiness.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
@@ -383,15 +382,23 @@ export async function requestKeyDistributionRefreshJob(input: {
   enqueue: (job: {
     refreshId: string;
     seasonId: string;
-    region: typeof ADMIN_SCORING_DEFAULT_REGION;
+    region: "EU" | "US" | "KR" | "TW";
   }) => Promise<unknown>;
   seasonId: string;
   regionCode: string;
   requestedByUserId?: string | null;
 }): Promise<{ refreshId: string; skipped: boolean }> {
-  const region = input.regionCode.toUpperCase() === "EU" ? ADMIN_SCORING_DEFAULT_REGION : null;
-  if (!region) {
+  const region = input.regionCode.trim().toUpperCase();
+  if (region !== "EU" && region !== "US" && region !== "KR" && region !== "TW") {
     return { refreshId: "", skipped: true };
+  }
+  const season = await input.prisma.season.findUnique({
+    where: { id: input.seasonId },
+    select: { region: { select: { code: true } } },
+  });
+  const seasonRegion = season?.region?.code?.toUpperCase();
+  if (seasonRegion && seasonRegion !== region) {
+    throw new Error(`KEY_DISTRIBUTION_REGION_MISMATCH: job ${region} vs season ${seasonRegion}`);
   }
   const inflight = await input.prisma.scoreContextKeyDistributionRefresh.findFirst({
     where: { seasonId: input.seasonId, status: { in: ["QUEUED", "RUNNING"] } },

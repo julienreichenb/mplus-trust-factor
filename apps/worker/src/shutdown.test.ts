@@ -21,6 +21,7 @@ const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.analyzeEvidenceSlot,
   QUEUE_NAMES.finalizeAnalysisBatch,
   QUEUE_NAMES.keyDistributionRefresh,
+  QUEUE_NAMES.scoringSeasonDataSync,
 ] as const;
 
 describe("worker shutdown", () => {

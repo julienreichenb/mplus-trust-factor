@@ -44,6 +44,11 @@ export const QUEUE_NAMES = {
    * Isolated from character refresh / scoring providers.
    */
   keyDistributionRefresh: "key-distribution-refresh",
+  /**
+   * Daily (and on-demand) product-level scoring-season data sync.
+   * Calls synchronizeScoringSeasonData — does not mutate published policy.
+   */
+  scoringSeasonDataSync: "scoring-season-data-sync",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -406,11 +411,19 @@ export interface RefreshEtaFields {
 export const keyDistributionRefreshJobSchema = z.object({
   refreshId: z.string().uuid(),
   seasonId: z.string().uuid(),
-  region: z.enum(["EU"]),
+  region: z.enum(["EU", "US", "KR", "TW"]),
   requestedAt: z.string().datetime(),
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
 export type KeyDistributionRefreshJob = z.infer<typeof keyDistributionRefreshJobSchema>;
+
+export const scoringSeasonDataSyncJobSchema = z.object({
+  trigger: z.enum(["schedule", "admin", "startup"]).default("schedule"),
+  blizzardSeasonId: z.number().int().positive().optional(),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type ScoringSeasonDataSyncJob = z.infer<typeof scoringSeasonDataSyncJobSchema>;
 
 export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;
