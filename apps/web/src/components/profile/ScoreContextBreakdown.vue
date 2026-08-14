@@ -16,7 +16,14 @@ const scoreAdjustment = computed(() => {
   if (!context) return null;
   const raw = context.rawScoreBeforeContext;
   const final = context.finalScore;
-  if (!Number.isFinite(raw) || !Number.isFinite(final)) return null;
+  if (
+    raw == null ||
+    final == null ||
+    !Number.isFinite(raw) ||
+    !Number.isFinite(final)
+  ) {
+    return null;
+  }
   return final - raw;
 });
 
