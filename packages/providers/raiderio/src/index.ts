@@ -68,3 +68,17 @@ export {
 } from "./constants.js";
 export type { RaiderIoProvider };
 export type { RaiderIoMetrics } from "./metrics.js";
+export { AddonDbFormatError } from "./addon-db/types.js";
+export {
+  decodeMythicPlusRecord,
+  sliceRecord,
+} from "./addon-db/decode-record.js";
+export { ingestEuMythicPlusAddonFiles } from "./addon-db/ingest.js";
+export {
+  downloadReleaseZip,
+  selectLatestMainlineAddonRelease,
+  withTempDir,
+} from "./addon-db/github-releases.js";
+export { extractRequiredAddonFiles } from "./addon-db/zip-extract.js";
+export { mapRioDungeonsToSeasonPool } from "./addon-db/map-dungeons.js";
+export type { SeasonDungeonIdentity } from "./addon-db/types.js";

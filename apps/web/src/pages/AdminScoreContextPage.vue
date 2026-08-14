@@ -61,8 +61,15 @@ interface SeasonState {
     sourceVersion: string | null;
     collectedAt: string;
     points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
+    provenance?: Record<string, unknown>;
   } | null;
   distributionMissing: boolean;
+  keyDistributionRefresh?: {
+    status: "Idle" | "Queued" | "Refreshing" | "Available" | "Failed";
+    refreshId: string | null;
+    errorMessage: string | null;
+    snapshotId: string | null;
+  };
   canonicalSpecializations: { classes: SpecClass[]; stepBandHelp: string; tierSemantics: Record<string, string> };
 }
 
@@ -131,6 +138,17 @@ const keyRows = computed(() => {
 });
 
 const distributionUnavailable = computed(() => Boolean(state.value?.distributionMissing));
+
+const provenanceEligible = computed(() => {
+  const n = state.value?.latestDistribution?.provenance?.eligibleCharacters;
+  return typeof n === "number" ? n : null;
+});
+
+const draftNeedsLatest = computed(() => {
+  const latestId = state.value?.latestDistribution?.id;
+  const draftId = working.value?.distribution?.id;
+  return Boolean(latestId && working.value?.status === "DRAFT" && draftId && latestId !== draftId);
+});
 
 const provenanceLabel = computed(() => {
   const source = working.value?.distribution?.source ?? state.value?.latestDistribution?.source;
@@ -243,6 +261,39 @@ async function publish(): Promise<void> {
   }
 }
 
+async function refreshKeyDistribution(): Promise<void> {
+  if (!seasonId.value) return;
+  busy.value = true;
+  error.value = null;
+  try {
+    await fetchJson(`/api/v1/admin/seasons/${seasonId.value}/score-context/key-distribution/refresh`, {
+      method: "POST",
+    });
+    await loadState();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function useLatestDistribution(): Promise<void> {
+  await ensureDraft();
+  if (!working.value) return;
+  busy.value = true;
+  error.value = null;
+  try {
+    await fetchJson(`/api/v1/admin/score-context/revisions/${working.value.id}/use-latest-distribution`, {
+      method: "POST",
+    });
+    await loadState();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function retryRecalc(): Promise<void> {
   busy.value = true;
   try {
@@ -335,12 +386,35 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
     </p>
     <p v-if="provenanceLabel" class="provenance" data-testid="distribution-provenance">
       Season data: {{ provenanceLabel }}
-      <span v-if="provenanceUpdated"> · Updated: {{ provenanceUpdated }}</span>
+      <span v-if="provenanceUpdated"> · {{ provenanceUpdated }}</span>
+      <span v-if="state?.latestDistribution?.sourceVersion"> · {{ state.latestDistribution.sourceVersion }}</span>
+      <span v-if="provenanceEligible != null">
+        · {{ provenanceEligible.toLocaleString("en-GB") }} eligible characters
+      </span>
+    </p>
+    <p class="muted" data-testid="key-distribution-status">
+      Status: {{ state?.keyDistributionRefresh?.status ?? "Idle" }}
+    </p>
+    <p v-if="state?.keyDistributionRefresh?.status === 'Failed'" class="warn">
+      Refresh failed: {{ state.keyDistributionRefresh.errorMessage ?? "unknown" }}
     </p>
 
     <div class="actions">
       <button type="button" class="btn" :disabled="busy || !seasonId || !dirty && !isDraft" data-testid="save-draft" @click="saveDraft">
         Save draft
+      </button>
+      <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="refresh-rio-distribution" @click="refreshKeyDistribution">
+        {{ distributionUnavailable ? "Refresh Raider.IO data" : "Refresh" }}
+      </button>
+      <button
+        v-if="draftNeedsLatest"
+        type="button"
+        class="btn"
+        :disabled="busy"
+        data-testid="use-latest-distribution"
+        @click="useLatestDistribution"
+      >
+        Use latest season distribution
       </button>
       <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="publish-draft" @click="publish">
         Publish
@@ -430,6 +504,9 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
 .unsaved {
   color: #f0c674;
   font-weight: 600;
+}
+.warn {
+  color: #f0c674;
 }
 .actions {
   display: flex;

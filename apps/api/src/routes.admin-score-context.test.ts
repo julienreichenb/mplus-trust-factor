@@ -36,6 +36,7 @@ function stubProducers(enqueueBulk: ReturnType<typeof vi.fn>): QueueProducers {
     enqueueScoringEvidenceExport: ok,
     enqueueAnalyzeEvidenceSlot: ok,
     enqueueFinalizeEvidenceBatch: ok,
+    enqueueKeyDistributionRefresh: ok,
     getRefreshCharacterQueue: () => null,
     getCalibrationRunQueue: () => null,
     close: async () => undefined,

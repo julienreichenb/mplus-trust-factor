@@ -39,6 +39,11 @@ export const QUEUE_NAMES = {
    * Does not require global scoring_* flags; publication remains blocked.
    */
   ScoringShadowCanary: "scoring-shadow-canary",
+  /**
+   * Admin Key-context Raider.IO addon median-key distribution ingest.
+   * Isolated from character refresh / scoring providers.
+   */
+  keyDistributionRefresh: "key-distribution-refresh",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -397,6 +402,15 @@ export interface RefreshEtaFields {
   estimateConfidence: EstimateConfidence | null;
   schedulingState: RefreshSchedulingState | null;
 }
+
+export const keyDistributionRefreshJobSchema = z.object({
+  refreshId: z.string().uuid(),
+  seasonId: z.string().uuid(),
+  region: z.enum(["EU"]),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type KeyDistributionRefreshJob = z.infer<typeof keyDistributionRefreshJobSchema>;
 
 export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;

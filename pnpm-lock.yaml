@@ -383,6 +383,9 @@ importers:
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../domain
+      '@mplus/scoring':
+        specifier: workspace:*
+        version: link:../../scoring
       zod:
         specifier: ^3.25.76
         version: 3.25.76

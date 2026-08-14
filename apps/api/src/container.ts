@@ -9,6 +9,7 @@ import {
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
+  keyDistributionRefreshJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeEvidenceSlotJobV2,
@@ -303,10 +304,22 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
     },
 
     async enqueueScoringShadowCanary(input): Promise<EnqueueResult> {
-      // Inline/skipQueues mode records enqueue only — worker owns live canary execution.
       return {
         jobId: input.canaryId,
         dedupeKey: input.canaryId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async enqueueKeyDistributionRefresh(input): Promise<EnqueueResult> {
+      const payload = keyDistributionRefreshJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      return {
+        jobId: payload.refreshId,
+        dedupeKey: payload.refreshId,
         reused: false,
         enqueued: true,
       };

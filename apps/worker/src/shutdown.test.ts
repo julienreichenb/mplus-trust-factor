@@ -20,6 +20,7 @@ const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.ScoringShadowCanary,
   QUEUE_NAMES.analyzeEvidenceSlot,
   QUEUE_NAMES.finalizeAnalysisBatch,
+  QUEUE_NAMES.keyDistributionRefresh,
 ] as const;
 
 describe("worker shutdown", () => {

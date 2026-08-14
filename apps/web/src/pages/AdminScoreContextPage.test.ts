@@ -115,6 +115,9 @@ function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean) 
           ],
         },
     distributionMissing: distMissing,
+    keyDistributionRefresh: distMissing
+      ? { status: "Idle" as const, refreshId: null, errorMessage: null, snapshotId: null }
+      : { status: "Available" as const, refreshId: null, errorMessage: null, snapshotId: "dist-1" },
     canonicalSpecializations: {
       stepBandHelp: "unused",
       tierSemantics: { 1: "niche / weak" },

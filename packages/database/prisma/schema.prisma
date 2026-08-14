@@ -260,6 +260,7 @@ model Season {
   experienceEvidence     CharacterExperienceEvidence[]
   medianKeyDistributions SeasonMedianKeyDistributionSnapshot[]
   scoreContextRevisions  SeasonScoreContextRevision[]
+  keyDistributionRefreshes ScoreContextKeyDistributionRefresh[]
 
   @@unique([regionId, slug])
   @@unique([regionId, blizzardSeasonId], map: "seasons_region_blizzard_season_id_key")
@@ -2390,10 +2391,34 @@ model SeasonMedianKeyDistributionSnapshot {
 
   season    Season                       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   revisions SeasonScoreContextRevision[]
+  refreshes ScoreContextKeyDistributionRefresh[]
 
   @@index([seasonId, collectedAt(sort: Desc)])
   @@unique([seasonId, contentHash])
   @@map("season_median_key_distribution_snapshots")
+}
+
+/**
+ * Background Raider.IO addon median-key distribution ingest (not character refresh).
+ */
+model ScoreContextKeyDistributionRefresh {
+  id               String    @id @default(uuid()) @db.Uuid
+  seasonId         String    @map("season_id") @db.Uuid
+  region           String
+  status           String
+  errorMessage     String?   @map("error_message")
+  snapshotId       String?   @map("snapshot_id") @db.Uuid
+  requestedByUserId String?  @map("requested_by_user_id") @db.Uuid
+  startedAt        DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  season   Season                                @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  snapshot SeasonMedianKeyDistributionSnapshot?  @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([seasonId, createdAt(sort: Desc)])
+  @@map("score_context_key_distribution_refreshes")
 }
 
 /**

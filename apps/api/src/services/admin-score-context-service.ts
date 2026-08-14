@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { getRetailClassMatrix } from "@mplus/abilities";
 import {
   formatPercentileBpsLabel,
+  ADMIN_SCORING_DEFAULT_REGION,
+  KEY_CONTEXT_PERCENTILE_BPS,
   type SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import {
@@ -21,6 +23,12 @@ export type ScoreContextAuditCtx = Pick<
   AuditInput,
   "userId" | "actorType" | "ip" | "userAgent"
 >;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 function mapRepoError(error: unknown): never {
   const code =
@@ -200,9 +208,11 @@ export class AdminScoreContextService {
           sourceVersion: latest.sourceVersion,
           collectedAt: latest.collectedAt.toISOString(),
           points: parsed.ok ? parsed.value.points : [],
+          provenance: asRecord(latest.provenance),
         };
       })(),
       distributionMissing: distributions.length === 0,
+      keyDistributionRefresh: await this.getKeyDistributionStatus(seasonId),
       canonicalSpecializations: this.canonicalSpecializations(),
     };
   }
@@ -227,11 +237,10 @@ export class AdminScoreContextService {
             return { percentileBps: point.percentileBps, factor: existingFactor ?? 1 };
           })
         : null;
-    const defaultV1Anchors = [
-      { percentileBps: 9000, factor: 1 },
-      { percentileBps: 9900, factor: 1 },
-      { percentileBps: 9990, factor: 1 },
-    ];
+    const defaultNeutralAnchors = KEY_CONTEXT_PERCENTILE_BPS.map((percentileBps) => ({
+      percentileBps,
+      factor: 1,
+    }));
     try {
       const created = await repo.createDraft({
         seasonId,
@@ -244,7 +253,7 @@ export class AdminScoreContextService {
             ? snapshotAnchors
             : published?.percentileAnchors && published.percentileAnchors.length > 0
               ? published.percentileAnchors
-              : defaultV1Anchors,
+              : defaultNeutralAnchors,
       });
       const doc = await repo.findById(created.id);
       if (!doc) {
@@ -309,6 +318,7 @@ export class AdminScoreContextService {
       collectedAt: string;
       effectiveAt?: string | null;
       points: unknown;
+      contentHash?: string;
     },
     ctx: ScoreContextAuditCtx,
   ) {
@@ -331,6 +341,7 @@ export class AdminScoreContextService {
         collectedAt,
         effectiveAt,
         points: input.points,
+        contentHash: input.contentHash,
       });
       await this.audit(ctx, {
         action: "admin.score_context.distribution.import",
@@ -478,5 +489,107 @@ export class AdminScoreContextService {
         retryAvailable: true,
       };
     }
+  }
+
+  async getKeyDistributionStatus(seasonId: string) {
+    const latest = await this.prisma.scoreContextKeyDistributionRefresh.findFirst({
+      where: { seasonId },
+      orderBy: { createdAt: "desc" },
+    });
+    const snapshots = await this.repo().listDistributionsForSeason(seasonId);
+    const hasSnapshot = snapshots.length > 0;
+    if (!latest) {
+      return {
+        status: hasSnapshot ? ("Available" as const) : ("Idle" as const),
+        refreshId: null,
+        errorMessage: null,
+        snapshotId: snapshots[0]?.id ?? null,
+      };
+    }
+    const status =
+      latest.status === "QUEUED"
+        ? ("Queued" as const)
+        : latest.status === "RUNNING"
+          ? ("Refreshing" as const)
+          : latest.status === "FAILED"
+            ? ("Failed" as const)
+            : hasSnapshot
+              ? ("Available" as const)
+              : ("Idle" as const);
+    return {
+      status,
+      refreshId: latest.id,
+      errorMessage: latest.errorMessage,
+      snapshotId: latest.snapshotId ?? snapshots[0]?.id ?? null,
+    };
+  }
+
+  async enqueueKeyDistributionRefresh(seasonId: string, ctx: ScoreContextAuditCtx, userId: string | null) {
+    await this.getSeasonState(seasonId);
+    const inflight = await this.prisma.scoreContextKeyDistributionRefresh.findFirst({
+      where: { seasonId, status: { in: ["QUEUED", "RUNNING"] } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (inflight) {
+      return { refreshId: inflight.id, status: inflight.status === "RUNNING" ? "Refreshing" : "Queued" };
+    }
+    const refreshId = randomUUID();
+    await this.prisma.scoreContextKeyDistributionRefresh.create({
+      data: {
+        id: refreshId,
+        seasonId,
+        region: ADMIN_SCORING_DEFAULT_REGION,
+        status: "QUEUED",
+        requestedByUserId: userId,
+      },
+    });
+    await this.audit(ctx, {
+      action: "admin.score_context.key_distribution.refresh.requested",
+      resourceType: "score_context_key_distribution_refresh",
+      resourceId: refreshId,
+      metadata: { seasonId, region: ADMIN_SCORING_DEFAULT_REGION },
+    });
+    await this.container.producers.enqueueKeyDistributionRefresh({
+      refreshId,
+      seasonId,
+      region: ADMIN_SCORING_DEFAULT_REGION,
+    });
+    return { refreshId, status: "Queued" as const };
+  }
+
+  async useLatestDistribution(revisionId: string, ctx: ScoreContextAuditCtx) {
+    const repo = this.repo();
+    const draft = await repo.findById(revisionId);
+    if (!draft) throw HttpError.notFound("CONTEXT_REVISION_NOT_FOUND", "Context revision was not found");
+    const snapshots = await repo.listDistributionsForSeason(draft.seasonId);
+    const latest = snapshots[0];
+    if (!latest) throw HttpError.conflict("DISTRIBUTION_SNAPSHOT_NOT_FOUND", "No season distribution snapshot exists");
+    const parsed = validateMedianKeyDistributionPoints(latest.points);
+    const published = await repo.findPublishedForSeason(draft.seasonId);
+    const anchors = parsed.ok
+      ? parsed.value.points.map((point) => ({
+          percentileBps: point.percentileBps,
+          factor:
+            draft.percentileAnchors.find((a) => a.percentileBps === point.percentileBps)?.factor ??
+            published?.percentileAnchors.find((a) => a.percentileBps === point.percentileBps)?.factor ??
+            1,
+        }))
+      : draft.percentileAnchors;
+    const updated = await this.updateDraft(
+      revisionId,
+      { distributionSnapshotId: latest.id, percentileAnchors: anchors },
+      ctx,
+    );
+    await this.audit(ctx, {
+      action: "admin.score_context.distribution.adopted",
+      resourceType: "season_score_context_revision",
+      resourceId: revisionId,
+      metadata: {
+        seasonId: draft.seasonId,
+        snapshotId: latest.id,
+        sourceVersion: latest.sourceVersion,
+      },
+    });
+    return updated;
   }
 }

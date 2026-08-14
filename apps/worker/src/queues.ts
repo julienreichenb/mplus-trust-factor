@@ -18,6 +18,8 @@ import {
   type ScoringEvidenceExportJob,
   type DiscoverOwnedCharactersJob,
   type FinalizeEvidenceBatchJobV2,
+  keyDistributionRefreshJobSchema,
+  type KeyDistributionRefreshJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
@@ -104,6 +106,9 @@ export interface QueueProducers {
       requestedAt?: string;
     },
   ): Promise<EnqueueResult>;
+  enqueueKeyDistributionRefresh(
+    input: Omit<KeyDistributionRefreshJob, "requestedAt"> & { requestedAt?: string },
+  ): Promise<EnqueueResult>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -142,6 +147,9 @@ export function createQueueProducers(
     }),
     [QUEUE_NAMES.analyzeEvidenceSlot]: new Queue(QUEUE_NAMES.analyzeEvidenceSlot, { connection }),
     [QUEUE_NAMES.finalizeAnalysisBatch]: new Queue(QUEUE_NAMES.finalizeAnalysisBatch, {
+      connection,
+    }),
+    [QUEUE_NAMES.keyDistributionRefresh]: new Queue(QUEUE_NAMES.keyDistributionRefresh, {
       connection,
     }),
   } as const;
@@ -403,6 +411,24 @@ export function createQueueProducers(
         dedupeKey,
         payload,
       );
+    },
+
+    async enqueueKeyDistributionRefresh(input) {
+      const payload = keyDistributionRefreshJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const job = await queues[QUEUE_NAMES.keyDistributionRefresh].add(
+        QUEUE_NAMES.keyDistributionRefresh,
+        payload,
+        { jobId: payload.refreshId },
+      );
+      return {
+        jobId: job.id ?? payload.refreshId,
+        dedupeKey: payload.refreshId,
+        reused: false,
+        enqueued: true,
+      };
     },
 
     getRefreshCharacterQueue() {

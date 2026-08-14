@@ -77,6 +77,11 @@ export {
   validatePercentileAnchors,
   validateTierFactors,
   validateSpecAssignments,
+  characterMedianOfEightLevels,
+  empiricalCdfQuantile,
+  isCompleteEightDungeonLevels,
+  medianKeySnapshotIdentityHash,
+  pointsFromHistogram,
 } from "./context/index.js";
 export type {
   ApplyScoreContextInput,

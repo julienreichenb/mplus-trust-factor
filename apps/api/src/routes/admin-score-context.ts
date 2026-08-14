@@ -148,6 +148,47 @@ export function buildAdminScoreContextRoutes(container: ApiContainer): FastifyPl
     );
 
     app.post(
+      "/api/v1/admin/seasons/:seasonId/score-context/key-distribution/refresh",
+      {
+        preHandler: createPermissionPreHandler(container.env, PERMISSIONS.ADMIN_SCORING_MANAGE, {
+          allowEmergencyAdminKey: true,
+          auditAction: "admin.scoring.manage",
+        }),
+        schema: { tags: ["admin"], params: uuidParams },
+      },
+      async (request) => {
+        const { seasonId } = request.params as { seasonId: string };
+        return service.enqueueKeyDistributionRefresh(seasonId, auditCtx(request), request.auth?.user?.id ?? null);
+      },
+    );
+
+    app.get(
+      "/api/v1/admin/seasons/:seasonId/score-context/key-distribution/status",
+      {
+        schema: { tags: ["admin"], params: uuidParams },
+      },
+      async (request) => {
+        const { seasonId } = request.params as { seasonId: string };
+        return service.getKeyDistributionStatus(seasonId);
+      },
+    );
+
+    app.post(
+      "/api/v1/admin/score-context/revisions/:revisionId/use-latest-distribution",
+      {
+        preHandler: createPermissionPreHandler(container.env, PERMISSIONS.ADMIN_SCORING_MANAGE, {
+          allowEmergencyAdminKey: true,
+          auditAction: "admin.scoring.manage",
+        }),
+        schema: { tags: ["admin"], params: revisionParams },
+      },
+      async (request) => {
+        const { revisionId } = request.params as { revisionId: string };
+        return service.useLatestDistribution(revisionId, auditCtx(request));
+      },
+    );
+
+    app.post(
       "/api/v1/admin/score-context/revisions/:revisionId/publish",
       {
         preHandler: createPermissionPreHandler(container.env, PERMISSIONS.ADMIN_SCORING_MANAGE, {

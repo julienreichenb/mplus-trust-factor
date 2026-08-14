@@ -3,6 +3,7 @@
  * the worker's DI container, repositories, queue producers, and dedupe helpers.
  */
 export { createWorkerContainer, type WorkerContainer, type WorkerContainerOverrides, type WorkerProviders } from "./container.js";
+export { runKeyDistributionRefresh, ingestFromLocalAddonFiles } from "./orchestration/key-distribution-refresh.js";
 
 export {
   analyzeEvidenceSlotV2DedupeKey,

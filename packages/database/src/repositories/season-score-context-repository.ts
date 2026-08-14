@@ -104,6 +104,7 @@ export class SeasonScoreContextRepository {
     collectedAt: Date;
     effectiveAt?: Date | null;
     points: unknown;
+    contentHash?: string;
   }) {
     const validated = validateMedianKeyDistributionPoints(input.points);
     if (!validated.ok) {
@@ -116,7 +117,7 @@ export class SeasonScoreContextRepository {
       where: {
         seasonId_contentHash: {
           seasonId: input.seasonId,
-          contentHash: validated.value.contentHash,
+          contentHash: input.contentHash ?? validated.value.contentHash,
         },
       },
       create: {
@@ -126,7 +127,7 @@ export class SeasonScoreContextRepository {
         sourceVersion: input.sourceVersion ?? null,
         collectedAt: input.collectedAt,
         effectiveAt: input.effectiveAt ?? null,
-        contentHash: validated.value.contentHash,
+        contentHash: input.contentHash ?? validated.value.contentHash,
         points: validated.value.points as unknown as Prisma.InputJsonValue,
       },
       update: {},

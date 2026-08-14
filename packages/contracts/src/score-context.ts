@@ -16,9 +16,28 @@ export function formatPercentileBpsLabel(bps: number | null | undefined): string
   return `P${pct.toFixed(1).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
+export const PERCENTILE_BPS_P60 = 6000 as const;
+export const PERCENTILE_BPS_P75 = 7500 as const;
 export const PERCENTILE_BPS_P90 = 9000 as const;
 export const PERCENTILE_BPS_P99 = 9900 as const;
 export const PERCENTILE_BPS_P99_9 = 9990 as const;
+
+/** Production Key Context percentile set (not P50/P95). */
+export const KEY_CONTEXT_PERCENTILE_BPS = [
+  PERCENTILE_BPS_P60,
+  PERCENTILE_BPS_P75,
+  PERCENTILE_BPS_P90,
+  PERCENTILE_BPS_P99,
+  PERCENTILE_BPS_P99_9,
+] as const;
+
+export const RAIDER_IO_ADDON_DISTRIBUTION_SOURCE = "RAIDER_IO_ADDON" as const;
+
+export const KEY_DISTRIBUTION_INCLUSION_ALL_8 =
+  "ALL_8_CURRENT_DUNGEON_LEVELS_GT_0" as const;
+
+/** Admin Key/Meta scoring region for this workstream. */
+export const ADMIN_SCORING_DEFAULT_REGION = "EU" as const;
 
 export type ScoreContextStatus =
   | "AVAILABLE"
