@@ -113,6 +113,64 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(dto.explanation).toMatchObject({ composite: 73.421 });
   });
 
+  it("product grade follows FINAL SCORE, not raw composite", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 75,
+        contextualScore: 93.75,
+        tier: "S",
+        dimensionDetails: {
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 2,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 75,
+            rawGrade: "B",
+            finalGrade: "S",
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns: [],
+              medianKeyLevel: 20,
+              appliedAnchorPercentileBps: 9000,
+              appliedAnchorKeyThreshold: 16,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.25,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "MANUAL_IMPORT",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "AVAILABLE",
+              classSlug: "mage",
+              specSlug: "fire",
+              specSource: "test",
+              tier: 5,
+              factor: 1,
+              reason: null,
+            },
+            combinedFactor: 1.25,
+            preClampAdjustedScore: 93.75,
+            wasClamped: false,
+            finalScore: 93.75,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6, gradeThresholds: { S: 90, A: 80, B: 65, C: 50 } },
+    );
+    expect(dto.overallScore).toBe(93.75);
+    expect(dto.grade).toBe("S");
+    expect(dto.scoreContext?.rawGrade).toBe("B");
+    expect(dto.scoreContext?.finalGrade).toBe("S");
+    expect(dto.explanation).toMatchObject({ composite: 75 });
+  });
+
   it("does not keep stale tier=U when P/U/S composite is calculable", () => {
     const dto = mapCharacterScoreToSnapshotDto(
       {

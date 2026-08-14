@@ -1,5 +1,8 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { NONE_CONTEXT_REVISION_KEY } from "./season-score-context-repository.js";
+import {
+  NONE_CONTEXT_REVISION_KEY,
+  SeasonScoreContextRepository,
+} from "./season-score-context-repository.js";
 
 export interface CharacterScoreIdentity {
   characterId: string;
@@ -39,9 +42,51 @@ export class CharacterScoreRepository {
     });
   }
 
+  /**
+   * Timestamp-latest row (any season/revision). Prefer
+   * {@link findAuthoritativeForCharacter} for product reads.
+   */
   async findLatestForCharacter(characterId: string) {
     return this.prisma.characterScore.findFirst({
       where: { characterId },
+      orderBy: { calculatedAt: "desc" },
+      include: { season: { select: { slug: true } } },
+    });
+  }
+
+  /**
+   * Product authority: pick the season from the latest-calculated CharacterScore,
+   * then prefer the row matching that season's published context revision.
+   * While N+1 is published but not yet recalculated, keep the latest existing
+   * row for that season + scoringVersion (typically N). Historical N rows remain.
+   */
+  async findAuthoritativeForCharacter(characterId: string) {
+    const latest = await this.findLatestForCharacter(characterId);
+    if (!latest) return null;
+
+    const published = await new SeasonScoreContextRepository(this.prisma).findPublishedForSeason(
+      latest.seasonId,
+    );
+    const contextRevisionKey = published?.id ?? NONE_CONTEXT_REVISION_KEY;
+    const preferred = await this.prisma.characterScore.findUnique({
+      where: {
+        characterId_seasonId_scoringVersion_contextRevisionKey: {
+          characterId: latest.characterId,
+          seasonId: latest.seasonId,
+          scoringVersion: latest.scoringVersion,
+          contextRevisionKey,
+        },
+      },
+      include: { season: { select: { slug: true } } },
+    });
+    if (preferred) return preferred;
+
+    return this.prisma.characterScore.findFirst({
+      where: {
+        characterId: latest.characterId,
+        seasonId: latest.seasonId,
+        scoringVersion: latest.scoringVersion,
+      },
       orderBy: { calculatedAt: "desc" },
       include: { season: { select: { slug: true } } },
     });

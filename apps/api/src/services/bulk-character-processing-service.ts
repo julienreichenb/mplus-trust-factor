@@ -10,6 +10,7 @@ import type {
 } from "@mplus/contracts";
 import {
   BULK_OPERATION_ITEMS_DETAIL_LIMIT,
+  BULK_EXPLICIT_CHARACTER_IDS_MAX,
   bulkCharacterProcessingInputSchema,
   isExplicitBulkCharacterSelection,
 } from "@mplus/contracts";
@@ -255,22 +256,29 @@ export class BulkCharacterProcessingService {
     },
   ): Promise<BulkOperationDTO | null> {
     if (input.characterIds.length === 0) return null;
-    const explicit = input.characterIds.length <= 500;
-    return this.create(
-      {
-        mode: "RECALCULATE_ONLY",
-        minMythicPlusScore: null,
-        scoreModelId: input.scoreModelId,
-        batchSize: 25,
-        maxCharacters: null,
-        maxWclCalls: null,
-        dryRun: false,
-        allowFullRefreshOnIncompatible: false,
-        logicalKey: `season-context:${input.seasonId}`,
-        characterIds: explicit ? input.characterIds : null,
-      },
-      { createdByUserId: input.createdByUserId ?? null },
-    );
+    let first: BulkOperationDTO | null = null;
+    for (let offset = 0; offset < input.characterIds.length; offset += BULK_EXPLICIT_CHARACTER_IDS_MAX) {
+      const chunk = input.characterIds.slice(offset, offset + BULK_EXPLICIT_CHARACTER_IDS_MAX);
+      const chunkIndex = Math.floor(offset / BULK_EXPLICIT_CHARACTER_IDS_MAX);
+      const operation = await this.create(
+        {
+          mode: "RECALCULATE_ONLY",
+          minMythicPlusScore: null,
+          scoreModelId: input.scoreModelId,
+          batchSize: 25,
+          maxCharacters: null,
+          maxWclCalls: null,
+          dryRun: false,
+          allowFullRefreshOnIncompatible: false,
+          logicalKey: `season-context:${input.seasonId}:chunk:${chunkIndex}`,
+          characterIds: chunk,
+          pinnedSeasonId: input.seasonId,
+        },
+        { createdByUserId: input.createdByUserId ?? null },
+      );
+      first ??= operation;
+    }
+    return first;
   }
 
   async list(limit = 50): Promise<BulkOperationDTO[]> {

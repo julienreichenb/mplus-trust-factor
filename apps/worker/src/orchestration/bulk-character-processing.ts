@@ -104,7 +104,15 @@ function readCharacterIdsFromSnapshot(snapshot: unknown): string[] | null {
 }
 
 /** Exported for unit tests — durable explicit ID resume from configSnapshot. */
-export { readCharacterIdsFromSnapshot };
+function readPinnedSeasonIdFromSnapshot(snapshot: unknown): string | null {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  const raw = (snapshot as Record<string, unknown>).pinnedSeasonId;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
+export { readCharacterIdsFromSnapshot, readPinnedSeasonIdFromSnapshot, enqueueChildForItem as enqueueBulkChildForItem };
 
 async function enqueueChildForItem(
   container: WorkerContainer,
@@ -118,6 +126,7 @@ async function enqueueChildForItem(
   },
   mode: BulkMode,
   scoreModel: { key: string; version: number },
+  pinnedSeasonId: string | null,
 ): Promise<EnqueueResult & { childJobType: string }> {
   if (!item.characterId) {
     throw new CharacterDeletedError(null);
@@ -141,12 +150,16 @@ async function enqueueChildForItem(
   if (!character) {
     throw new CharacterDeletedError(characterId);
   }
-  const season = await requireEffectiveScoringSeasonRow(container.prisma, {
-    regionId: character.regionId,
-  });
+  let seasonId = pinnedSeasonId;
+  if (!seasonId) {
+    const season = await requireEffectiveScoringSeasonRow(container.prisma, {
+      regionId: character.regionId,
+    });
+    seasonId = season.id;
+  }
   const result = await producers.enqueueRecalculateScore({
     characterId,
-    seasonId: season.id,
+    seasonId,
     scoreModelKey: scoreModel.key,
     scoreModelVersion: scoreModel.version,
   });
@@ -264,7 +277,8 @@ export async function runBulkCharacterProcessing(
   if (!checkpoint.selectionComplete) {
     await repo.markSelecting(operation.id);
     const characterIds = readCharacterIdsFromSnapshot(operation.configSnapshot);
-    const rows = await repo.listSelectableCharacters(characterIds);
+    const pinnedSeasonId = readPinnedSeasonIdFromSnapshot(operation.configSnapshot);
+    const rows = await repo.listSelectableCharacters(characterIds, pinnedSeasonId);
     const characters = toSelectableCharacters(container, scoreModel, rows, operation.mode);
     const selection = selectBulkCharacters({
       mode: operation.mode,
@@ -443,7 +457,14 @@ export async function runBulkCharacterProcessing(
         : fresh.mode;
 
     try {
-      const child = await enqueueChildForItem(container, producers, item, effectiveMode, scoreModel);
+      const child = await enqueueChildForItem(
+        container,
+        producers,
+        item,
+        effectiveMode,
+        scoreModel,
+        readPinnedSeasonIdFromSnapshot(fresh.configSnapshot),
+      );
       await repo.updateItemStatus(item.id, {
         status: "ENQUEUED",
         childJobId: child.jobId,

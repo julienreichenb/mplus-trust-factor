@@ -10,9 +10,12 @@ import {
   type SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import { clamp } from "../math.js";
+import { gradeScore } from "../trust.js";
 import type { ScoringRunSelection } from "../selection/scoring-run-selection.js";
 import { computeTrueMedian } from "./median.js";
 import { pickStepBandAnchor, resolveAnchorsAgainstDistribution } from "./step-band.js";
+
+export const DEFAULT_CONTEXT_GRADE_THRESHOLDS = { S: 90, A: 80, B: 65, C: 50 } as const;
 
 export interface SeasonScoringSpecInput {
   classSlug: string | null;
@@ -26,6 +29,7 @@ export interface ApplyScoreContextInput {
   canonicalRunSelection: ScoringRunSelection | null;
   seasonContextRevision: SeasonScoreContextRevisionDoc | null;
   seasonScoringSpec: SeasonScoringSpecInput | null;
+  gradeThresholds?: { S: number; A: number; B: number; C: number };
 }
 
 export function isCompleteCanonicalRunSelection(
@@ -249,6 +253,9 @@ export function applyScoreContext(input: ApplyScoreContextInput): AppliedScoreCo
   const wasClamped = preClamp != null && finalScore != null && finalScore !== preClamp;
 
   const revision = input.seasonContextRevision;
+  const thresholds = input.gradeThresholds ?? DEFAULT_CONTEXT_GRADE_THRESHOLDS;
+  const rawGrade = rawOk ? gradeScore(raw, thresholds) : null;
+  const finalGrade = finalScore != null && Number.isFinite(finalScore) ? gradeScore(finalScore, thresholds) : null;
   return {
     schemaVersion: SCORE_CONTEXT_SCHEMA_VERSION,
     seasonId: input.seasonId,
@@ -263,6 +270,8 @@ export function applyScoreContext(input: ApplyScoreContextInput): AppliedScoreCo
     preClampAdjustedScore: preClamp,
     wasClamped,
     finalScore,
+    rawGrade,
+    finalGrade,
   };
 }
 
@@ -275,6 +284,8 @@ export function toScoreContextProjection(applied: AppliedScoreContext) {
     preClampAdjustedScore: applied.preClampAdjustedScore,
     wasClamped: applied.wasClamped,
     finalScore: applied.finalScore,
+    rawGrade: applied.rawGrade ?? null,
+    finalGrade: applied.finalGrade ?? null,
     contextRevisionId: applied.contextRevisionId,
     contextRevisionVersion: applied.contextRevisionVersion,
   };

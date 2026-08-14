@@ -10,6 +10,7 @@ export {
   defaultNeutralTierFactors,
   isCompleteCanonicalRunSelection,
   toScoreContextProjection,
+  DEFAULT_CONTEXT_GRADE_THRESHOLDS,
   type ApplyScoreContextInput,
   type SeasonScoringSpecInput,
 } from "./apply-score-context.js";

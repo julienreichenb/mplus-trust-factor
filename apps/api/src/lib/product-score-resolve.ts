@@ -5,6 +5,10 @@
  * the website. Published ScoreSnapshot is used only when no CharacterScore exists.
  * This prevents SCORING_PUBLICATION_ENABLED / stale published U from masking a
  * fresh operational composite.
+ *
+ * Revision authority: prefer the CharacterScore matching the published context
+ * revision for the score's season. While N+1 is published but not yet persisted,
+ * keep showing the latest existing row for that season (typically N).
  */
 import type { ScoreSnapshotDTO } from "@mplus/contracts";
 import { CharacterScoreRepository, type PrismaClient } from "@mplus/database";
@@ -36,7 +40,7 @@ export async function resolveProductScoreDto(input: {
   gradeThresholds?: { S: number; A: number; B: number; C: number };
 }): Promise<ResolvedProductScore> {
   const scores = new CharacterScoreRepository(input.prisma);
-  const row = await scores.findLatestForCharacter(input.characterId);
+  const row = await scores.findAuthoritativeForCharacter(input.characterId);
   const publishedDto = input.publishedSnapshot
     ? mapScoreSnapshot(input.publishedSnapshot)
     : null;

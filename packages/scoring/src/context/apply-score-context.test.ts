@@ -355,4 +355,148 @@ describe("distribution import validation", () => {
     ]);
     expect(result.ok).toBe(false);
   });
+
+  it("rejects percentile outside 1..10000", () => {
+    expect(
+      validateMedianKeyDistributionPoints([{ percentileBps: 0, medianKeyThreshold: 20 }]).ok,
+    ).toBe(false);
+    expect(
+      validateMedianKeyDistributionPoints([{ percentileBps: 10001, medianKeyThreshold: 20 }]).ok,
+    ).toBe(false);
+  });
+
+  it("rejects NaN and Infinity thresholds", () => {
+    expect(
+      validateMedianKeyDistributionPoints([{ percentileBps: 9000, medianKeyThreshold: Number.NaN }]).ok,
+    ).toBe(false);
+    expect(
+      validateMedianKeyDistributionPoints([
+        { percentileBps: 9000, medianKeyThreshold: Number.POSITIVE_INFINITY },
+      ]).ok,
+    ).toBe(false);
+  });
+
+  it("rejects malformed median key values", () => {
+    expect(
+      validateMedianKeyDistributionPoints([{ percentileBps: 9000, medianKeyThreshold: "20" }]).ok,
+    ).toBe(false);
+    expect(validateMedianKeyDistributionPoints("not-an-array").ok).toBe(false);
+  });
+});
+
+describe("raw vs final grade", () => {
+  const thresholds = { S: 90, A: 80, B: 65, C: 50 };
+
+  it("A: neutral factors keep identical raw/final grades", () => {
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 75,
+      canonicalRunSelection: selection([20, 20, 20, 20, 20, 20, 20, 20]),
+      seasonContextRevision: revision({
+        percentileAnchors: [{ percentileBps: 9000, factor: 1 }],
+        distribution: {
+          id: "dist-1",
+          seasonId: "season-a",
+          source: "MANUAL_IMPORT",
+          provenance: {},
+          sourceVersion: "v1",
+          collectedAt: "2026-01-01T00:00:00.000Z",
+          effectiveAt: null,
+          contentHash: "x",
+          points: [{ percentileBps: 9000, medianKeyThreshold: 16 }],
+        },
+      }),
+      seasonScoringSpec: { classSlug: "mage", specSlug: "arcane", source: "test" },
+      gradeThresholds: thresholds,
+    });
+    expect(applied.finalScore).toBe(75);
+    expect(applied.rawGrade).toBe("B");
+    expect(applied.finalGrade).toBe("B");
+  });
+
+  it("B: promotion uses finalScore thresholds (75 × 1.25 → 93.75 S)", () => {
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 75,
+      canonicalRunSelection: selection([20, 20, 20, 20, 20, 20, 20, 20]),
+      seasonContextRevision: revision({
+        percentileAnchors: [{ percentileBps: 9000, factor: 1.25 }],
+        specAssignments: [{ classSlug: "mage", specSlug: "fire", tier: 5 }],
+        tierFactors: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+        distribution: {
+          id: "dist-1",
+          seasonId: "season-a",
+          source: "MANUAL_IMPORT",
+          provenance: {},
+          sourceVersion: "v1",
+          collectedAt: "2026-01-01T00:00:00.000Z",
+          effectiveAt: null,
+          contentHash: "x",
+          points: [{ percentileBps: 9000, medianKeyThreshold: 16 }],
+        },
+      }),
+      seasonScoringSpec: { classSlug: "mage", specSlug: "fire", source: "test" },
+      gradeThresholds: thresholds,
+    });
+    expect(applied.rawGrade).toBe("B");
+    expect(applied.finalScore).toBe(93.75);
+    expect(applied.finalGrade).toBe("S");
+  });
+
+  it("C: penalty can drop S to A", () => {
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 92,
+      canonicalRunSelection: selection([16, 16, 16, 16, 16, 16, 16, 16]),
+      seasonContextRevision: revision({
+        percentileAnchors: [{ percentileBps: 9000, factor: 0.9 }],
+        distribution: {
+          id: "dist-1",
+          seasonId: "season-a",
+          source: "MANUAL_IMPORT",
+          provenance: {},
+          sourceVersion: "v1",
+          collectedAt: "2026-01-01T00:00:00.000Z",
+          effectiveAt: null,
+          contentHash: "x",
+          points: [{ percentileBps: 9000, medianKeyThreshold: 20 }],
+        },
+      }),
+      seasonScoringSpec: { classSlug: "mage", specSlug: "arcane", source: "test" },
+      gradeThresholds: thresholds,
+    });
+    expect(applied.rawGrade).toBe("S");
+    expect(applied.finalScore).toBeCloseTo(82.8, 5);
+    expect(applied.finalGrade).toBe("A");
+  });
+
+  it("D: clamp 90 × 1.5 → 100 grades from 100", () => {
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 90,
+      canonicalRunSelection: selection([24, 24, 24, 24, 24, 24, 24, 24]),
+      seasonContextRevision: revision({
+        percentileAnchors: [{ percentileBps: 9990, factor: 1.5 }],
+        specAssignments: [{ classSlug: "mage", specSlug: "fire", tier: 5 }],
+        tierFactors: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+        distribution: {
+          id: "dist-1",
+          seasonId: "season-a",
+          source: "MANUAL_IMPORT",
+          provenance: {},
+          sourceVersion: "v1",
+          collectedAt: "2026-01-01T00:00:00.000Z",
+          effectiveAt: null,
+          contentHash: "x",
+          points: [{ percentileBps: 9990, medianKeyThreshold: 16 }],
+        },
+      }),
+      seasonScoringSpec: { classSlug: "mage", specSlug: "fire", source: "test" },
+      gradeThresholds: thresholds,
+    });
+    expect(applied.preClampAdjustedScore).toBe(135);
+    expect(applied.wasClamped).toBe(true);
+    expect(applied.finalScore).toBe(100);
+    expect(applied.finalGrade).toBe("S");
+  });
 });

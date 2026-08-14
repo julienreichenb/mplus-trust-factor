@@ -302,6 +302,11 @@ export const bulkCharacterProcessingInputSchema = z
      * Must not be combined with minMythicPlusScore or maxCharacters.
      */
     characterIds: z.array(z.string().uuid()).max(BULK_EXPLICIT_CHARACTER_IDS_MAX).nullable().optional(),
+    /**
+     * When set, RECALCULATE_ONLY child jobs score this season even if the
+     * global effective scoring season changes before execution.
+     */
+    pinnedSeasonId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (Array.isArray(data.characterIds) && data.characterIds.length === 0) {

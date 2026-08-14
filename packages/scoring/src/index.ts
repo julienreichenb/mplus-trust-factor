@@ -72,6 +72,7 @@ export {
   pickStepBandAnchor,
   resolveAnchorsAgainstDistribution,
   toScoreContextProjection,
+  DEFAULT_CONTEXT_GRADE_THRESHOLDS,
   validateMedianKeyDistributionPoints,
   validatePercentileAnchors,
   validateTierFactors,

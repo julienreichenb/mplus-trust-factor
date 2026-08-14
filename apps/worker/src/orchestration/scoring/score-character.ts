@@ -450,6 +450,7 @@ export async function scoreCharacter(
       specSlug: input.specSlug,
       source: "SEASON_SCORING_IDENTITY",
     },
+    gradeThresholds,
   });
 
   const contextualScore = appliedContext.finalScore;

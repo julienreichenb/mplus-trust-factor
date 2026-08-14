@@ -416,9 +416,12 @@ export function mapCharacterScoreToSnapshotDto(
       ? row.confidence
       : partial.confidence;
   const gradeThresholds = opts?.gradeThresholds ?? { S: 90, A: 80, B: 65, C: 50 };
+  const hasContextualFinal =
+    (row.contextualScore != null && Number.isFinite(row.contextualScore)) ||
+    (applied?.finalScore != null && Number.isFinite(applied.finalScore));
   const grade: Grade =
-    applied?.finalScore != null && Number.isFinite(applied.finalScore)
-      ? gradeScore(applied.finalScore, gradeThresholds)
+    hasContextualFinal
+      ? (applied?.finalGrade ?? gradeScore(overallScore, gradeThresholds))
       : partial.grade;
 
   const performanceSummary = projectPerformanceSummaryFromDimensionDetails(

@@ -33,4 +33,31 @@ describe("BulkCharacterProcessingService Agent 08 hook", () => {
       { createdByUserId: "user-1" },
     );
   });
+
+  it("enqueueRecalculateForSeasonScores pins season and never cohort-falls-back", async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: "op-1",
+      mode: "RECALCULATE_ONLY",
+    });
+    const service = Object.create(BulkCharacterProcessingService.prototype) as BulkCharacterProcessingService;
+    (service as unknown as { create: typeof create }).create = create;
+    const ids = Array.from({ length: 2 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+
+    await service.enqueueRecalculateForSeasonScores({
+      seasonId: "11111111-1111-4111-8111-111111111111",
+      scoreModelId: null,
+      characterIds: ids,
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "RECALCULATE_ONLY",
+        characterIds: ids,
+        pinnedSeasonId: "11111111-1111-4111-8111-111111111111",
+        logicalKey: "season-context:11111111-1111-4111-8111-111111111111:chunk:0",
+      }),
+      expect.anything(),
+    );
+    expect(create.mock.calls[0]?.[0].characterIds).not.toBeNull();
+  });
 });

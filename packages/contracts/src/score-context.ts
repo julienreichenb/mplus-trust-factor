@@ -1,3 +1,5 @@
+import type { Grade } from "./scoring.js";
+
 /**
  * Season-scoped key-difficulty + spec-meta context applied after the raw composite.
  * Pure types — no Prisma. Percentile identity is integer basis points (P90 = 9000).
@@ -111,6 +113,10 @@ export interface AppliedScoreContext {
   preClampAdjustedScore: number | null;
   wasClamped: boolean;
   finalScore: number | null;
+  /** Letter grade of rawScoreBeforeContext (P/S/U/E aggregate). Null when raw is missing. */
+  rawGrade: Exclude<Grade, "U"> | null;
+  /** Letter grade of finalScore (product FINAL SCORE). Null when final is missing. */
+  finalGrade: Exclude<Grade, "U"> | null;
 }
 
 export interface ScoreSnapshotContextProjection {
@@ -121,6 +127,8 @@ export interface ScoreSnapshotContextProjection {
   preClampAdjustedScore: number | null;
   wasClamped: boolean;
   finalScore: number | null;
+  rawGrade: Exclude<Grade, "U"> | null;
+  finalGrade: Exclude<Grade, "U"> | null;
   contextRevisionId: string | null;
   contextRevisionVersion: number | null;
 }

@@ -601,7 +601,7 @@ describe("runBulkCharacterProcessing hardening", () => {
       producers,
     );
     expect(result.status).toBe("DRY_RUN_COMPLETED");
-    expect(listSelectableCharacters).toHaveBeenCalledWith([idC, idA]);
+    expect(listSelectableCharacters).toHaveBeenCalledWith([idC, idA], null);
     const savedItems = saveSelection.mock.calls[0]![0] as never;
     // saveSelection(id, input) — second arg holds items
     const selectionInput = saveSelection.mock.calls[0]![1] as {
@@ -666,7 +666,7 @@ describe("runBulkCharacterProcessing hardening", () => {
       { bulkOperationId: operation.id, requestedAt: new Date().toISOString() },
       producers,
     );
-    expect(listSelectableCharacters).toHaveBeenCalledWith(null);
+    expect(listSelectableCharacters).toHaveBeenCalledWith(null, null);
   });
 
   it("fails closed when explicit characterIds in configSnapshot are corrupt", async () => {

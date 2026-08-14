@@ -53,6 +53,10 @@ describe("resolveProductScoreDto", () => {
           selectedRuns: [],
           season: { slug: "blizzard-season-17" },
         })),
+        findUnique: vi.fn(async () => null),
+      },
+      seasonScoreContextRevision: {
+        findFirst: vi.fn(async () => null),
       },
     };
 
