@@ -3,7 +3,7 @@ export * from "./zone-catalog-registry.js";
 export * from "./catalog-metadata.js";
 export * from "./catalog-readiness.js";
 export * from "./resolve.js";
-export * from "./synchronize.js";
+export * from "./ensure-season-data-ready.js";
 export * from "./repair.js";
 export * from "./selection-setting.js";
 export * from "./effective-scoring-season.js";

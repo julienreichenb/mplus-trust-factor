@@ -44,6 +44,18 @@ const scoringSeasonStatus = {
     catalogReady: true,
   },
   pinnedDiffersFromDetected: false,
+  seasonData: {
+    blizzardSeasonId: 17,
+    selectionMode: "AUTO" as const,
+    identityReady: true,
+    catalogReady: true,
+    dungeonCount: 8,
+    expectedDungeonCount: 8,
+    wclZoneId: 47,
+    reasons: [],
+    lastCatalogSynchronizedAt: null,
+    medianKeyDistribution: { status: "Ready", snapshotId: "snap-1", source: "RAIDER_IO_ADDON", sourceVersion: "v1", collectedAt: null },
+  },
   seasons: [],
 };
 
@@ -199,5 +211,25 @@ describe("AdminMiscPage", () => {
     expect(wrapper.get("[data-testid='effective-scoring-season']").text()).toBe(
       "Blizzard Season 17 / Blizzard 17",
     );
+  });
+
+  it("posts synchronize-data and shows season catalog diagnostics", async () => {
+    const wrapper = await mountPage();
+    expect(wrapper.get("[data-testid='season-data-dungeons']").text()).toMatch(/8/);
+    expect(wrapper.get("[data-testid='season-data-wcl']").text()).toMatch(/zone 47/);
+    fetchMock.mockClear();
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/synchronize-data") && init?.method === "POST") {
+        return jsonResponse({ ok: true, status: scoringSeasonStatus });
+      }
+      return jsonResponse(scoringSeasonStatus);
+    });
+    await wrapper.get("[data-testid='sync-season-data-button']").trigger("click");
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/admin/misc/scoring-season/synchronize-data"),
+      expect.objectContaining({ method: "POST", credentials: "include" }),
+    );
+    expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/synchronized/i);
   });
 });

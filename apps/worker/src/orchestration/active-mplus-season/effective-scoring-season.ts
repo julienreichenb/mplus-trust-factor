@@ -23,7 +23,7 @@ import {
 } from "../season-authority.js";
 import { evaluateSeasonCatalogReadiness } from "./catalog-readiness.js";
 import { getScoringSeasonSelection } from "./selection-setting.js";
-import { synchronizeActiveMplusSeasonCatalog } from "./synchronize.js";
+import { ensureSeasonDataReady } from "./ensure-season-data-ready.js";
 import {
   ActiveMplusSeasonAmbiguousError,
   ActiveMplusSeasonCatalogIncompleteError,
@@ -213,56 +213,23 @@ export async function resolveEffectiveScoringSeason(
   let catalogSource: EffectiveScoringSeason["catalogSource"] = "season_dungeon_bindings";
 
   if (!readiness.ready) {
-    if (selection.mode === "PINNED") {
-      throw new SeasonDungeonBindingsMissingError(
-        `PINNED blizzard season ${effectiveBlizzardSeasonId} catalog not ready: ${readiness.reasons.join(",")}`,
-      );
-    }
-
-    // AUTO bootstrap via WCL WorldData — never reuse previous season.
-    if (!input.discoverActiveMplusCatalog) {
-      throw new ActiveMplusSeasonCatalogIncompleteError(
-        `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: blizzard season ${effectiveBlizzardSeasonId} ` +
-          `catalog incomplete (${readiness.reasons.join(",")}) and no WCL discoverer configured`,
-      );
-    }
-
-    const discovered = await input.discoverActiveMplusCatalog({
-      blizzardSeasonId: effectiveBlizzardSeasonId,
-    });
-
-    // Never activate (flip isCurrent) — Blizzard authority owns isCurrent.
-    await synchronizeActiveMplusSeasonCatalog({
+    const prep = await ensureSeasonDataReady({
       prisma: input.prisma,
+      logger: input.logger,
       regionId: input.regionId,
       regionCode: input.regionCode,
       blizzardSeasonId: effectiveBlizzardSeasonId,
-      catalog: {
-        wclZoneId: discovered.wclZoneId,
-        blizzardSeasonId: discovered.blizzardSeasonId,
-        expansionIdentity: discovered.expansionIdentity,
-        displayName: discovered.displayName,
-        dungeonSlugs: discovered.dungeonSlugs,
-        encounterIds: discovered.encounterIds,
-      },
-      activate: false,
+      selectionMode: selection.mode,
+      discoverActiveMplusCatalog:
+        selection.mode === "AUTO" ? input.discoverActiveMplusCatalog : undefined,
       now: nowFn(),
     });
-
-    bootstrapped = true;
-    catalogSource = "warcraftlogs_world_data";
-
-    input.logger.info(
-      {
-        event: "active_mplus_catalog_bootstrapped",
-        region: input.regionCode.toUpperCase(),
-        blizzardSeasonId: effectiveBlizzardSeasonId,
-        wclZoneId: discovered.wclZoneId,
-        dungeonCount: discovered.dungeonSlugs.length,
-        source: "warcraftlogs_world_data",
-      },
-      "active mplus catalog bootstrapped from WCL WorldData",
-    );
+    bootstrapped = prep.catalogSynced;
+    if (prep.catalogSource === "warcraftlogs_world_data") {
+      catalogSource = "warcraftlogs_world_data";
+    } else if (prep.catalogSynced) {
+      catalogSource = "synchronized_metadata";
+    }
 
     const reloaded = await loadSeasonByBlizzardId(
       input.prisma,
@@ -277,6 +244,11 @@ export async function resolveEffectiveScoringSeason(
     season = reloaded;
     readiness = await evaluateSeasonCatalogReadiness(input.prisma, season);
     if (!readiness.ready) {
+      if (selection.mode === "PINNED") {
+        throw new SeasonDungeonBindingsMissingError(
+          `PINNED blizzard season ${effectiveBlizzardSeasonId} catalog not ready: ${readiness.reasons.join(",")}`,
+        );
+      }
       throw new ActiveMplusSeasonCatalogIncompleteError(
         `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: after bootstrap still not ready: ${readiness.reasons.join(",")}`,
       );

@@ -11,6 +11,10 @@ import {
   ScoringSeasonSelectionConflictError,
   ScoringSeasonNotPinnableError,
   isNonProductSeasonSlug,
+  ensureSeasonDataReady,
+  requestKeyDistributionRefreshJob,
+  readActiveMplusCatalogMetadata,
+  resolveScoringCatalogDiscoverer,
 } from "@mplus/worker";
 import type {
   AdminRealmSyncResponse,
@@ -155,7 +159,7 @@ export class AdminMiscService {
         wclZoneId: readiness.wclZoneId,
         startsAt: season.startsAt?.toISOString() ?? null,
         endsAt: season.endsAt?.toISOString() ?? null,
-        pinnable: readiness.ready && season.blizzardSeasonId != null,
+        pinnable: season.blizzardSeasonId != null,
       });
     }
 
@@ -199,6 +203,14 @@ export class AdminMiscService {
         selectionRow.selection.mode === "PINNED" &&
         detected?.blizzardSeasonId != null &&
         selectionRow.selection.blizzardSeasonId !== detected.blizzardSeasonId,
+      seasonData: await this.buildSeasonDataStatus({
+        prisma,
+        regionId: region.id,
+        regionCode: region.code.toUpperCase(),
+        selectionMode: selectionRow.selection.mode,
+        effectiveSeasonId: effective?.id ?? null,
+        blizzardSeasonId: effectiveBlizzardId,
+      }),
       seasons: options,
     };
   }
@@ -232,7 +244,13 @@ export class AdminMiscService {
           `No Season row for Blizzard season ${input.body.blizzardSeasonId} in ${regionCode}`,
         );
       }
-      const readiness = await evaluateSeasonCatalogReadiness(prisma, season);
+      await this.runSeasonDataSync({
+        regionId: region.id,
+        regionCode,
+        blizzardSeasonId: input.body.blizzardSeasonId,
+        selectionMode: "PINNED",
+      });
+      const readiness = await evaluateSeasonCatalogReadiness(prisma, await prisma.season.findUniqueOrThrow({ where: { id: season.id } }));
       if (!readiness.ready) {
         throw HttpError.badRequest(
           "SCORING_SEASON_NOT_PINNABLE",
@@ -270,7 +288,175 @@ export class AdminMiscService {
       },
     });
 
+    if (input.body.mode === "AUTO") {
+      const region = await prisma.region.findFirst({
+        where: { code: { equals: regionCode, mode: "insensitive" } },
+      });
+      const current = region
+        ? await prisma.season.findFirst({
+            where: { regionId: region.id, isCurrent: true },
+            orderBy: { updatedAt: "desc" },
+          })
+        : null;
+      if (region && current?.blizzardSeasonId != null) {
+        await this.runSeasonDataSync({
+          regionId: region.id,
+          regionCode,
+          blizzardSeasonId: current.blizzardSeasonId,
+          selectionMode: "AUTO",
+        });
+      }
+    }
+
     return this.getScoringSeasonSelectionStatus({ regionCode });
+  }
+
+  async synchronizeSeasonData(input: { regionCode?: string | null }): Promise<{
+    ok: true;
+    sync: Awaited<ReturnType<typeof ensureSeasonDataReady>>;
+    status: ScoringSeasonSelectionStatusDTO;
+  }> {
+    const prisma = this.container.worker.prisma;
+    const regionCode = (input.regionCode ?? "EU").trim().toUpperCase();
+    const region = await prisma.region.findFirst({
+      where: { code: { equals: regionCode, mode: "insensitive" } },
+    });
+    if (!region) {
+      throw HttpError.badRequest("REGION_NOT_FOUND", `Region ${regionCode} not found`);
+    }
+    const status = await this.getScoringSeasonSelectionStatus({ regionCode });
+    const blizzardSeasonId = status.effectiveScoringSeason?.blizzardSeasonId;
+    if (blizzardSeasonId == null) {
+      throw HttpError.conflict(
+        "EFFECTIVE_SCORING_SEASON_MISSING",
+        "No effective scoring season is resolved to synchronize",
+      );
+    }
+    const sync = await this.runSeasonDataSync({
+      regionId: region.id,
+      regionCode,
+      blizzardSeasonId,
+      selectionMode: status.selection.mode,
+    });
+    return {
+      ok: true,
+      sync,
+      status: await this.getScoringSeasonSelectionStatus({ regionCode }),
+    };
+  }
+
+  private async runSeasonDataSync(input: {
+    regionId: string;
+    regionCode: string;
+    blizzardSeasonId: number;
+    selectionMode: "AUTO" | "PINNED";
+  }) {
+    const logger = createLogger({
+      level: this.container.env.LOG_LEVEL,
+      name: "admin-misc.season-data-sync",
+    });
+    const discoverer =
+      input.selectionMode === "AUTO"
+        ? resolveScoringCatalogDiscoverer({
+            warcraftlogs: this.container.worker.providers.warcraftlogs,
+            providerMode: this.container.env.PROVIDER_MODE,
+          })
+        : undefined;
+    return ensureSeasonDataReady({
+      prisma: this.container.worker.prisma,
+      logger,
+      regionId: input.regionId,
+      regionCode: input.regionCode,
+      blizzardSeasonId: input.blizzardSeasonId,
+      selectionMode: input.selectionMode,
+      discoverActiveMplusCatalog: discoverer,
+      requestDistributionRefresh: async ({ seasonId, regionCode }) => {
+        await requestKeyDistributionRefreshJob({
+          prisma: this.container.worker.prisma,
+          seasonId,
+          regionCode,
+          enqueue: (job) => this.container.producers.enqueueKeyDistributionRefresh(job),
+        });
+      },
+    });
+  }
+
+  private async buildSeasonDataStatus(input: {
+    prisma: ApiContainer["worker"]["prisma"];
+    regionId: string;
+    regionCode: string;
+    selectionMode: "AUTO" | "PINNED";
+    effectiveSeasonId: string | null;
+    blizzardSeasonId: number | null;
+  }): Promise<ScoringSeasonSelectionStatusDTO["seasonData"]> {
+    if (!input.effectiveSeasonId || input.blizzardSeasonId == null) {
+      return {
+        blizzardSeasonId: input.blizzardSeasonId,
+        selectionMode: input.selectionMode,
+        identityReady: false,
+        catalogReady: false,
+        dungeonCount: 0,
+        expectedDungeonCount: null,
+        wclZoneId: null,
+        reasons: ["effective_season_missing"],
+        lastCatalogSynchronizedAt: null,
+        medianKeyDistribution: null,
+      };
+    }
+    const season = await input.prisma.season.findUnique({ where: { id: input.effectiveSeasonId } });
+    if (!season) {
+      return {
+        blizzardSeasonId: input.blizzardSeasonId,
+        selectionMode: input.selectionMode,
+        identityReady: false,
+        catalogReady: false,
+        dungeonCount: 0,
+        expectedDungeonCount: null,
+        wclZoneId: null,
+        reasons: ["season_row_missing"],
+        lastCatalogSynchronizedAt: null,
+        medianKeyDistribution: null,
+      };
+    }
+    const readiness = await evaluateSeasonCatalogReadiness(input.prisma, season);
+    const meta = readActiveMplusCatalogMetadata(season.metadata);
+    const snapshot = await input.prisma.seasonMedianKeyDistributionSnapshot.findFirst({
+      where: { seasonId: season.id },
+      orderBy: { collectedAt: "desc" },
+    });
+    const refresh = await input.prisma.scoreContextKeyDistributionRefresh.findFirst({
+      where: { seasonId: season.id },
+      orderBy: { createdAt: "desc" },
+    });
+    const distStatus = snapshot
+      ? refresh?.status === "FAILED"
+        ? "Failed"
+        : refresh?.status === "RUNNING" || refresh?.status === "QUEUED"
+          ? refresh.status === "QUEUED"
+            ? "Queued"
+            : "Refreshing"
+          : "Ready"
+      : refresh?.status === "FAILED"
+        ? "Failed"
+        : "Missing";
+    return {
+      blizzardSeasonId: season.blizzardSeasonId,
+      selectionMode: input.selectionMode,
+      identityReady: season.blizzardSeasonId != null,
+      catalogReady: readiness.ready,
+      dungeonCount: readiness.dungeonCount,
+      expectedDungeonCount: readiness.expectedDungeonCount,
+      wclZoneId: readiness.wclZoneId,
+      reasons: readiness.reasons,
+      lastCatalogSynchronizedAt: meta?.synchronizedAt ?? null,
+      medianKeyDistribution: {
+        status: distStatus,
+        snapshotId: snapshot?.id ?? null,
+        source: snapshot?.source ?? null,
+        sourceVersion: snapshot?.sourceVersion ?? null,
+        collectedAt: snapshot?.collectedAt.toISOString() ?? null,
+      },
+    };
   }
 
   private normalizeRegions(raw: string[] | null | undefined): RegionCode[] | undefined {

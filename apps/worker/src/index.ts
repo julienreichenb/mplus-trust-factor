@@ -204,6 +204,51 @@ async function main(): Promise<void> {
   const producers = createQueueProducers(connection, container);
   const workers = createWorkers(connection, container);
 
+  try {
+    const { listPersistedRegionsForAuthority } = await import("./orchestration/season-authority.js");
+    const { peekEffectiveScoringSeasonRow } = await import(
+      "./orchestration/active-mplus-season/effective-season-peek.js"
+    );
+    const { ensureSeasonDataReady, requestKeyDistributionRefreshJob } = await import(
+      "./orchestration/active-mplus-season/ensure-season-data-ready.js"
+    );
+    const { resolveScoringCatalogDiscoverer } = await import(
+      "./orchestration/active-mplus-season/effective-scoring-season.js"
+    );
+    const discoverer = resolveScoringCatalogDiscoverer({
+      warcraftlogs: container.providers.warcraftlogs,
+      providerMode: env.PROVIDER_MODE,
+    });
+    const regions = await listPersistedRegionsForAuthority(container.prisma);
+    for (const region of regions) {
+      const peek = await peekEffectiveScoringSeasonRow(container.prisma, { regionId: region.id });
+      const blizzardSeasonId = peek?.blizzardSeasonId;
+      if (blizzardSeasonId == null || !peek) continue;
+      await ensureSeasonDataReady({
+        prisma: container.prisma,
+        logger: container.logger,
+        regionId: region.id,
+        regionCode: region.code,
+        blizzardSeasonId,
+        selectionMode: peek.selectionMode,
+        discoverActiveMplusCatalog: peek.selectionMode === "AUTO" ? discoverer : undefined,
+        requestDistributionRefresh: async ({ seasonId, regionCode }) => {
+          await requestKeyDistributionRefreshJob({
+            prisma: container.prisma,
+            seasonId,
+            regionCode,
+            enqueue: (job) => producers.enqueueKeyDistributionRefresh(job),
+          });
+        },
+      });
+    }
+  } catch (error) {
+    container.logger.warn(
+      { err: error, event: "season_data_sync_failed" },
+      "season base-data bootstrap failed — continuing worker startup",
+    );
+  }
+
   // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
     void worker.run().catch((error) => {

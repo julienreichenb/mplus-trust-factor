@@ -77,8 +77,27 @@ export interface ScoringSeasonOptionDTO {
   wclZoneId: number | null;
   startsAt: string | null;
   endsAt: string | null;
-  /** True only when persisted M+ catalog is complete and validated. */
+  /** True when a persisted Season row exists with a Blizzard season id. */
   pinnable: boolean;
+}
+
+export interface ScoringSeasonDataStatusDTO {
+  blizzardSeasonId: number | null;
+  selectionMode: "AUTO" | "PINNED";
+  identityReady: boolean;
+  catalogReady: boolean;
+  dungeonCount: number;
+  expectedDungeonCount: number | null;
+  wclZoneId: number | null;
+  reasons: string[];
+  lastCatalogSynchronizedAt: string | null;
+  medianKeyDistribution: {
+    status: string;
+    snapshotId: string | null;
+    source: string | null;
+    sourceVersion: string | null;
+    collectedAt: string | null;
+  } | null;
 }
 
 export interface ScoringSeasonSelectionStatusDTO {
@@ -103,5 +122,6 @@ export interface ScoringSeasonSelectionStatusDTO {
     catalogReady: boolean;
   } | null;
   pinnedDiffersFromDetected: boolean;
+  seasonData: ScoringSeasonDataStatusDTO | null;
   seasons: ScoringSeasonOptionDTO[];
 }

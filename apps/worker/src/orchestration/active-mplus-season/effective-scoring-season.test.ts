@@ -368,6 +368,123 @@ describe("resolveEffectiveScoringSeason", () => {
     expect(discoverCalls).toBe(0);
   });
 
+  it("PINNED empty Season 17 catalog is repaired from registry without WCL discovery", async () => {
+    clearSeasonAuthorityCacheForTests();
+    const { prisma, seasons } = makePrisma({
+      seasons: [
+        {
+          id: "s17",
+          slug: "blizzard-season-17",
+          name: "Season 17",
+          blizzardSeasonId: 17,
+          isCurrent: false,
+          metadata: {
+            authoritySource: "season_index.current_season",
+            authorityVerifiedAt: new Date().toISOString(),
+            blizzardSeasonId: 17,
+          },
+          dungeonSlugs: [],
+          encounterIds: [],
+        },
+        {
+          id: "s18",
+          slug: "blizzard-season-18",
+          name: "Season 18",
+          blizzardSeasonId: 18,
+          isCurrent: true,
+          metadata: {
+            authoritySource: "season_index.current_season",
+            authorityVerifiedAt: new Date().toISOString(),
+            blizzardSeasonId: 18,
+          },
+          dungeonSlugs: ["keep-previous"],
+          encounterIds: [1],
+        },
+      ],
+      runtimeSetting: { value: { mode: "PINNED", blizzardSeasonId: 17 }, version: 1 },
+    });
+
+    let discoverCalls = 0;
+    const effective = await resolveEffectiveScoringSeason({
+      prisma,
+      blizzard: {
+        getMythicKeystoneSeasonIndex: async () => ({
+          data: { current_season: { id: 18 } },
+        }),
+      } as never,
+      logger: makeLogger() as never,
+      regionCode: "EU",
+      regionId: "region-eu",
+      allowProviderSync: true,
+      discoverActiveMplusCatalog: async () => {
+        discoverCalls += 1;
+        throw new Error("PINNED must not use live WCL discovery");
+      },
+    });
+
+    expect(effective.selectionMode).toBe("PINNED");
+    expect(effective.blizzardSeasonId).toBe(17);
+    expect(effective.wclZoneId).toBe(47);
+    expect(effective.activeDungeonSlugs).toHaveLength(8);
+    expect(seasons.get("s18")?.isCurrent).toBe(true);
+    expect(seasons.get("s17")?.isCurrent).toBe(false);
+    expect(discoverCalls).toBe(0);
+    expect(effective.activeDungeonSlugs).not.toContain("keep-previous");
+  });
+
+  it("PINNED unknown season does not fall back to another season", async () => {
+    clearSeasonAuthorityCacheForTests();
+    const { prisma } = makePrisma({
+      seasons: [
+        {
+          id: "s17",
+          slug: "blizzard-season-17",
+          name: "Season 17",
+          blizzardSeasonId: 17,
+          isCurrent: true,
+          metadata: catalogMeta({
+            wclZoneId: 47,
+            blizzardSeasonId: 17,
+            dungeonSlugs: ["dungeon-a", "dungeon-b"],
+          }),
+          dungeonSlugs: ["dungeon-a", "dungeon-b"],
+          encounterIds: [1, 2],
+        },
+        {
+          id: "s99",
+          slug: "blizzard-season-99",
+          name: "Future",
+          blizzardSeasonId: 99,
+          isCurrent: false,
+          metadata: {},
+          dungeonSlugs: [],
+          encounterIds: [],
+        },
+      ],
+      runtimeSetting: { value: { mode: "PINNED", blizzardSeasonId: 99 }, version: 1 },
+    });
+
+    await expect(
+      resolveEffectiveScoringSeason({
+        prisma,
+        blizzard: {
+          getMythicKeystoneSeasonIndex: async () => ({
+            data: { current_season: { id: 17 } },
+          }),
+        } as never,
+        logger: makeLogger() as never,
+        regionCode: "EU",
+        regionId: "region-eu",
+        allowProviderSync: true,
+        discoverActiveMplusCatalog: async () => {
+          throw new Error("PINNED must not discover");
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/SEASON_DUNGEON_BINDINGS_MISSING|SEASON_AUTHORITY_UNAVAILABLE|ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE/),
+    });
+  });
+
   it("D/H: AUTO bootstraps unknown future season via WCL discovery (no static registry)", async () => {
     clearSeasonAuthorityCacheForTests();
     const { prisma, seasons } = makePrisma({

@@ -1,16 +1,20 @@
 /**
  * In-memory Prisma-ish harness for active M+ season sync/resolve/transition.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  ensurePersistedSeasonDungeonBindings,
   synchronizeActiveMplusSeasonCatalog,
 } from "./active-mplus-season/synchronize.js";
 import { resolveActiveMythicPlusSeason } from "./active-mplus-season/resolve.js";
 import {
   createDefaultMplusZoneCatalogRegistry,
   registerMplusZoneCatalog,
+  ZONE_47_MIDNIGHT_S1_CATALOG,
 } from "./active-mplus-season/zone-catalog-registry.js";
 import { SeasonDungeonBindingsMissingError } from "./active-mplus-season/types.js";
+import { ensureSeasonDataReady } from "./active-mplus-season/ensure-season-data-ready.js";
+import { evaluateSeasonCatalogReadiness } from "./active-mplus-season/catalog-readiness.js";
 
 type SeasonRow = {
   id: string;
@@ -63,6 +67,9 @@ function createFakePrisma() {
           return true;
         });
         return rows[0] ?? null;
+      },
+      async findUnique(args: { where: { id: string } }) {
+        return seasons.get(args.where.id) ?? null;
       },
       async findMany(args: { where: Record<string, unknown>; orderBy?: unknown; select?: unknown }) {
         const where = args.where;
@@ -200,6 +207,7 @@ function createFakePrisma() {
     },
     _seasons: seasons,
     _bindings: bindings,
+    _dungeons: dungeons,
   };
 
   return prisma;
@@ -401,5 +409,261 @@ describe("active mplus season synchronize + resolve", () => {
       resolutionMode: "AUTO",
     });
     expect(authority.seasonSlug).toBe("blizzard-season-17");
+  });
+});
+
+function silentLogger() {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+}
+
+describe("ensureSeasonDataReady", () => {
+  it("hydrates empty historical Season 17 catalog without flipping isCurrent", async () => {
+    const prisma = createFakePrisma();
+    const current = await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-18",
+        name: "S18",
+        blizzardSeasonId: 18,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const historical = await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-17",
+        name: "S17",
+        blizzardSeasonId: 17,
+        isCurrent: false,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    expect(await prisma.seasonDungeon.count({ where: { seasonId: historical.id } })).toBe(0);
+
+    const dist = vi.fn(async () => undefined);
+    const first = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 17,
+      selectionMode: "PINNED",
+      requestDistributionRefresh: dist,
+    });
+    expect(first.catalogReadyBefore).toBe(false);
+    expect(first.catalogReadyAfter).toBe(true);
+    expect(first.activated).toBe(false);
+    expect(first.dungeonCount).toBe(8);
+    expect(first.expectedDungeonCount).toBe(8);
+    expect(first.wclZoneId).toBe(47);
+    expect(first.catalogSource).toBe("zone_catalog_registry");
+    expect(first.status).toBe("ready");
+    expect(dist).toHaveBeenCalledTimes(1);
+
+    const readiness = await evaluateSeasonCatalogReadiness(
+      prisma as never,
+      prisma._seasons.get(historical.id)!,
+    );
+    expect(readiness.ready).toBe(true);
+    expect(await prisma.seasonDungeon.count({ where: { seasonId: historical.id } })).toBe(8);
+    expect(prisma._seasons.get(historical.id)?.isCurrent).toBe(false);
+    expect(prisma._seasons.get(current.id)?.isCurrent).toBe(true);
+    expect(prisma._seasons.get(historical.id)?.dungeonCount).toBe(8);
+
+    const second = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 17,
+      selectionMode: "PINNED",
+      requestDistributionRefresh: dist,
+    });
+    expect(second.skippedReady).toBe(true);
+    expect(second.catalogSynced).toBe(false);
+    expect(await prisma.seasonDungeon.count({ where: { seasonId: historical.id } })).toBe(8);
+    expect(prisma._dungeons.size).toBe(ZONE_47_MIDNIGHT_S1_CATALOG.dungeonSlugs.length);
+  });
+
+  it("repairs AUTO incomplete catalog from registry and requests distribution only after ready", async () => {
+    const prisma = createFakePrisma();
+    await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-17",
+        name: "S17",
+        blizzardSeasonId: 17,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const dist = vi.fn(async () => undefined);
+    const result = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 17,
+      selectionMode: "AUTO",
+      requestDistributionRefresh: dist,
+    });
+    expect(result.catalogReadyAfter).toBe(true);
+    expect(result.dungeonCount).toBe(8);
+    expect(dist).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not request distribution when catalog cannot be resolved", async () => {
+    const prisma = createFakePrisma();
+    await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-99",
+        name: "Future",
+        blizzardSeasonId: 99,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const dist = vi.fn(async () => undefined);
+    const discoverer = vi.fn(async () => {
+      throw new Error("should not be used for PINNED");
+    });
+    const result = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 99,
+      selectionMode: "PINNED",
+      discoverActiveMplusCatalog: discoverer,
+      requestDistributionRefresh: dist,
+    });
+    expect(result.catalogReadyAfter).toBe(false);
+    expect(result.status).toBe("failed");
+    expect(result.reasons.join(" ")).toMatch(/authoritative_catalog_unavailable|CATALOG_INCOMPLETE/);
+    expect(discoverer).not.toHaveBeenCalled();
+    expect(dist).not.toHaveBeenCalled();
+    expect(await prisma.seasonDungeon.count({
+      where: { seasonId: [...prisma._seasons.values()].find((s) => s.blizzardSeasonId === 99)!.id },
+    })).toBe(0);
+  });
+
+  it("creates future-season bindings from an authoritative discovered catalog", async () => {
+    const prisma = createFakePrisma();
+    await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-99",
+        name: "Future",
+        blizzardSeasonId: 99,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const result = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 99,
+      selectionMode: "AUTO",
+      discoverActiveMplusCatalog: async ({ blizzardSeasonId }) => ({
+        wclZoneId: 200,
+        blizzardSeasonId,
+        expansionIdentity: "Future",
+        displayName: "Future Keystone",
+        dungeonSlugs: ["future-one", "future-two"],
+        encounterIds: [9001, 9002],
+      }),
+    });
+    expect(result.catalogReadyAfter).toBe(true);
+    expect(result.dungeonCount).toBe(2);
+    expect(result.wclZoneId).toBe(200);
+    expect(result.catalogSource).toBe("warcraftlogs_world_data");
+    const seasonId = [...prisma._seasons.values()].find((s) => s.blizzardSeasonId === 99)!.id;
+    expect(await prisma.seasonDungeon.count({ where: { seasonId } })).toBe(2);
+    const again = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 99,
+      selectionMode: "AUTO",
+    });
+    expect(again.skippedReady).toBe(true);
+    expect(await prisma.seasonDungeon.count({ where: { seasonId } })).toBe(2);
+  });
+
+  it("keeps a valid catalog when distribution refresh fails", async () => {
+    const prisma = createFakePrisma();
+    await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-17",
+        name: "S17",
+        blizzardSeasonId: 17,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const result = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 17,
+      selectionMode: "AUTO",
+      requestDistributionRefresh: async () => {
+        throw new Error("addon ingest failed");
+      },
+    });
+    expect(result.catalogReadyAfter).toBe(true);
+    expect(result.status).toBe("partial");
+    expect(result.distributionError).toMatch(/addon ingest failed/);
+    const seasonId = [...prisma._seasons.values()].find((s) => s.blizzardSeasonId === 17)!.id;
+    expect(await prisma.seasonDungeon.count({ where: { seasonId } })).toBe(8);
+  });
+
+  it("ensurePersistedSeasonDungeonBindings does not activate historical seasons", async () => {
+    const prisma = createFakePrisma();
+    const current = await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-18",
+        name: "S18",
+        blizzardSeasonId: 18,
+        isCurrent: true,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    const historical = await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-17",
+        name: "S17",
+        blizzardSeasonId: 17,
+        isCurrent: false,
+        dungeonCount: 0,
+        metadata: {},
+      },
+    });
+    await ensurePersistedSeasonDungeonBindings({
+      prisma: prisma as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      seasonId: historical.id,
+      blizzardSeasonId: 17,
+    });
+    expect(prisma._seasons.get(historical.id)?.isCurrent).toBe(false);
+    expect(prisma._seasons.get(current.id)?.isCurrent).toBe(true);
+    expect(await prisma.seasonDungeon.count({ where: { seasonId: historical.id } })).toBe(8);
   });
 });

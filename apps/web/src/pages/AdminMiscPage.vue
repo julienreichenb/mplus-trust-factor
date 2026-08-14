@@ -18,7 +18,13 @@ const router = useRouter();
 const REGION_OPTIONS = ["EU", "US", "KR", "TW"] as const satisfies ReadonlyArray<RegionCode>;
 
 type RegionOption = (typeof REGION_OPTIONS)[number];
-type BusyAction = "realms" | "season" | "scoringSeasonLoad" | "scoringSeasonSave" | null;
+type BusyAction =
+  | "realms"
+  | "season"
+  | "scoringSeasonLoad"
+  | "scoringSeasonSave"
+  | "scoringSeasonSync"
+  | null;
 
 interface SeasonSyncResultRow {
   region: string;
@@ -190,6 +196,32 @@ async function saveScoringSeason(): Promise<void> {
   }
 }
 
+async function synchronizeSeasonData(): Promise<void> {
+  if (anyBusy.value || !scoringSeasonStatus.value) return;
+  busyAction.value = "scoringSeasonSync";
+  error.value = null;
+  message.value = null;
+  try {
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
+    const body = await fetchJson<{
+      ok: true;
+      status: ScoringSeasonSelectionStatusDTO;
+    }>("/api/v1/admin/misc/scoring-season/synchronize-data", {
+      method: "POST",
+      body: JSON.stringify({ region }),
+    });
+    applyScoringSeasonStatus(body.status);
+    const catalogReady = body.status.seasonData?.catalogReady;
+    message.value = catalogReady
+      ? "Season data synchronized."
+      : "Season data sync finished with incomplete catalog.";
+  } catch (err) {
+    if (!handleAuthError(err)) error.value = (err as Error).message;
+  } finally {
+    busyAction.value = null;
+  }
+}
+
 async function postSeasonJson(body: unknown): Promise<{ ok?: boolean; results?: SeasonSyncResultRow[] }> {
   return fetchJson("/api/v1/admin/misc/season/sync-authority", {
     method: "POST",
@@ -303,7 +335,7 @@ onMounted(() => {
               :options="seasonSelectOptions"
               :disabled="anyBusy || draftMode !== 'PINNED' || pinnableSeasons.length === 0"
               control-test-id="scoring-season-pin"
-              :hint="pinnableSeasons.length === 0 ? 'No pinnable seasons with a validated M+ catalog.' : null"
+              :hint="pinnableSeasons.length === 0 ? 'No seasons with a Blizzard season id.' : null"
               @update:model-value="draftPinnedBlizzardSeasonId = $event ? Number($event) : null"
             />
           </div>
@@ -317,6 +349,41 @@ onMounted(() => {
             </dd>
           </div>
         </dl>
+        <dl
+          v-if="scoringSeasonStatus?.seasonData"
+          class="scoring-season-grid season-data-grid"
+          data-testid="season-data-status"
+        >
+          <div>
+            <dt>Identity</dt>
+            <dd data-testid="season-data-identity">
+              {{ scoringSeasonStatus.seasonData.identityReady ? "Ready" : "Missing" }}
+            </dd>
+          </div>
+          <div>
+            <dt>Dungeon catalog</dt>
+            <dd data-testid="season-data-dungeons">
+              {{ scoringSeasonStatus.seasonData.dungeonCount }}
+              /
+              {{ scoringSeasonStatus.seasonData.expectedDungeonCount ?? "—" }}
+            </dd>
+          </div>
+          <div>
+            <dt>WCL bindings</dt>
+            <dd data-testid="season-data-wcl">
+              {{ scoringSeasonStatus.seasonData.catalogReady ? "Ready" : "Not ready" }}
+              <template v-if="scoringSeasonStatus.seasonData.wclZoneId != null">
+                (zone {{ scoringSeasonStatus.seasonData.wclZoneId }})
+              </template>
+            </dd>
+          </div>
+          <div>
+            <dt>Median-key distribution</dt>
+            <dd data-testid="season-data-distribution">
+              {{ scoringSeasonStatus.seasonData.medianKeyDistribution?.status ?? "Missing" }}
+            </dd>
+          </div>
+        </dl>
         <p
           v-if="pinnedWarning"
           class="pinned-warning"
@@ -325,15 +392,26 @@ onMounted(() => {
           {{ pinnedWarning }}
         </p>
       </div>
-      <button
-        type="button"
-        class="btn"
-        data-testid="save-scoring-season-button"
-        :disabled="anyBusy || !scoringSeasonStatus"
-        @click="saveScoringSeason"
-      >
-        {{ busyAction === "scoringSeasonSave" ? "Saving…" : "Save" }}
-      </button>
+      <div class="tool-row__actions">
+        <button
+          type="button"
+          class="btn"
+          data-testid="save-scoring-season-button"
+          :disabled="anyBusy || !scoringSeasonStatus"
+          @click="saveScoringSeason"
+        >
+          {{ busyAction === "scoringSeasonSave" ? "Saving…" : "Save" }}
+        </button>
+        <button
+          type="button"
+          class="btn"
+          data-testid="sync-season-data-button"
+          :disabled="anyBusy || !scoringSeasonStatus"
+          @click="synchronizeSeasonData"
+        >
+          {{ busyAction === "scoringSeasonSync" ? "Synchronizing…" : "Synchronize season data" }}
+        </button>
+      </div>
     </article>
 
     <article class="tool-row" data-testid="realm-sync-tool">
@@ -433,6 +511,12 @@ onMounted(() => {
   gap: var(--space-2);
   flex: 1;
   min-width: 14rem;
+}
+.tool-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-start;
 }
 .tool-row h2 {
   margin: 0;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ADMIN_SCORING_DEFAULT_REGION, RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
+import { RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
 import { SeasonScoreContextRepository, type PrismaClient } from "@mplus/database";
 import {
   downloadReleaseZip,
@@ -16,7 +16,7 @@ export async function runKeyDistributionRefresh(input: {
   logger: Logger;
   refreshId: string;
   seasonId: string;
-  region: typeof ADMIN_SCORING_DEFAULT_REGION;
+  region: "EU";
   fetchImpl?: typeof fetch;
 }): Promise<{ snapshotId: string; reused: boolean }> {
   const { prisma, logger, refreshId, seasonId, region } = input;

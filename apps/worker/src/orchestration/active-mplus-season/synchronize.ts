@@ -43,9 +43,8 @@ export interface SynchronizeActiveMplusSeasonInput {
   registry?: MplusZoneCatalogRegistry;
   now?: Date;
   /**
-   * When true (default), flip Season.isCurrent for Blizzard-authority sync.
-   * Effective scoring PINNED/AUTO catalog bootstrap should pass false so a
-   * catalog write never rewrites Blizzard's detected current marker.
+ * When true (default), flip Season.isCurrent for Blizzard-authority sync.
+ * Catalog hydration / historical repair MUST pass false.
    */
   activate?: boolean;
 }
@@ -277,9 +276,8 @@ export async function synchronizeActiveMplusSeasonCatalog(
 }
 
 /**
- * When SeasonDungeon bindings are empty, attempt one bounded registry sync WRITE.
- * This is not a static READ fallback — it persists bindings then returns them.
- * Throws ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE when the registry has no mapping.
+ * When SeasonDungeon bindings are empty, attempt one bounded registry sync WRITE
+ * without activating the season as Blizzard current.
  */
 export async function ensurePersistedSeasonDungeonBindings(input: {
   prisma: PrismaClient;
@@ -313,7 +311,7 @@ export async function ensurePersistedSeasonDungeonBindings(input: {
     blizzardSeasonId: input.blizzardSeasonId,
     wclZoneId: input.wclZoneId,
     registry: input.registry ?? createDefaultMplusZoneCatalogRegistry(),
-    activate: true,
+    activate: false,
   });
   return { dungeonSlugs: sync.dungeonSlugs, synchronized: true };
 }

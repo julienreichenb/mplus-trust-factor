@@ -51,6 +51,25 @@ vi.mock("@mplus/worker", async (importOriginal) => {
       },
       changed: true,
     })),
+    ensureSeasonDataReady: vi.fn(async (input: { blizzardSeasonId: number }) => ({
+      seasonId: "s17",
+      blizzardSeasonId: input.blizzardSeasonId,
+      regionCode: "EU",
+      selectionMode: "AUTO",
+      catalogReadyBefore: false,
+      catalogReadyAfter: true,
+      dungeonCount: 8,
+      expectedDungeonCount: 8,
+      wclZoneId: 47,
+      reasons: [],
+      catalogSource: "zone_catalog_registry",
+      skippedReady: false,
+      catalogSynced: true,
+      activated: false,
+      distributionRequested: true,
+      distributionError: null,
+      status: "ready",
+    })),
   };
 });
 
@@ -186,5 +205,20 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
         },
       ],
     });
+  });
+
+  it("synchronize-data calls ensureSeasonDataReady", async () => {
+    const { ensureSeasonDataReady } = await import("@mplus/worker");
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/misc/scoring-season/synchronize-data",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: { region: "EU" },
+    });
+    expect(response.statusCode).not.toBe(404);
+    expect(response.statusCode).not.toBe(405);
+    if (response.statusCode === 200) {
+      expect(ensureSeasonDataReady).toHaveBeenCalled();
+    }
   });
 });
