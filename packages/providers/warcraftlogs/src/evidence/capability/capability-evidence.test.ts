@@ -14,7 +14,7 @@ import {
   type CapabilityCoverageV1,
   type EvidenceCapability,
 } from "@mplus/contracts";
-import { InMemorySharedEvidenceStore } from "../shared-evidence-ingest.js";
+import { InMemorySharedEvidenceStore, sharedEvidenceFilterTag } from "../shared-evidence-ingest.js";
 import {
   buildCapabilityAcquisitionPlan,
   productionDefaultCapabilities,
@@ -82,8 +82,30 @@ describe("capability acquisition plan", () => {
     expect(a.fetchUnits.map((u) => u.unitId)).toEqual(b.fetchUnits.map((u) => u.unitId));
     expect(a.fetchUnits.some((u) => u.dataset === "DamageTaken")).toBe(true);
     expect(a.fetchUnits.some((u) => u.dataset === "Buffs")).toBe(true);
+    const healingUnits = a.fetchUnits.filter((u) => u.dataset === "Healing");
+    expect(healingUnits).toHaveLength(1);
+    expect(healingUnits[0]?.filterStrategy).toBe("FRIENDLY_HEALING");
+    expect(healingUnits[0]?.includeResources).toBe(true);
+    expect(healingUnits[0]?.capabilities).toEqual(["SURVIVAL_RECOVERY_ACTIVATIONS"]);
     const buffUnit = a.fetchUnits.find((u) => u.dataset === "Buffs");
     expect(buffUnit?.filterStrategy).toBe("CATALOG_ABILITY_AND_FRIENDLY_ACTORS");
+  });
+
+  it("Healing capability unit reuses the shared-evidence HEALING filter identity", () => {
+    expect(sharedEvidenceFilterTag("Healing", true)).toBe("+resources");
+    const plan = buildCapabilityAcquisitionPlan({
+      mode: "PRODUCTION_CAPABILITY_ACQUISITION",
+    });
+    const healing = plan.fetchUnits.filter((u) => u.dataset === "Healing");
+    expect(healing).toHaveLength(1);
+  });
+
+  it("does not invent a second Healing fetch unit besides the Survival dataset", () => {
+    const plan = buildCapabilityAcquisitionPlan({
+      mode: "PRODUCTION_CAPABILITY_ACQUISITION",
+    });
+    const healingIds = plan.fetchUnits.filter((u) => u.dataset === "Healing").map((u) => u.unitId);
+    expect(healingIds).toEqual(["Healing|FRIENDLY_HEALING|res1|default"]);
   });
 
   it("probe mode broadens ability filters to NONE", () => {

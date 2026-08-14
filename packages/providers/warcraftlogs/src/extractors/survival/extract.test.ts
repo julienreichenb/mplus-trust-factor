@@ -57,6 +57,8 @@ function basePackage(
         ? ["DamageTaken"]
         : capability === "SURVIVAL_DEATHS"
           ? ["Deaths"]
+          : capability === "SURVIVAL_RECOVERY_ACTIVATIONS"
+            ? ["Casts", "Buffs", "Healing"]
           : capability === "PARTICIPANT_METADATA"
             ? ["masterData", "CombatantInfo"]
             : capability === "ACTOR_OWNERSHIP"
@@ -626,5 +628,89 @@ describe("survival-one-fight extraction", () => {
       capabilityPackage: basePackage([]),
     });
     expect(result.providerCallsDuringExtract).toBe(0);
+  });
+
+  it("ally-targeted Word of Glory is not a recovery activation", () => {
+    const paladinParty = participants().map((p, i) =>
+      i === 0
+        ? { ...p, classSlug: "paladin", specSlug: "retribution", characterName: "RetMain" }
+        : p,
+    );
+    const { timeline } = extractSurvivalFromCapabilityPackage({
+      source: source(),
+      participants: paladinParty,
+      capabilityPackage: basePackage([
+        evt({
+          eventId: "cast-ally",
+          timestampMs: FIGHT_START + 5000,
+          dataset: "Casts",
+          eventType: "cast",
+          spellId: 85673,
+          rawName: "Word of Glory",
+          sourceActorId: 10,
+          sourceOwnerPlayerActorId: 10,
+          targetActorId: 11,
+          targetPlayerActorId: 11,
+          capabilities: ["SURVIVAL_RECOVERY_ACTIVATIONS"],
+        }),
+        evt({
+          eventId: "heal-ally",
+          timestampMs: FIGHT_START + 5050,
+          dataset: "Healing",
+          eventType: "heal",
+          spellId: 85673,
+          rawName: "Word of Glory",
+          sourceActorId: 10,
+          sourceOwnerPlayerActorId: 10,
+          targetActorId: 11,
+          targetPlayerActorId: 11,
+          amount: 80_000,
+          capabilities: ["SURVIVAL_RECOVERY_ACTIVATIONS"],
+        }),
+      ]),
+    });
+    expect(timeline.activations.filter((a) => a.activationKind === "RECOVERY")).toHaveLength(0);
+  });
+
+  it("self Word of Glory Casts count once as recovery; Healing dataset is not a second activation", () => {
+    const paladinParty = participants().map((p, i) =>
+      i === 0
+        ? { ...p, classSlug: "paladin", specSlug: "retribution", characterName: "RetMain" }
+        : p,
+    );
+    const { timeline } = extractSurvivalFromCapabilityPackage({
+      source: source(),
+      participants: paladinParty,
+      capabilityPackage: basePackage([
+        evt({
+          eventId: "cast-self",
+          timestampMs: FIGHT_START + 5000,
+          dataset: "Casts",
+          eventType: "cast",
+          spellId: 85673,
+          rawName: "Word of Glory",
+          sourceActorId: 10,
+          sourceOwnerPlayerActorId: 10,
+          targetActorId: 10,
+          targetPlayerActorId: 10,
+          capabilities: ["SURVIVAL_RECOVERY_ACTIVATIONS"],
+        }),
+        evt({
+          eventId: "heal-self",
+          timestampMs: FIGHT_START + 5050,
+          dataset: "Healing",
+          eventType: "heal",
+          spellId: 85673,
+          rawName: "Word of Glory",
+          sourceActorId: 10,
+          sourceOwnerPlayerActorId: 10,
+          targetActorId: 10,
+          targetPlayerActorId: 10,
+          amount: 80_000,
+          capabilities: ["SURVIVAL_RECOVERY_ACTIVATIONS"],
+        }),
+      ]),
+    });
+    expect(timeline.activations.filter((a) => a.activationKind === "RECOVERY")).toHaveLength(1);
   });
 });

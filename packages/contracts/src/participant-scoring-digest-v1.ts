@@ -21,7 +21,7 @@ export const PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION =
 
 /** Bump when digest field projection / extractor wiring changes. */
 export const PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION =
-  "participant-digest-extractors-v3" as const;
+  "participant-digest-extractors-v4" as const;
 
 export const participantDigestDimensionCompletenessSchema = z.enum([
   "COMPLETE",
@@ -119,6 +119,31 @@ export type ParticipantUtilityDigestV1 = z.infer<
   typeof participantUtilityDigestV1Schema
 >;
 
+export const participantSurvivalActiveHealingEventV1Schema = z.object({
+  canonicalEventId: z.string().min(1),
+  timestampMs: z.number(),
+  primarySpellId: z.number().int(),
+  canonicalKey: z.string().min(1).nullable(),
+  sourceActorId: z.number().int().nullable(),
+  targetActorId: z.number().int().nullable(),
+  targetRelation: z.enum(["SELF", "ALLY", "EXCLUDED"]),
+  amount: z.number().nullable(),
+  overheal: z.number().nullable(),
+  effectiveAmount: z.number().nullable(),
+  targetMaxHp: z.number().nullable(),
+  effectiveHealPctMaxHp: z.number().nullable(),
+  evidenceQuality: z.enum([
+    "FULL",
+    "AMOUNT_ONLY",
+    "OVERHEAL_UNOBSERVABLE",
+    "MAX_HP_UNAVAILABLE",
+    "EXCLUDED",
+  ]),
+});
+export type ParticipantSurvivalActiveHealingEventV1 = z.infer<
+  typeof participantSurvivalActiveHealingEventV1Schema
+>;
+
 export const participantSurvivalDigestV1Schema = z.object({
   damageTakenTotal: z.number().nonnegative(),
   damageTakenEventCount: z.number().int().nonnegative(),
@@ -127,6 +152,7 @@ export const participantSurvivalDigestV1Schema = z.object({
   recoveryActivations: z.array(survivalCanonicalActivationSchema),
   externalsReceived: z.array(survivalCanonicalActivationSchema),
   pressureWindows: z.array(pressureWindowV1Schema),
+  activeHealingEvents: z.array(participantSurvivalActiveHealingEventV1Schema).default([]),
   fightDurationMs: z.number().int().nonnegative().nullable(),
   activeCombatMs: z.number().int().nonnegative().nullable(),
   capabilityCompleteness: z.array(survivalCapabilityCompletenessSchema),
@@ -329,6 +355,7 @@ export function buildParticipantScoringDigestHashMaterial(
       recoveryActivations: digest.survival.recoveryActivations,
       externalsReceived: digest.survival.externalsReceived,
       pressureWindows: digest.survival.pressureWindows,
+      activeHealingEvents: digest.survival.activeHealingEvents ?? [],
       fightDurationMs: digest.survival.fightDurationMs,
       activeCombatMs: digest.survival.activeCombatMs,
       capabilityCompleteness: digest.survival.capabilityCompleteness,

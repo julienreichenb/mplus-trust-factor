@@ -16,6 +16,7 @@ import { extractParticipantLoadoutsFromCombatantEvents } from "../../evidence/ca
 import { buildOffensiveParticipantActivationReports } from "../offensive/activations.js";
 import { extractUtilityActionTimeline } from "../utility/extract-actions.js";
 import { extractSurvivalFromCapabilityPackage } from "../survival/extract.js";
+import { extractSurvivalActiveHealingEvents } from "../survival/extract-active-healing.js";
 
 export interface RankingParseFactInput {
   parsePercentile: number | null;
@@ -262,6 +263,13 @@ export function buildParticipantScoringDigestsFromPackage(
     const recoveries = survival.timeline.activations.filter(
       (a) => a.participantActorId === actorId && a.activationKind === "RECOVERY",
     );
+    const activeHealingEvents = extractSurvivalActiveHealingEvents({
+      compactEvents: pkg.compactEvents,
+      participantActorId: actorId,
+      friendlyPlayerActorIds: pkg.friendlyPlayerActorIds,
+      classSlug: participant.classSlug,
+      specSlug: participant.specSlug ?? null,
+    });
     const externals = survival.timeline.activations.filter(
       (a) =>
         a.participantActorId === actorId &&
@@ -452,6 +460,7 @@ export function buildParticipantScoringDigestsFromPackage(
         recoveryActivations: recoveries,
         externalsReceived: externals,
         pressureWindows,
+        activeHealingEvents,
         fightDurationMs,
         activeCombatMs,
         capabilityCompleteness: survivalCompleteness,

@@ -545,4 +545,58 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(facts.interruptAttempts).toHaveLength(1);
     expect(emptyUtilityV2FactSet).toBeTypeOf("function");
   });
+
+  it("ignores Survival active-healing events when mapping Utility facts and scores", () => {
+    const without = baseDigest();
+    const withHealing = baseDigest({
+      survival: {
+        ...without.survival,
+        activeHealingEvents: [
+          {
+            canonicalEventId: "heal-1",
+            timestampMs: 12_000,
+            primarySpellId: 85673,
+            canonicalKey: "paladin.active-heal.word-of-glory",
+            sourceActorId: 10,
+            targetActorId: 11,
+            targetRelation: "ALLY",
+            amount: 80_000,
+            overheal: 0,
+            effectiveAmount: 80_000,
+            targetMaxHp: 400_000,
+            effectiveHealPctMaxHp: 0.2,
+            evidenceQuality: "FULL",
+          },
+        ],
+      },
+    });
+    const factsA = utilityRunFactSetFromDigest(without, { slotId: "slot-0", slotIndex: 0 });
+    const factsB = utilityRunFactSetFromDigest(withHealing, { slotId: "slot-0", slotIndex: 0 });
+    expect(JSON.stringify(factsA)).toBe(JSON.stringify(factsB));
+    const identity = {
+      reportCode: without.reportCode,
+      fightId: without.fightId,
+      reportRevision: without.reportRevision,
+    };
+    const manifest = {
+      contentHash: "m".repeat(64),
+      schemaVersion: "evidence-manifest-v2" as const,
+      expectedSlotCount: 1,
+      selectedSlotCount: 1,
+      activeDungeonSlugs: ["skyreach"],
+      slots: [
+        {
+          slotId: "slot-0",
+          dungeonSlug: "skyreach",
+          slotIndex: 0,
+          state: "SELECTED" as const,
+          identity,
+        },
+      ],
+    };
+    const scoreA = computeUtilityV2({ manifest, factSets: [factsA] });
+    const scoreB = computeUtilityV2({ manifest, factSets: [factsB] });
+    expect(scoreA.score).toBe(scoreB.score);
+    expect(scoreA.inputFingerprint).toBe(scoreB.inputFingerprint);
+  });
 });

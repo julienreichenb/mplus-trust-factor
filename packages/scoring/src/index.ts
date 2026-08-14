@@ -794,6 +794,7 @@ export {
   parseSurvivalV2ModelConfig,
   resolveSurvivalV2ModelConfig,
   fingerprintSurvivalV2ModelConfig,
+  overlaySurvivalActiveHealingFromScoreModel,
 } from "./survival/v2/index.js";
 export type {
   SurvivalV2RelativeDamageMode,

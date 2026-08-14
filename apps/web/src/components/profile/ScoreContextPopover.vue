@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, useId } from "vue";
 
+withDefaults(
+  defineProps<{
+    label?: string;
+  }>(),
+  {
+    label: "Score context details",
+  },
+);
+
 const open = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
 const tipId = useId();
@@ -39,6 +48,7 @@ onBeforeUnmount(() => {
       class="score-pop__trigger"
       tabindex="0"
       role="button"
+      :aria-label="label"
       :aria-expanded="open ? 'true' : 'false'"
       :aria-controls="tipId"
       @mouseenter="show"
@@ -66,14 +76,12 @@ onBeforeUnmount(() => {
 .score-pop {
   position: relative;
   display: inline-flex;
-  align-items: flex-end;
-  justify-self: end;
+  align-items: center;
 }
 
 .score-pop__trigger {
-  display: grid;
-  justify-items: end;
-  gap: 0.35rem;
+  display: inline-flex;
+  align-items: center;
   cursor: help;
 }
 
@@ -86,8 +94,9 @@ onBeforeUnmount(() => {
 .score-pop__panel {
   position: absolute;
   z-index: 30;
-  right: 0;
-  top: calc(100% + 0.45rem);
+  left: calc(100% + 0.45rem);
+  top: 50%;
+  transform: translateY(-50%);
   width: min(22rem, 80vw);
   padding: 0.7rem 0.8rem;
   border-radius: 0.4rem;

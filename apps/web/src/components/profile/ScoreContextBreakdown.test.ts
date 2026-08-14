@@ -105,6 +105,7 @@ describe("ScoreContextBreakdown", () => {
   it("B/D/F: positive context, 8 canonical runs, meta tier", () => {
     const wrapper = mount(ScoreContextBreakdown, { props: { score: score() } });
     expect(wrapper.find("[data-testid='context-final']").text()).toContain("86.6");
+    expect(wrapper.find("[data-testid='context-score-adjustment']").text()).toBe("+11.6");
     expect(wrapper.find("[data-testid='canonical-runs']").findAll("li")).toHaveLength(8);
     expect(wrapper.find("[data-testid='key-context-detail']").text()).toContain("P99");
     expect(wrapper.find("[data-testid='meta-available']").text()).toContain("Tier 4");

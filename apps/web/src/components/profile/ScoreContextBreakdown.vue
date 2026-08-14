@@ -11,10 +11,25 @@ const props = defineProps<{
 const ctx = computed(() => props.score?.scoreContext ?? null);
 const visible = computed(() => Boolean(ctx.value));
 const canonicalRuns = computed(() => ctx.value?.keyContext.canonicalRuns ?? []);
+const scoreAdjustment = computed(() => {
+  const context = ctx.value;
+  if (!context) return null;
+  const raw = context.rawScoreBeforeContext;
+  const final = context.finalScore;
+  if (!Number.isFinite(raw) || !Number.isFinite(final)) return null;
+  return final - raw;
+});
 
 function factorLabel(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "×1.00";
   return `×${value.toFixed(2)}`;
+}
+
+function signedDelta(value: number): string {
+  const formatted = formatScore(Math.abs(value), 1);
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return formatScore(0, 1);
 }
 
 function statusReason(status: string | undefined, reason: string | null | undefined, fallback: string): string {
@@ -32,7 +47,10 @@ function statusReason(status: string | undefined, reason: string | null | undefi
     <dl class="rows" data-testid="context-flow">
       <div>
         <dt>Raw Trust Score</dt>
-        <dd class="mpts-data" data-testid="context-raw">{{ formatScore(ctx.rawScoreBeforeContext, 1) }}</dd>
+        <dd class="mpts-data" data-testid="context-raw">
+          {{ formatScore(ctx.rawScoreBeforeContext, 1) }}
+          <span v-if="ctx.rawGrade" data-testid="context-raw-grade">{{ ctx.rawGrade }}</span>
+        </dd>
       </div>
       <div data-testid="key-context-detail">
         <dt>Key difficulty</dt>
@@ -71,11 +89,15 @@ function statusReason(status: string | undefined, reason: string | null | undefi
         <dt>Combined adjustment</dt>
         <dd>{{ factorLabel(ctx.combinedFactor) }}</dd>
       </div>
+      <div v-if="scoreAdjustment != null">
+        <dt>Score adjustment</dt>
+        <dd class="mpts-data" data-testid="context-score-adjustment">{{ signedDelta(scoreAdjustment) }}</dd>
+      </div>
       <div v-if="ctx.wasClamped" data-testid="context-clamp">
         <dt>Pre-clamp</dt>
         <dd>
           {{ formatScore(ctx.preClampAdjustedScore, 1) }}
-          <span class="muted">Final {{ formatScore(ctx.finalScore, 1) }} · capped at 100</span>
+          <span class="muted">capped at 100</span>
         </dd>
       </div>
       <div>
@@ -109,7 +131,7 @@ function statusReason(status: string | undefined, reason: string | null | undefi
 }
 .rows > div {
   display: grid;
-  grid-template-columns: minmax(7.5rem, 40%) 1fr;
+  grid-template-columns: minmax(8.25rem, 42%) 1fr;
   gap: 0.35rem 0.6rem;
   align-items: start;
 }

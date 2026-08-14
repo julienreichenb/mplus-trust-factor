@@ -49,6 +49,10 @@ function context(overrides: Partial<NonNullable<ScoreSnapshotDTO["scoreContext"]
   };
 }
 
+async function expandRawBar(wrapper: Awaited<ReturnType<typeof mountHeader>>) {
+  await wrapper.get("[data-testid='raw-score-toggle']").trigger("click");
+}
+
 async function mountHeader(scoreContext: ScoreSnapshotDTO["scoreContext"] | undefined, overall = 80) {
   setActivePinia(createPinia());
   const router = createRouter({ history: createMemoryHistory(), routes: routeDefs });
@@ -68,17 +72,84 @@ async function mountHeader(scoreContext: ScoreSnapshotDTO["scoreContext"] | unde
 }
 
 describe("ScoreHeader score context chip and popover", () => {
-  it("shows Bonus chip when combinedFactor > 1", async () => {
+  it("shows Key and Meta chips when context factors are applied", async () => {
     const wrapper = await mountHeader(context({ combinedFactor: 1.12 }));
-    expect(wrapper.get("[data-testid='score-context-chip']").text()).toBe("Bonus ×1.12");
+    expect(wrapper.get("[data-testid='raw-score-toggle']").text()).toBe(
+      "Show score before key level and meta adjustments",
+    );
+    expect(wrapper.get(".trust__help").text()).toBe("?");
+    expect(wrapper.find("[data-testid='raw-score-bar']").exists()).toBe(false);
+    await expandRawBar(wrapper);
+    expect(wrapper.get("[data-testid='raw-score-toggle']").text()).toBe(
+      "Hide score before key level and meta adjustments",
+    );
+    expect(wrapper.get("[data-testid='key-context-chip']").text()).toBe("Key ×1.08");
+    expect(wrapper.get("[data-testid='meta-context-chip']").text()).toBe("Meta ×1.04");
+    expect(wrapper.get("[data-testid='key-context-chip']").attributes("data-kind")).toBe("bonus");
+    expect(wrapper.get("[data-testid='meta-context-chip']").attributes("data-kind")).toBe("bonus");
   });
 
-  it("shows Malus chip when combinedFactor < 1", async () => {
-    const wrapper = await mountHeader(context({ combinedFactor: 0.94 }));
-    expect(wrapper.get("[data-testid='score-context-chip']").text()).toBe("Malus ×0.94");
+  it("shows raw score next to the adjusted score when they differ", async () => {
+    const wrapper = await mountHeader(context());
+    await expandRawBar(wrapper);
+    expect(wrapper.get("[data-testid='overall-score']").text()).toBe("80.0");
+    expect(wrapper.get("[data-testid='raw-score']").text()).toBe("71.4");
+    expect(wrapper.get("[data-testid='raw-score-bar']").text()).toContain("/ 100");
+    expect(wrapper.get("[data-testid='raw-grade']").text()).toBe("B");
+    expect(wrapper.text()).toContain("Final Trust Score");
   });
 
-  it("hides the chip when combinedFactor is exactly 1 but still opens the popover", async () => {
+  it("shows decimal raw, factor chips, and final without hiding raw behind hover", async () => {
+    const wrapper = await mountHeader(
+      context({
+        rawScoreBeforeContext: 79.3,
+        combinedFactor: 1.1,
+        preClampAdjustedScore: 87.23,
+        finalScore: 87.2,
+        keyContext: { ...context().keyContext, factor: 1 },
+        metaContext: { ...context().metaContext, factor: 1.1 },
+      }),
+      87.2,
+    );
+    await expandRawBar(wrapper);
+    expect(wrapper.get("[data-testid='overall-score']").text()).toBe("87.2");
+    expect(wrapper.get("[data-testid='raw-score']").text()).toBe("79.3");
+    expect(wrapper.get("[data-testid='key-context-chip']").text()).toBe("Key ×1.00");
+    expect(wrapper.get("[data-testid='meta-context-chip']").text()).toBe("Meta ×1.10");
+    expect(wrapper.get(".trust__score-caption").text()).toBe("Final Trust Score");
+  });
+
+  it("hides raw score when it matches the published snapshot", async () => {
+    const wrapper = await mountHeader(
+      context({
+        rawScoreBeforeContext: 80,
+        rawGrade: "A",
+        combinedFactor: 1,
+        finalScore: 80,
+        finalGrade: "A",
+      }),
+      80,
+    );
+    expect(wrapper.find("[data-testid='raw-score-toggle']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='raw-score']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='raw-score-bar']").exists()).toBe(false);
+  });
+
+  it("shows Malus chip when a context factor is below 1", async () => {
+    const wrapper = await mountHeader(
+      context({
+        combinedFactor: 0.94,
+        keyContext: { ...context().keyContext, factor: 0.94 },
+        metaContext: { ...context().metaContext, factor: 1 },
+      }),
+    );
+    await expandRawBar(wrapper);
+    expect(wrapper.get("[data-testid='key-context-chip']").text()).toBe("Key ×0.94");
+    expect(wrapper.get("[data-testid='key-context-chip']").attributes("data-kind")).toBe("malus");
+    expect(wrapper.get("[data-testid='meta-context-chip']").attributes("data-kind")).toBe("neutral");
+  });
+
+  it("still opens the popover when combinedFactor is exactly 1", async () => {
     const wrapper = await mountHeader(
       context({
         combinedFactor: 1,
@@ -86,7 +157,6 @@ describe("ScoreHeader score context chip and popover", () => {
         metaContext: { ...context().metaContext, factor: 1 },
       }),
     );
-    expect(wrapper.find("[data-testid='score-context-chip']").exists()).toBe(false);
     expect(wrapper.get(".score-pop__trigger").attributes("aria-expanded")).toBe("false");
     await wrapper.get(".score-pop__trigger").trigger("click");
     expect(wrapper.get(".score-pop__trigger").attributes("aria-expanded")).toBe("true");

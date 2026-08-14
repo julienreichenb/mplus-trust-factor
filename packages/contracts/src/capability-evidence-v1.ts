@@ -102,9 +102,11 @@ export const capabilityCompactEventSchema = z.object({
   targetActorId: z.number().int().nullable(),
   targetPlayerActorId: z.number().int().nullable(),
   amount: z.number().nullable().optional(),
-  /** Victim/current HP when WCL includeResources was requested (DamageTaken/Deaths). */
+  /** Healing overheal when present on WCL Healing events. */
+  overheal: z.number().nonnegative().nullable().optional(),
+  /** Victim/current HP when WCL includeResources was requested (DamageTaken/Deaths/Healing). */
   hitPoints: z.number().nonnegative().nullable().optional(),
-  /** Victim max HP when WCL includeResources was requested (DamageTaken/Deaths). */
+  /** Victim max HP when WCL includeResources was requested (DamageTaken/Deaths/Healing). */
   maxHitPoints: z.number().positive().nullable().optional(),
   capabilities: z.array(evidenceCapabilitySchema).min(1),
 });

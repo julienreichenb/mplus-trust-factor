@@ -129,6 +129,21 @@ export interface SurvivalV2RelativeDamageFact {
   limitations?: string[];
 }
 
+export interface SurvivalV2ActiveHealingFactEvent {
+  canonicalEventId: string;
+  timestampMs: number;
+  primarySpellId: number;
+  targetRelation: "SELF" | "ALLY" | "EXCLUDED";
+  effectiveAmount: number | null;
+  effectiveHealPctMaxHp: number | null;
+  evidenceQuality:
+    | "FULL"
+    | "AMOUNT_ONLY"
+    | "OVERHEAL_UNOBSERVABLE"
+    | "MAX_HP_UNAVAILABLE"
+    | "EXCLUDED";
+}
+
 /** Bounded Survival fact document persisted on RunFactSet.facts. */
 export interface SurvivalFactDocumentV2 {
   schemaVersion: typeof SURVIVAL_V2_SCHEMA_VERSION;
@@ -154,6 +169,8 @@ export interface SurvivalFactDocumentV2 {
     catalogSelfHealCoverage?: number;
   };
   relativeDamage?: SurvivalV2RelativeDamageFact | null;
+  activeHealingEvents?: SurvivalV2ActiveHealingFactEvent[];
+  recoveryTimedActivations?: SurvivalV2TimedActivationFact[];
   limitations: string[];
 }
 

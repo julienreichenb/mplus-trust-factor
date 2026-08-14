@@ -36,7 +36,7 @@ describe("ScoreHeader", () => {
       props: { profile },
       global: { plugins: [router] },
     });
-    expect(wrapper.get("[data-testid='overall-score']").text()).toBe("88");
+    expect(wrapper.get("[data-testid='overall-score']").text()).toBe("88.0");
     expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--xl");
     expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--A");
     expect(wrapper.get(".tier-grade-letter").text()).toBe("A");

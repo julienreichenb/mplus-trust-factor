@@ -12,6 +12,13 @@ import {
   validateTunableWeightsClient,
   type TunableWeights,
 } from "../api/tunable-weights";
+import {
+  createDefaultSurvivalActiveHealing,
+  mergeSurvivalActiveHealingIntoConfig,
+  resolveSurvivalActiveHealingFromConfig,
+  validateSurvivalActiveHealingClient,
+  type SurvivalActiveHealingConfig,
+} from "../api/survival-active-healing";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import FieldTooltip from "../components/common/FieldTooltip.vue";
@@ -32,6 +39,7 @@ const router = useRouter();
 const models = ref<AdminScoreModelDTO[]>([]);
 const selectedId = ref<string>("");
 const draftWeights = ref<TunableWeights>(createDefaultTunableWeights());
+const draftActiveHealing = ref<SurvivalActiveHealingConfig>(createDefaultSurvivalActiveHealing());
 const savedSnapshot = ref<string>("");
 const loading = ref(true);
 const loadError = ref<string | null>(null);
@@ -44,8 +52,15 @@ const activating = ref(false);
 const selected = computed(() => models.value.find((m) => m.id === selectedId.value) ?? null);
 const isDraft = computed(() => selected.value?.status === "DRAFT");
 const isEditable = computed(() => isDraft.value);
-const isDirty = computed(() => JSON.stringify(draftWeights.value) !== savedSnapshot.value);
-const validationErrors = computed(() => validateTunableWeightsClient(draftWeights.value));
+const isDirty = computed(
+  () =>
+    JSON.stringify({ weights: draftWeights.value, healing: draftActiveHealing.value }) !==
+    savedSnapshot.value,
+);
+const validationErrors = computed(() => [
+  ...validateTunableWeightsClient(draftWeights.value),
+  ...validateSurvivalActiveHealingClient(draftActiveHealing.value),
+]);
 
 const modelOptions = computed(() =>
   [...models.value]
@@ -75,8 +90,12 @@ function loadWeightsFromModel(model: AdminScoreModelDTO | null): void {
   const weights = model
     ? resolveTunableWeightsFromConfig(model.config)
     : createDefaultTunableWeights();
+  const healing = model
+    ? resolveSurvivalActiveHealingFromConfig(model.config)
+    : createDefaultSurvivalActiveHealing();
   draftWeights.value = weights;
-  savedSnapshot.value = JSON.stringify(weights);
+  draftActiveHealing.value = healing;
+  savedSnapshot.value = JSON.stringify({ weights, healing });
 }
 
 function selectModel(id: string): void {
@@ -117,7 +136,10 @@ async function save(): Promise<void> {
   error.value = null;
   message.value = null;
   try {
-    const config = mergeTunableWeightsIntoConfig(selected.value.config, draftWeights.value);
+    const config = mergeSurvivalActiveHealingIntoConfig(
+      mergeTunableWeightsIntoConfig(selected.value.config, draftWeights.value),
+      draftActiveHealing.value,
+    );
     const updated = await api.updateModel(selected.value.id, config);
     models.value = models.value.map((m) => (m.id === updated.id ? updated : m));
     loadWeightsFromModel(updated);
@@ -542,6 +564,113 @@ onMounted(() => {
                 <span class="comp-effective">{{
                   componentEffective(draftWeights.components.survival, key)
                 }}</span>
+              </div>
+              <div class="active-healing" data-testid="survival-active-healing">
+                <h3>{{ COMPONENT_HELP.survival.activeHealing.title }}</h3>
+                <p class="exp-note">{{ COMPONENT_HELP.survival.activeHealing.whatItMeans }}</p>
+                <label class="component-row">
+                  <span class="comp-label">Enabled</span>
+                  <input
+                    v-model="draftActiveHealing.enabled"
+                    type="checkbox"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-enabled"
+                  />
+                </label>
+                <label class="component-row">
+                  <span class="comp-label">Minimum meaningful heal (% max HP)</span>
+                  <input
+                    :value="Math.round(draftActiveHealing.minEffectiveHealPctMaxHp * 1000) / 10"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-min-pct"
+                    @input="
+                      draftActiveHealing.minEffectiveHealPctMaxHp =
+                        Number(($event.target as HTMLInputElement).value) / 100
+                    "
+                  />
+                </label>
+                <label class="component-row">
+                  <span class="comp-label">Self-healing weight</span>
+                  <input
+                    v-model.number="draftActiveHealing.selfWeight"
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-self-weight"
+                  />
+                </label>
+                <label class="component-row">
+                  <span class="comp-label">Ally-healing weight</span>
+                  <input
+                    v-model.number="draftActiveHealing.allyWeight"
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-ally-weight"
+                  />
+                </label>
+                <label class="component-row">
+                  <span class="comp-label">Diminishing returns</span>
+                  <input
+                    v-model.number="draftActiveHealing.diminishingExponent"
+                    type="number"
+                    min="0.01"
+                    step="0.05"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-diminishing"
+                  />
+                </label>
+                <label class="component-row">
+                  <span class="comp-label">Maximum Survival bonus points</span>
+                  <input
+                    v-model.number="draftActiveHealing.maxSurvivalBonusPoints"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    :disabled="!isEditable"
+                    data-testid="survival-ah-cap"
+                  />
+                </label>
+                <div
+                  v-for="(knot, idx) in draftActiveHealing.eventCreditCurve"
+                  :key="idx"
+                  class="component-row"
+                >
+                  <label>
+                    <span class="comp-label">Curve {{ idx + 1 }} (% max HP)</span>
+                    <input
+                      :value="Math.round(knot.effectiveHealPctMaxHp * 1000) / 10"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      :disabled="!isEditable"
+                      :data-testid="`survival-ah-curve-x-${idx}`"
+                      @input="
+                        knot.effectiveHealPctMaxHp =
+                          Number(($event.target as HTMLInputElement).value) / 100
+                      "
+                    />
+                  </label>
+                  <label>
+                    <span class="comp-label">Credit</span>
+                    <input
+                      v-model.number="knot.credit"
+                      type="number"
+                      min="0"
+                      step="0.05"
+                      :disabled="!isEditable"
+                      :data-testid="`survival-ah-curve-y-${idx}`"
+                    />
+                  </label>
+                </div>
               </div>
             </template>
 

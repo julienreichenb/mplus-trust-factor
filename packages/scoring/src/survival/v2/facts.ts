@@ -4,10 +4,12 @@ import {
 } from "./constants.js";
 import type {
   SurvivalFactDocumentV2,
+  SurvivalV2ActiveHealingFactEvent,
   SurvivalV2DangerWindowFact,
   SurvivalV2DefensiveActivationFact,
   SurvivalV2DeathFact,
   SurvivalV2HealthEvidenceMode,
+  SurvivalV2TimedActivationFact,
 } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -121,6 +123,8 @@ export function parseSurvivalFactDocumentV2(
         asFiniteNumber(raw.healthEvidence.catalogSelfHealCoverage) ?? undefined,
     },
     relativeDamage: parseRelativeDamage(raw.relativeDamage),
+    activeHealingEvents: parseActiveHealingEvents(raw.activeHealingEvents),
+    recoveryTimedActivations: parseRecoveryTimedActivations(raw.recoveryTimedActivations),
     limitations: raw.limitations as string[],
   };
 
@@ -284,6 +288,61 @@ function parseRelativeDamage(
       ? raw.limitations.filter((l): l is string => typeof l === "string")
       : [],
   };
+}
+
+function parseRecoveryTimedActivations(
+  raw: unknown,
+): SurvivalV2TimedActivationFact[] | undefined {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw) || raw.length > 512) return [];
+  const out: SurvivalV2TimedActivationFact[] = [];
+  for (const row of raw) {
+    if (!isRecord(row)) continue;
+    const timestampMs = asFiniteNumber(row.timestampMs);
+    const abilityGameId = asNonNegInt(row.abilityGameId);
+    if (timestampMs == null || abilityGameId == null) continue;
+    out.push({
+      id: typeof row.id === "string" ? row.id : `${abilityGameId}:${timestampMs}`,
+      timestampMs,
+      abilityGameId,
+      category: (typeof row.category === "string" ? row.category : "SELF_HEAL") as SurvivalV2TimedActivationFact["category"],
+    });
+  }
+  return out;
+}
+
+function parseActiveHealingEvents(raw: unknown): SurvivalV2ActiveHealingFactEvent[] | undefined {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw) || raw.length > 512) return [];
+  const out: SurvivalV2ActiveHealingFactEvent[] = [];
+  for (const row of raw) {
+    if (!isRecord(row)) continue;
+    const timestampMs = asFiniteNumber(row.timestampMs);
+    const primarySpellId = asNonNegInt(row.primarySpellId);
+    if (timestampMs == null || primarySpellId == null) continue;
+    const relation = row.targetRelation;
+    if (relation !== "SELF" && relation !== "ALLY" && relation !== "EXCLUDED") continue;
+    const quality = row.evidenceQuality;
+    if (
+      quality !== "FULL" &&
+      quality !== "AMOUNT_ONLY" &&
+      quality !== "OVERHEAL_UNOBSERVABLE" &&
+      quality !== "MAX_HP_UNAVAILABLE" &&
+      quality !== "EXCLUDED"
+    ) {
+      continue;
+    }
+    out.push({
+      canonicalEventId: typeof row.canonicalEventId === "string" ? row.canonicalEventId : "",
+      timestampMs,
+      primarySpellId,
+      targetRelation: relation,
+      effectiveAmount: asFiniteNumber(row.effectiveAmount),
+      effectiveHealPctMaxHp: asFiniteNumber(row.effectiveHealPctMaxHp),
+      evidenceQuality: quality,
+    });
+  }
+  return out;
 }
 
 /** Stable key for matching fact sets to manifest slots. */

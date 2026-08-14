@@ -180,7 +180,7 @@ export function evaluateSurvivalCapabilities(
     evalOne("SURVIVAL_DAMAGE_TAKEN", ["DamageTaken"]),
     evalOne("SURVIVAL_DEATHS", ["Deaths"]),
     evalOne("SURVIVAL_DEFENSIVE_ACTIVATIONS", ["Casts", "Buffs"]),
-    evalOne("SURVIVAL_RECOVERY_ACTIVATIONS", ["Casts", "Buffs"]),
+    evalOne("SURVIVAL_RECOVERY_ACTIVATIONS", ["Casts", "Buffs", "Healing"]),
     evalOne("UTILITY_EXTERNAL_CASTS", ["Casts", "Buffs"]),
     evalOne("UTILITY_EXTERNAL_TARGET_CONTEXT", ["Buffs"]),
     evalOne("PARTICIPANT_METADATA", ["masterData", "CombatantInfo"]),

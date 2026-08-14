@@ -11,7 +11,7 @@ export const SURVIVAL_V2_SCHEMA_VERSION = "survival-facts-v2.0.0" as const;
 export const SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION = "survival-v2" as const;
 export const SURVIVAL_V2_EXTRACTOR_FAMILY = "survival" as const;
 export const SURVIVAL_V2_ALGORITHM_VERSION =
-  "survival-v2-phase2-contextual-0.2.0" as const;
+  "survival-v2-phase2-contextual-0.2.1" as const;
 export const SURVIVAL_V2_MODEL_LABEL = "survival-v2-phase2-contextual" as const;
 
 /** Calibration lifecycle for this coefficient set (not a live ScoreModel). */
@@ -160,7 +160,40 @@ export type SurvivalV2ModelConfig = {
     recovery: string;
     relativeDamage: string;
   };
+  activeHealing: SurvivalV2ActiveHealingConfig;
 };
+
+export type SurvivalV2ActiveHealingCurveKnot = {
+  effectiveHealPctMaxHp: number;
+  credit: number;
+};
+
+export type SurvivalV2ActiveHealingConfig = {
+  enabled: boolean;
+  minEffectiveHealPctMaxHp: number;
+  selfWeight: number;
+  allyWeight: number;
+  eventCreditCurve: ReadonlyArray<SurvivalV2ActiveHealingCurveKnot>;
+  diminishingExponent: number;
+  /** Maximum Survival score points added after existing weighted components (0–100). */
+  maxSurvivalBonusPoints: number;
+};
+
+export const SURVIVAL_V2_ACTIVE_HEALING: SurvivalV2ActiveHealingConfig = Object.freeze({
+  enabled: true,
+  minEffectiveHealPctMaxHp: 0.08,
+  selfWeight: 1,
+  allyWeight: 1.15,
+  eventCreditCurve: Object.freeze([
+    Object.freeze({ effectiveHealPctMaxHp: 0.08, credit: 0.25 }),
+    Object.freeze({ effectiveHealPctMaxHp: 0.15, credit: 0.5 }),
+    Object.freeze({ effectiveHealPctMaxHp: 0.25, credit: 0.85 }),
+    Object.freeze({ effectiveHealPctMaxHp: 0.4, credit: 1.15 }),
+    Object.freeze({ effectiveHealPctMaxHp: 1, credit: 1.5 }),
+  ]),
+  diminishingExponent: 0.75,
+  maxSurvivalBonusPoints: 18,
+});
 
 /**
  * Immutable Phase 1 coefficient bundle.
@@ -177,4 +210,5 @@ export const SURVIVAL_V2_MODEL_CONFIG: SurvivalV2ModelConfig = Object.freeze({
   danger: SURVIVAL_V2_DANGER,
   defensiveRate: SURVIVAL_V2_DEFENSIVE_RATE,
   metricKeys: SURVIVAL_V2_METRIC_KEYS,
+  activeHealing: SURVIVAL_V2_ACTIVE_HEALING,
 });

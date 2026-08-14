@@ -16,6 +16,7 @@ export {
   type SurvivalV2RelativeDamageMode,
   type SurvivalV2CalibrationStatus,
   type SurvivalV2ModelConfig,
+  type SurvivalV2ActiveHealingConfig,
   type SurvivalV2DefensiveResponseClass,
   type SurvivalV2RecoveryResponseClass,
 } from "./constants.js";
@@ -54,6 +55,9 @@ export {
   scoreSurvivalV2EmergencyRecovery,
 } from "./recovery.js";
 export {
+  scoreSurvivalV2ActiveHealing,
+} from "./active-healing.js";
+export {
   classifyDefensiveResponse,
   classifyRecoveryResponse,
   resolveSurvivalCatalogTools,
@@ -87,6 +91,7 @@ export {
   parseSurvivalV2ModelConfig,
   resolveSurvivalV2ModelConfig,
   fingerprintSurvivalV2ModelConfig,
+  overlaySurvivalActiveHealingFromScoreModel,
   SURVIVAL_V2_DEFAULT_CONFIG_FINGERPRINT,
 } from "./model-config.js";
 export { exportSurvivalV2Calibration } from "./calibration.js";

@@ -21,7 +21,10 @@ import {
 } from "@mplus/contracts";
 import type { WclGraphQlClient } from "../../client/graphql-client.js";
 import { participantsFromBundleMasterData } from "../../extractors/participants/from-master-data.js";
-import type { SharedEvidenceStore } from "../shared-evidence-ingest.js";
+import {
+  sharedEvidenceFilterTag,
+  type SharedEvidenceStore,
+} from "../shared-evidence-ingest.js";
 import {
   fetchSharedEventDataset,
   fetchSharedMasterData,
@@ -307,6 +310,7 @@ function resolveBatchesForUnit(input: {
       });
     case "FRIENDLY_DAMAGE_TAKEN":
     case "FRIENDLY_DEATHS":
+    case "FRIENDLY_HEALING":
       // Verified: DamageTaken/Deaths need GraphQL sourceID batches (≤5 players).
       return buildDeterministicSourceIdActorBatches({
         actorIds: input.friendlyPlayerActorIds,
@@ -614,16 +618,21 @@ export async function acquireCapabilityEvidencePackage(input: {
         batch.filterExpression && batch.filterExpression.length > 0
           ? batch.filterExpression
           : null;
-      const filterTag = datasetFilterTag({
-        strategy: unit.filterStrategy,
-        filterExpression:
-          filterExpression ??
-          (batch.sourceID != null ? `sourceID=${batch.sourceID}` : null),
-        abilityFilterHash,
-        actorSetHash,
-        batchIndex: batch.batchIndex,
-        batchCount: batch.batchCount,
-      });
+      // Healing must reuse the canonical Survival HEALING dataset identity
+      // (`+resources` + source actor), not a second capability-only tag.
+      const filterTag =
+        unit.dataset === "Healing"
+          ? (sharedEvidenceFilterTag("Healing", unit.includeResources) ?? "+resources")
+          : datasetFilterTag({
+              strategy: unit.filterStrategy,
+              filterExpression:
+                filterExpression ??
+                (batch.sourceID != null ? `sourceID=${batch.sourceID}` : null),
+              abilityFilterHash,
+              actorSetHash,
+              batchIndex: batch.batchIndex,
+              batchCount: batch.batchCount,
+            });
 
       verifiedFilters.push({
         dataset: unit.dataset,

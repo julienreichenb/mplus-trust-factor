@@ -170,9 +170,16 @@ export function processCapabilityEvidencePage(input: {
         ? ((raw as { amount: number }).amount)
         : null;
     const hp =
-      input.dataset === "DamageTaken" || input.dataset === "Deaths"
+      input.dataset === "DamageTaken" ||
+      input.dataset === "Deaths" ||
+      input.dataset === "Healing"
         ? extractCompactHitPoints(raw as Record<string, unknown>)
         : { hitPoints: null, maxHitPoints: null };
+    const overhealRaw = (raw as { overheal?: unknown }).overheal;
+    const overheal =
+      typeof overhealRaw === "number" && Number.isFinite(overhealRaw) && overhealRaw >= 0
+        ? overhealRaw
+        : null;
 
     if (input.dataset === "DamageTaken") {
       const involvesFriendlyVictim =
@@ -226,6 +233,48 @@ export function processCapabilityEvidencePage(input: {
         hitPoints: hp.hitPoints,
         maxHitPoints: hp.maxHitPoints,
         capabilities: ["SURVIVAL_DEATHS"],
+      });
+      continue;
+    }
+
+    if (input.dataset === "Healing") {
+      if (!wanted.has("SURVIVAL_RECOVERY_ACTIVATIONS")) continue;
+      if (sourceOwnerPlayerActorId == null) continue;
+      const spellId = fields.abilityId.value;
+      if (spellId == null) continue;
+      const ruleCandidates = spellIndex.get(spellId) ?? [];
+      if (input.mode === "PRODUCTION_CAPABILITY_ACQUISITION") {
+        if (!input.relevantAbilityIds.has(spellId) || ruleCandidates.length === 0) continue;
+      } else if (ruleCandidates.length === 0) {
+        continue;
+      }
+      const caps = [
+        ...new Set(ruleCandidates.flatMap((rule) => capabilitiesForRule(rule, wanted))),
+      ];
+      if (!caps.includes("SURVIVAL_RECOVERY_ACTIVATIONS") && caps.length === 0) {
+        // Still retain catalog self-heal / active-heal healing ticks.
+        if (!ruleCandidates.some((r) => r.category === "SELF_HEAL" || r.survivalActiveHeal)) {
+          continue;
+        }
+      }
+      input.state.eventSeq += 1;
+      input.state.eventsAfterFilter += 1;
+      input.state.compactEvents.push({
+        eventId: `Healing:${input.state.eventSeq}:${spellId}:${timestampMs}`,
+        timestampMs,
+        dataset: "Healing",
+        eventType: fields.eventType.value,
+        spellId,
+        rawName: fields.rawAbilityName.value,
+        sourceActorId,
+        sourceOwnerPlayerActorId,
+        targetActorId,
+        targetPlayerActorId,
+        amount,
+        overheal,
+        hitPoints: hp.hitPoints,
+        maxHitPoints: hp.maxHitPoints,
+        capabilities: caps.length > 0 ? caps : ["SURVIVAL_RECOVERY_ACTIVATIONS"],
       });
       continue;
     }
