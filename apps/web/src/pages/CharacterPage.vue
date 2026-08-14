@@ -20,6 +20,7 @@ import CharacterPortraitStage from "../components/character/CharacterPortraitSta
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
 import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
+import ScoreContextBreakdown from "../components/profile/ScoreContextBreakdown.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
@@ -622,6 +623,7 @@ watch(
         />
       </div>
 
+      <ScoreContextBreakdown :score="profile.score" />
       <DimensionCards
         v-if="profile.score"
         :dimensions="visibleDimensions"

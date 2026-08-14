@@ -156,6 +156,31 @@ export class SeasonScoreContextRepository {
       });
     }
 
+    const assignments = validateSpecAssignments(input.specAssignments ?? []);
+    if (!assignments.ok) {
+      throw Object.assign(new Error("INVALID_SPEC_ASSIGNMENTS"), {
+        code: "INVALID_SPEC_ASSIGNMENTS",
+        issues: assignments.issues,
+      });
+    }
+
+    if (input.distributionSnapshotId) {
+      const snapshot = await this.prisma.seasonMedianKeyDistributionSnapshot.findUnique({
+        where: { id: input.distributionSnapshotId },
+        select: { id: true, seasonId: true },
+      });
+      if (!snapshot) {
+        throw Object.assign(new Error("DISTRIBUTION_SNAPSHOT_NOT_FOUND"), {
+          code: "DISTRIBUTION_SNAPSHOT_NOT_FOUND",
+        });
+      }
+      if (snapshot.seasonId !== input.seasonId) {
+        throw Object.assign(new Error("DISTRIBUTION_SNAPSHOT_SEASON_MISMATCH"), {
+          code: "DISTRIBUTION_SNAPSHOT_SEASON_MISMATCH",
+        });
+      }
+    }
+
     const latest = await this.prisma.seasonScoreContextRevision.findFirst({
       where: { seasonId: input.seasonId },
       orderBy: { version: "desc" },
@@ -170,7 +195,7 @@ export class SeasonScoreContextRepository {
         status: "DRAFT",
         distributionSnapshotId: input.distributionSnapshotId ?? null,
         tierFactors: factors.factors as unknown as Prisma.InputJsonValue,
-        specAssignments: (input.specAssignments ?? []) as Prisma.InputJsonValue,
+        specAssignments: assignments.assignments as unknown as Prisma.InputJsonValue,
         percentileAnchors: anchors.anchors as unknown as Prisma.InputJsonValue,
         createdByUserId: input.createdByUserId ?? null,
       },
@@ -211,6 +236,116 @@ export class SeasonScoreContextRepository {
       });
     });
     return mapRevisionDoc(published);
+  }
+
+  async findDraftForSeason(seasonId: string): Promise<SeasonScoreContextRevisionDoc | null> {
+    const row = await this.prisma.seasonScoreContextRevision.findFirst({
+      where: { seasonId, status: "DRAFT" },
+      orderBy: { version: "desc" },
+      include: revisionInclude,
+    });
+    return row ? mapRevisionDoc(row) : null;
+  }
+
+  async listRevisionsForSeason(seasonId: string): Promise<SeasonScoreContextRevisionDoc[]> {
+    const rows = await this.prisma.seasonScoreContextRevision.findMany({
+      where: { seasonId },
+      orderBy: { version: "desc" },
+      include: revisionInclude,
+    });
+    return rows.map(mapRevisionDoc);
+  }
+
+  async listDistributionsForSeason(seasonId: string) {
+    return this.prisma.seasonMedianKeyDistributionSnapshot.findMany({
+      where: { seasonId },
+      orderBy: { collectedAt: "desc" },
+    });
+  }
+
+  async updateDraft(
+    revisionId: string,
+    patch: {
+      distributionSnapshotId?: string | null;
+      tierFactors?: unknown;
+      specAssignments?: unknown;
+      percentileAnchors?: unknown;
+    },
+  ): Promise<SeasonScoreContextRevisionDoc> {
+    const target = await this.prisma.seasonScoreContextRevision.findUnique({
+      where: { id: revisionId },
+      include: revisionInclude,
+    });
+    if (!target) {
+      throw Object.assign(new Error("CONTEXT_REVISION_NOT_FOUND"), {
+        code: "CONTEXT_REVISION_NOT_FOUND",
+      });
+    }
+    if (target.status !== "DRAFT") {
+      throw Object.assign(new Error("CONTEXT_REVISION_NOT_DRAFT"), {
+        code: "CONTEXT_REVISION_NOT_DRAFT",
+      });
+    }
+
+    const data: Prisma.SeasonScoreContextRevisionUpdateInput = {};
+    if (patch.tierFactors !== undefined) {
+      const factors = validateTierFactors(patch.tierFactors);
+      if (!factors.ok) {
+        throw Object.assign(new Error("INVALID_TIER_FACTORS"), {
+          code: "INVALID_TIER_FACTORS",
+          issues: factors.issues,
+        });
+      }
+      data.tierFactors = factors.factors as unknown as Prisma.InputJsonValue;
+    }
+    if (patch.percentileAnchors !== undefined) {
+      const anchors = validatePercentileAnchors(patch.percentileAnchors);
+      if (!anchors.ok) {
+        throw Object.assign(new Error("INVALID_PERCENTILE_ANCHORS"), {
+          code: "INVALID_PERCENTILE_ANCHORS",
+          issues: anchors.issues,
+        });
+      }
+      data.percentileAnchors = anchors.anchors as unknown as Prisma.InputJsonValue;
+    }
+    if (patch.specAssignments !== undefined) {
+      const assignments = validateSpecAssignments(patch.specAssignments);
+      if (!assignments.ok) {
+        throw Object.assign(new Error("INVALID_SPEC_ASSIGNMENTS"), {
+          code: "INVALID_SPEC_ASSIGNMENTS",
+          issues: assignments.issues,
+        });
+      }
+      data.specAssignments = assignments.assignments as unknown as Prisma.InputJsonValue;
+    }
+    if (patch.distributionSnapshotId !== undefined) {
+      if (patch.distributionSnapshotId) {
+        const snapshot = await this.prisma.seasonMedianKeyDistributionSnapshot.findUnique({
+          where: { id: patch.distributionSnapshotId },
+          select: { id: true, seasonId: true },
+        });
+        if (!snapshot) {
+          throw Object.assign(new Error("DISTRIBUTION_SNAPSHOT_NOT_FOUND"), {
+            code: "DISTRIBUTION_SNAPSHOT_NOT_FOUND",
+          });
+        }
+        if (snapshot.seasonId !== target.seasonId) {
+          throw Object.assign(new Error("DISTRIBUTION_SNAPSHOT_SEASON_MISMATCH"), {
+            code: "DISTRIBUTION_SNAPSHOT_SEASON_MISMATCH",
+          });
+        }
+        data.distributionSnapshot = { connect: { id: snapshot.id } };
+      } else {
+        data.distributionSnapshot = { disconnect: true };
+      }
+    }
+
+    const updated = await this.prisma.seasonScoreContextRevision.update({
+      where: { id: revisionId },
+      data,
+      include: revisionInclude,
+    });
+    return mapRevisionDoc(updated);
   }
 
   async listCharacterIdsWithScoresForSeason(seasonId: string): Promise<string[]> {

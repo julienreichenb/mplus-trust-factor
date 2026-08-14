@@ -9,6 +9,13 @@ export const SCORE_CONTEXT_SCHEMA_VERSION = "score-context-v1" as const;
 
 export const NONE_CONTEXT_REVISION_KEY = "none" as const;
 
+export function formatPercentileBpsLabel(bps: number | null | undefined): string | null {
+  if (bps == null || !Number.isInteger(bps) || bps <= 0) return null;
+  const pct = bps / 100;
+  if (Number.isInteger(pct)) return `P${pct}`;
+  return `P${pct.toFixed(1).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
 export const PERCENTILE_BPS_P90 = 9000 as const;
 export const PERCENTILE_BPS_P99 = 9900 as const;
 export const PERCENTILE_BPS_P99_9 = 9990 as const;
@@ -81,6 +88,9 @@ export interface ScoreContextKeyBreakdown {
   appliedAnchorKeyThreshold: number | null;
   nextAnchorPercentileBps: number | null;
   nextAnchorKeyThreshold: number | null;
+  /** Display label for appliedAnchorPercentileBps (e.g. P99). API-provided. */
+  appliedAnchorPercentileLabel: string | null;
+  nextAnchorPercentileLabel: string | null;
   factor: number;
   distributionSnapshotId: string | null;
   distributionSource: string | null;

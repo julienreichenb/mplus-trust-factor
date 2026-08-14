@@ -110,6 +110,7 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     );
     expect(dto.overallScore).toBe(80.763);
     expect(dto.scoreContext?.rawScoreBeforeContext).toBe(73.421);
+    expect(dto.scoreContext?.keyContext.appliedAnchorPercentileLabel).toBe("P90");
     expect(dto.explanation).toMatchObject({ composite: 73.421 });
   });
 
@@ -169,6 +170,65 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(dto.scoreContext?.rawGrade).toBe("B");
     expect(dto.scoreContext?.finalGrade).toBe("S");
     expect(dto.explanation).toMatchObject({ composite: 75 });
+  });
+
+  it("I: public scoreContext exposes only canonical 8 runs, not EvidenceManifest slots", () => {
+    const canonicalRuns = Array.from({ length: 8 }, (_, i) => ({
+      dungeonSlug: `dungeon-${i}`,
+      canonicalRunId: `run-${i}`,
+      keyLevel: 20 + i,
+    }));
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 70,
+        contextualScore: 70,
+        dimensionDetails: {
+          evidenceManifest: { slots: Array.from({ length: 16 }, (_, i) => ({ slot: i })) },
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 1,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 70,
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns,
+              medianKeyLevel: 23.5,
+              appliedAnchorPercentileBps: 9900,
+              appliedAnchorKeyThreshold: 22,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.1,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "FIXTURE_LOCAL",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "NOT_CONFIGURED",
+              classSlug: "mage",
+              specSlug: "frost",
+              specSource: "test",
+              tier: null,
+              factor: 1,
+              reason: "SPEC_META_NOT_CONFIGURED",
+            },
+            combinedFactor: 1.1,
+            preClampAdjustedScore: 77,
+            wasClamped: false,
+            finalScore: 77,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.scoreContext?.keyContext.canonicalRuns).toHaveLength(8);
+    expect(JSON.stringify(dto.scoreContext)).not.toContain("evidenceManifest");
+    expect(JSON.stringify(dto.scoreContext)).not.toContain('"slots"');
   });
 
   it("does not keep stale tier=U when P/U/S composite is calculable", () => {

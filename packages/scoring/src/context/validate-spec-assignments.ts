@@ -31,6 +31,17 @@ export function validateSpecAssignments(
     }
     assignments.push({ classSlug, specSlug, tier });
   });
+  const seen = new Set<string>();
+  for (const [index, assignment] of assignments.entries()) {
+    const key = `${assignment.classSlug.trim().toLowerCase()}::${assignment.specSlug.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      issues.push({
+        path: `specAssignments[${index}]`,
+        message: "duplicate canonical specialization",
+      });
+    }
+    seen.add(key);
+  }
   if (issues.length > 0) return { ok: false, issues };
   return { ok: true, assignments };
 }

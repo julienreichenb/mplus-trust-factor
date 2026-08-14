@@ -14,7 +14,7 @@ import {
   gradeScore,
   toScoreContextProjection,
 } from "@mplus/scoring";
-import type { AppliedScoreContext } from "@mplus/contracts";
+import { formatPercentileBpsLabel, type AppliedScoreContext } from "@mplus/contracts";
 
 export type CharacterScoreReadRow = {
   id: string;
@@ -39,7 +39,18 @@ function readAppliedScoreContext(details: Record<string, unknown> | null): Appli
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const rec = raw as AppliedScoreContext;
   if (rec.schemaVersion !== "score-context-v1") return null;
-  return rec;
+  const key = rec.key;
+  if (!key) return rec;
+  return {
+    ...rec,
+    key: {
+      ...key,
+      appliedAnchorPercentileLabel:
+        key.appliedAnchorPercentileLabel ?? formatPercentileBpsLabel(key.appliedAnchorPercentileBps),
+      nextAnchorPercentileLabel:
+        key.nextAnchorPercentileLabel ?? formatPercentileBpsLabel(key.nextAnchorPercentileBps),
+    },
+  };
 }
 
 function resolveProductOverallScore(input: {

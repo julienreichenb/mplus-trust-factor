@@ -8977,28 +8977,6 @@
         }
       }
     },
-    "/api/v1/admin/misc/scoring-season": {
-      "get": {
-        "tags": [
-          "admin"
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "admin"
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
     "/api/v1/admin/misc/season/sync-authority": {
       "post": {
         "tags": [
@@ -9235,6 +9213,85 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/misc/scoring-season": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EU",
+                "US",
+                "KR",
+                "TW"
+              ]
+            },
+            "in": "query",
+            "name": "region",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "expectedVersion"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "AUTO",
+                      "PINNED"
+                    ]
+                  },
+                  "blizzardSeasonId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "region": {
+                    "type": "string",
+                    "enum": [
+                      "EU",
+                      "US",
+                      "KR",
+                      "TW"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }
@@ -10802,6 +10859,15 @@
                                 "integer",
                                 "null"
                               ]
+                            },
+                            "wclZoneId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "catalogReady": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
@@ -10810,6 +10876,130 @@
                             "name",
                             "isCurrent",
                             "blizzardSeasonId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "detectedCurrentSeason": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "isCurrent": {
+                              "type": "boolean"
+                            },
+                            "blizzardSeasonId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "wclZoneId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "catalogReady": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "slug",
+                            "name",
+                            "isCurrent",
+                            "blizzardSeasonId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "effectiveScoringSeason": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "isCurrent": {
+                              "type": "boolean"
+                            },
+                            "blizzardSeasonId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "wclZoneId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "catalogReady": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "slug",
+                            "name",
+                            "isCurrent",
+                            "blizzardSeasonId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scoringSeasonSelection": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "AUTO",
+                                "PINNED"
+                              ]
+                            },
+                            "pinnedBlizzardSeasonId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "mode",
+                            "pinnedBlizzardSeasonId"
                           ],
                           "additionalProperties": false
                         },
@@ -11247,6 +11437,9 @@
                     "flags",
                     "activeModel",
                     "currentSeason",
+                    "detectedCurrentSeason",
+                    "effectiveScoringSeason",
+                    "scoringSeasonSelection",
                     "queueCounts",
                     "recentEvidenceExport",
                     "recentFrozenBundle",
@@ -13545,9 +13738,11 @@
     },
     "/api/v1/admin/scoring/characters/{characterId}/explainability": {
       "get": {
+        "summary": "LEGACY forensic EvidenceManifest explainability (NOT ScoreExplainabilityV1 authority)",
         "tags": [
           "admin-explainability-v2"
         ],
+        "description": "Returns Scoring V2 EvidenceManifest / DimensionComputation diagnostics. For current P/S/U/E score drivers use CharacterScore dimensionDetails.explainability via admin character detail (scoreExplainabilityAudit).",
         "parameters": [
           {
             "schema": {
@@ -15624,6 +15819,206 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/seasons": {
+      "get": {
+        "summary": "List seasons for score-context administration",
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-context/specializations": {
+      "get": {
+        "summary": "Canonical class/spec matrix for meta assignment",
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/seasons/{seasonId}/score-context": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "seasonId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/seasons/{seasonId}/score-context/draft": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "seasonId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-context/revisions/{revisionId}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "revisionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/seasons/{seasonId}/score-context/distributions": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "seasonId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-context/revisions/{revisionId}/publish": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "revisionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/seasons/{seasonId}/score-context/recalculate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "seasonId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

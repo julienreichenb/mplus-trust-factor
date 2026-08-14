@@ -86,6 +86,7 @@ const classSpec = computed(() => {
             <span class="trust__meta-label">{{ grade.interpretation }}</span>
           </div>
           <div v-if="!grade.isUnrated" class="trust__value-row">
+            <span class="trust__scale-label">{{ profile.score?.scoreContext ? "Final Trust Score" : "Trust Score" }}</span>
             <span class="trust__value mpts-data" data-testid="overall-score">{{
               formatScore(profile.score?.overallScore, 0)
             }}</span>

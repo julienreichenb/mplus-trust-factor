@@ -2,6 +2,7 @@ import { findSpecDefinition } from "@mplus/abilities";
 import {
   NONE_CONTEXT_REVISION_KEY,
   SCORE_CONTEXT_SCHEMA_VERSION,
+  formatPercentileBpsLabel,
   type AppliedScoreContext,
   type MetaTier,
   type ScoreContextCanonicalRun,
@@ -45,14 +46,18 @@ export function isCompleteCanonicalRunSelection(
 }
 
 function emptyKey(runs: ScoreContextCanonicalRun[], extras: Partial<ScoreContextKeyBreakdown>): ScoreContextKeyBreakdown {
+  const appliedBps = extras.appliedAnchorPercentileBps ?? null;
+  const nextBps = extras.nextAnchorPercentileBps ?? null;
   return {
     status: extras.status ?? "UNKNOWN",
     canonicalRuns: runs,
     medianKeyLevel: extras.medianKeyLevel ?? null,
-    appliedAnchorPercentileBps: extras.appliedAnchorPercentileBps ?? null,
+    appliedAnchorPercentileBps: appliedBps,
     appliedAnchorKeyThreshold: extras.appliedAnchorKeyThreshold ?? null,
-    nextAnchorPercentileBps: extras.nextAnchorPercentileBps ?? null,
+    nextAnchorPercentileBps: nextBps,
     nextAnchorKeyThreshold: extras.nextAnchorKeyThreshold ?? null,
+    appliedAnchorPercentileLabel: formatPercentileBpsLabel(appliedBps),
+    nextAnchorPercentileLabel: formatPercentileBpsLabel(nextBps),
     factor: extras.factor ?? 1,
     distributionSnapshotId: extras.distributionSnapshotId ?? null,
     distributionSource: extras.distributionSource ?? null,
@@ -146,6 +151,8 @@ function resolveKeyContext(input: ApplyScoreContextInput): ScoreContextKeyBreakd
     appliedAnchorKeyThreshold: pick.applied.keyThreshold,
     nextAnchorPercentileBps: pick.next?.percentileBps ?? null,
     nextAnchorKeyThreshold: pick.next?.keyThreshold ?? null,
+    appliedAnchorPercentileLabel: formatPercentileBpsLabel(pick.applied.percentileBps),
+    nextAnchorPercentileLabel: formatPercentileBpsLabel(pick.next?.percentileBps ?? null),
     factor: pick.applied.factor,
     distributionSnapshotId: dist.id,
     distributionSource: dist.source,
@@ -278,7 +285,15 @@ export function applyScoreContext(input: ApplyScoreContextInput): AppliedScoreCo
 export function toScoreContextProjection(applied: AppliedScoreContext) {
   return {
     rawScoreBeforeContext: applied.rawScoreBeforeContext,
-    keyContext: applied.key,
+    keyContext: {
+      ...applied.key,
+      appliedAnchorPercentileLabel:
+        applied.key.appliedAnchorPercentileLabel ??
+        formatPercentileBpsLabel(applied.key.appliedAnchorPercentileBps),
+      nextAnchorPercentileLabel:
+        applied.key.nextAnchorPercentileLabel ??
+        formatPercentileBpsLabel(applied.key.nextAnchorPercentileBps),
+    },
     metaContext: applied.meta,
     combinedFactor: applied.combinedFactor,
     preClampAdjustedScore: applied.preClampAdjustedScore,

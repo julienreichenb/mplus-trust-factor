@@ -253,10 +253,12 @@ export class BulkCharacterProcessingService {
       scoreModelId: string | null;
       characterIds: string[];
       createdByUserId?: string | null;
+      logicalKeyPrefix?: string;
     },
   ): Promise<BulkOperationDTO | null> {
     if (input.characterIds.length === 0) return null;
     let first: BulkOperationDTO | null = null;
+    const prefix = input.logicalKeyPrefix ?? `season-context:${input.seasonId}`;
     for (let offset = 0; offset < input.characterIds.length; offset += BULK_EXPLICIT_CHARACTER_IDS_MAX) {
       const chunk = input.characterIds.slice(offset, offset + BULK_EXPLICIT_CHARACTER_IDS_MAX);
       const chunkIndex = Math.floor(offset / BULK_EXPLICIT_CHARACTER_IDS_MAX);
@@ -270,7 +272,7 @@ export class BulkCharacterProcessingService {
           maxWclCalls: null,
           dryRun: false,
           allowFullRefreshOnIncompatible: false,
-          logicalKey: `season-context:${input.seasonId}:chunk:${chunkIndex}`,
+          logicalKey: `${prefix}:chunk:${chunkIndex}`,
           characterIds: chunk,
           pinnedSeasonId: input.seasonId,
         },
