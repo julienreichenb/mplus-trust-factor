@@ -9,6 +9,8 @@ import {
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
+  keyDistributionRefreshJobSchema,
+  scoringSeasonDataSyncJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeEvidenceSlotJobV2,
@@ -303,7 +305,6 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
     },
 
     async enqueueScoringShadowCanary(input): Promise<EnqueueResult> {
-      // Inline/skipQueues mode records enqueue only — worker owns live canary execution.
       return {
         jobId: input.canaryId,
         dedupeKey: input.canaryId,
@@ -311,6 +312,35 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
         enqueued: true,
       };
     },
+
+    async enqueueKeyDistributionRefresh(input): Promise<EnqueueResult> {
+      const payload = keyDistributionRefreshJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      return {
+        jobId: payload.refreshId,
+        dedupeKey: payload.refreshId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async enqueueScoringSeasonDataSync(input): Promise<EnqueueResult> {
+      const payload = scoringSeasonDataSyncJobSchema.parse({
+        trigger: input.trigger ?? "admin",
+        blizzardSeasonId: input.blizzardSeasonId,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      return {
+        jobId: `scoring-season-data-sync-${payload.requestedAt}`,
+        dedupeKey: `scoring-season-data-sync:${payload.trigger}:${payload.blizzardSeasonId ?? "effective"}`,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async registerScoringSeasonDataSyncSchedule(): Promise<void> {},
 
     async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
       const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({

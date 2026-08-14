@@ -204,6 +204,24 @@ async function main(): Promise<void> {
   const producers = createQueueProducers(connection, container);
   const workers = createWorkers(connection, container);
 
+  try {
+    const { runScheduledScoringSeasonDataSync } = await import(
+      "./orchestration/active-mplus-season/scoring-season-data-sync.js"
+    );
+    await producers.registerScoringSeasonDataSyncSchedule();
+    await runScheduledScoringSeasonDataSync({
+      prisma: container.prisma,
+      logger: container.logger,
+      warcraftlogs: container.providers.warcraftlogs,
+      providerMode: env.PROVIDER_MODE,
+    });
+  } catch (error) {
+    container.logger.warn(
+      { err: error, event: "season_data_sync_failed" },
+      "season base-data bootstrap failed — continuing worker startup",
+    );
+  }
+
   // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
     void worker.run().catch((error) => {

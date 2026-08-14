@@ -92,13 +92,15 @@ export function presentGrade(grade: Grade | null | undefined): GradePresentation
 }
 
 export function resolveDataConfidence(profile: CharacterProfileView): number | null {
-  if (profile.dataConfidence != null && !Number.isNaN(profile.dataConfidence)) {
-    return profile.dataConfidence;
-  }
-  if (profile.score?.confidence != null && !Number.isNaN(profile.score.confidence)) {
-    return profile.score.confidence <= 1 ? profile.score.confidence * 100 : profile.score.confidence;
-  }
-  return null;
+  const raw =
+    profile.dataConfidence != null && !Number.isNaN(profile.dataConfidence)
+      ? profile.dataConfidence
+      : profile.score?.confidence != null && !Number.isNaN(profile.score.confidence)
+        ? profile.score.confidence
+        : null;
+  if (raw == null) return null;
+  // API/live values are 0–1; mock fixtures may already be 0–100.
+  return raw <= 1 ? raw * 100 : raw;
 }
 
 function isScoredDimension(dim: DimensionScoreDTO): boolean {

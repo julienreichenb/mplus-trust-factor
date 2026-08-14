@@ -12,7 +12,12 @@ describe("ensureBlizzardCurrentSeason", () => {
           created.push(data);
           return { id: "new", ...data };
         }),
-        update: vi.fn(),
+        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: "new",
+          slug: "blizzard-season-17",
+          blizzardSeasonId: 17,
+          ...data,
+        })),
       },
     };
 
@@ -33,18 +38,27 @@ describe("ensureBlizzardCurrentSeason", () => {
           metadata: { dungeonSlugs: ["ara-kara"], source: "blizzard" },
         })),
         updateMany: vi.fn(async () => ({ count: 1 })),
-        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-          id: "existing",
-          slug: "blizzard-season-17",
-          ...data,
-        })),
+        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          const base = {
+            id: "existing",
+            slug: "blizzard-season-17",
+            regionId: "region-eu",
+            metadata: { dungeonSlugs: ["ara-kara"], source: "blizzard" } as Record<string, unknown>,
+          };
+          return {
+            ...base,
+            ...data,
+            metadata: (data.metadata as Record<string, unknown> | undefined) ?? base.metadata,
+          };
+        }),
         create: vi.fn(),
       },
     };
 
     const season = await ensureBlizzardCurrentSeason(client as never, "region-eu", 17);
     expect(client.season.create).not.toHaveBeenCalled();
-    expect(client.season.update).toHaveBeenCalledWith(
+    expect(client.season.update).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         data: expect.objectContaining({
           blizzardSeasonId: 17,
@@ -88,13 +102,22 @@ describe("ensureBlizzardCurrentSeason", () => {
 
     const client = {
       season: {
-        findFirst: vi.fn(async ({ where }: { where: { slug?: string } }) => {
+        findFirst: vi.fn(async ({ where }: { where: { slug?: string; blizzardSeasonId?: number } }) => {
+          if (where.blizzardSeasonId != null) {
+            for (const row of seasons.values()) {
+              if (row.blizzardSeasonId === where.blizzardSeasonId) return row;
+            }
+          }
           if (where.slug) return seasons.get(where.slug) ?? null;
           return null;
         }),
-        updateMany: vi.fn(async ({ where, data }: { where: { NOT: { slug: string } }; data: { isCurrent: boolean } }) => {
+        updateMany: vi.fn(async ({ where, data }: { where: { NOT: { blizzardSeasonId?: number; slug?: string } }; data: { isCurrent: boolean } }) => {
           for (const [slug, row] of seasons) {
-            if (slug !== where.NOT.slug) {
+            const keep =
+              where.NOT.blizzardSeasonId != null
+                ? row.blizzardSeasonId === where.NOT.blizzardSeasonId
+                : slug === where.NOT.slug;
+            if (!keep) {
               seasons.set(slug, { ...row, isCurrent: data.isCurrent });
             }
           }

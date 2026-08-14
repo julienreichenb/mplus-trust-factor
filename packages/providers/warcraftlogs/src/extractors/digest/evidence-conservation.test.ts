@@ -484,6 +484,6 @@ describe("evidence conservation — catalog IDs through digest", () => {
       createdAt: "2026-08-02T00:00:00.000Z",
     })[0]!;
     expect(a.contentHash).toBe(b.contentHash);
-    expect(a.extractorCompatVersion).toBe("participant-digest-extractors-v3");
+    expect(a.extractorCompatVersion).toBe("participant-digest-extractors-v4");
   });
 });

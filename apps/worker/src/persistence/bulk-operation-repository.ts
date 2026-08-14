@@ -108,7 +108,10 @@ export interface BulkOperationRepository {
    * Load selectable character rows. When `characterIds` is non-empty, only those IDs are loaded
    * (order of the returned array is undefined — callers reorder by picker order).
    */
-  listSelectableCharacters(characterIds?: string[] | null): Promise<BulkSelectableCharacterRow[]>;
+  listSelectableCharacters(
+    characterIds?: string[] | null,
+    pinnedSeasonId?: string | null,
+  ): Promise<BulkSelectableCharacterRow[]>;
   /** Returns which of the given IDs are missing from the character table. */
   findMissingCharacterIds(characterIds: string[]): Promise<string[]>;
 }
@@ -336,7 +339,7 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
       return characterIds.filter((id) => !foundSet.has(id));
     },
 
-    async listSelectableCharacters(characterIds) {
+    async listSelectableCharacters(characterIds, pinnedSeasonId) {
       const explicit = characterIds != null && characterIds.length > 0;
       const characters = await prisma.character.findMany({
         where: explicit ? { id: { in: characterIds } } : undefined,
@@ -355,36 +358,55 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
         orderBy: [{ id: "asc" }],
       });
 
-      const regionIds = [...new Set(characters.map((c) => c.regionId))];
-      const { mapEffectiveScoringSeasonIdsByRegion } = await import(
-        "../orchestration/active-mplus-season/effective-season-peek.js"
+      const { readActiveMplusCatalogMetadata } = await import(
+        "../orchestration/active-mplus-season/catalog-metadata.js"
       );
-      const seasonIdByRegion = await mapEffectiveScoringSeasonIdsByRegion(
-        prisma,
-        regionIds,
-      );
-      const seasonRows =
-        seasonIdByRegion.size === 0
-          ? []
-          : await prisma.season.findMany({
-              where: { id: { in: [...seasonIdByRegion.values()] } },
-              select: { id: true, slug: true, regionId: true, metadata: true },
-            });
+
       const seasonByRegion = new Map<
         string,
         { id: string; slug: string; wclZoneId: number | null }
       >();
-      const { readActiveMplusCatalogMetadata } = await import(
-        "../orchestration/active-mplus-season/catalog-metadata.js"
-      );
-      for (const [regionId, seasonId] of seasonIdByRegion) {
-        const row = seasonRows.find((s) => s.id === seasonId);
-        if (row) {
-          seasonByRegion.set(regionId, {
-            id: row.id,
-            slug: row.slug,
-            wclZoneId: readActiveMplusCatalogMetadata(row.metadata)?.wclZoneId ?? null,
-          });
+
+      if (pinnedSeasonId) {
+        const pinned = await prisma.season.findUnique({
+          where: { id: pinnedSeasonId },
+          select: { id: true, slug: true, metadata: true },
+        });
+        if (pinned) {
+          const overlay = {
+            id: pinned.id,
+            slug: pinned.slug,
+            wclZoneId: readActiveMplusCatalogMetadata(pinned.metadata)?.wclZoneId ?? null,
+          };
+          for (const character of characters) {
+            seasonByRegion.set(character.regionId, overlay);
+          }
+        }
+      } else {
+        const regionIds = [...new Set(characters.map((c) => c.regionId))];
+        const { mapEffectiveScoringSeasonIdsByRegion } = await import(
+          "../orchestration/active-mplus-season/effective-season-peek.js"
+        );
+        const seasonIdByRegion = await mapEffectiveScoringSeasonIdsByRegion(
+          prisma,
+          regionIds,
+        );
+        const seasonRows =
+          seasonIdByRegion.size === 0
+            ? []
+            : await prisma.season.findMany({
+                where: { id: { in: [...seasonIdByRegion.values()] } },
+                select: { id: true, slug: true, regionId: true, metadata: true },
+              });
+        for (const [regionId, seasonId] of seasonIdByRegion) {
+          const row = seasonRows.find((s) => s.id === seasonId);
+          if (row) {
+            seasonByRegion.set(regionId, {
+              id: row.id,
+              slug: row.slug,
+              wclZoneId: readActiveMplusCatalogMetadata(row.metadata)?.wclZoneId ?? null,
+            });
+          }
         }
       }
 

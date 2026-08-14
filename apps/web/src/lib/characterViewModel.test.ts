@@ -39,6 +39,19 @@ describe("characterViewModel", () => {
         score: { ...profile.score!, confidence: 0.42 },
       }),
     ).toBe(42);
+    expect(
+      resolveDataConfidence({
+        ...profile,
+        dataConfidence: 1,
+        score: { ...profile.score!, confidence: 1 },
+      }),
+    ).toBe(100);
+    expect(
+      resolveDataConfidence({
+        ...profile,
+        dataConfidence: 0.25,
+      }),
+    ).toBe(25);
   });
 
   it("extracts contributor signals from Score Explainability V1 fixtures", () => {

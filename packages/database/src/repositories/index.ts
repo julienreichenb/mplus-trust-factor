@@ -71,6 +71,11 @@ export {
   type SaveCharacterScoreInput,
 } from "./character-score-repository.js";
 export {
+  SeasonScoreContextRepository,
+  createSeasonScoreContextRepository,
+  NONE_CONTEXT_REVISION_KEY,
+} from "./season-score-context-repository.js";
+export {
   CharacterPerformanceAggregateRepository,
   createCharacterPerformanceAggregateRepository,
   type CharacterPerformanceAggregateIdentity,

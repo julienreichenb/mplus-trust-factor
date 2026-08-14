@@ -5,8 +5,9 @@ import { useRoute, useRouter } from "vue-router";
 const AdminModelsPage = defineAsyncComponent(() => import("./AdminModelsPage.vue"));
 const AdminTuningPage = defineAsyncComponent(() => import("./AdminTuningPage.vue"));
 const AdminCalibrationPage = defineAsyncComponent(() => import("./AdminCalibrationPage.vue"));
+const AdminScoreContextPage = defineAsyncComponent(() => import("./AdminScoreContextPage.vue"));
 
-type ScoringTab = "models" | "tuning" | "calibration";
+type ScoringTab = "models" | "tuning" | "calibration" | "context";
 
 const route = useRoute();
 const router = useRouter();
@@ -15,11 +16,12 @@ const TABS: { id: ScoringTab; label: string }[] = [
   { id: "models", label: "Models" },
   { id: "tuning", label: "Tuning" },
   { id: "calibration", label: "Calibration" },
+  { id: "context", label: "Key + Meta" },
 ];
 
 const activeTab = computed<ScoringTab>(() => {
   const raw = String(route.params.tab ?? "models").toLowerCase();
-  if (raw === "tuning" || raw === "calibration" || raw === "models") return raw;
+  if (raw === "tuning" || raw === "calibration" || raw === "models" || raw === "context") return raw;
   return "models";
 });
 
@@ -67,7 +69,8 @@ watch(
     <div class="scoring-console__panel" :data-tab="activeTab">
       <AdminModelsPage v-if="activeTab === 'models'" embedded />
       <AdminTuningPage v-else-if="activeTab === 'tuning'" embedded />
-      <AdminCalibrationPage v-else embedded />
+      <AdminCalibrationPage v-else-if="activeTab === 'calibration'" embedded />
+      <AdminScoreContextPage v-else embedded />
     </div>
   </section>
 </template>

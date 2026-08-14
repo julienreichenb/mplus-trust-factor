@@ -14,6 +14,9 @@ import {
 } from "./active-mplus-season/types.js";
 import {
   createDefaultMplusZoneCatalogRegistry,
+  createFixtureMplusZoneCatalogRegistry,
+  createProductionMplusZoneCatalogRegistry,
+  lookupZoneCatalogByBlizzardSeasonId,
   registerMplusZoneCatalog,
   ZONE_47_MIDNIGHT_S1_CATALOG,
   OBSOLETE_TWW_DUNGEON_SLUGS,
@@ -185,5 +188,14 @@ describe("production hardcode removal guards", () => {
   it("SeasonDungeonBindingsMissingError fails closed", () => {
     const err = new SeasonDungeonBindingsMissingError("empty");
     expect(err.code).toBe("SEASON_DUNGEON_BINDINGS_MISSING");
+  });
+
+  it("N: production registry does not resolve fixture Blizzard 13 / WCL 45", () => {
+    const production = createProductionMplusZoneCatalogRegistry();
+    expect(lookupZoneCatalogByBlizzardSeasonId(production, 13)).toEqual([]);
+    expect(production.get(45)).toBeUndefined();
+    const fixture = createFixtureMplusZoneCatalogRegistry();
+    expect(lookupZoneCatalogByBlizzardSeasonId(fixture, 13)).toHaveLength(1);
+    expect(createDefaultMplusZoneCatalogRegistry().get(45)).toBeUndefined();
   });
 });

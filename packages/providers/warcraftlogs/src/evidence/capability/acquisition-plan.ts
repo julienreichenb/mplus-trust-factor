@@ -15,6 +15,7 @@ export type CapabilityFilterStrategy =
   | "CATALOG_ABILITY_AND_FRIENDLY_ACTORS"
   | "FRIENDLY_DAMAGE_TAKEN"
   | "FRIENDLY_DEATHS"
+  | "FRIENDLY_HEALING"
   | "METADATA_ONLY";
 
 export interface CapabilityDatasetRequirement {
@@ -107,6 +108,7 @@ const PLAN_BY_CAPABILITY: Record<EvidenceCapability, CapabilityDatasetRequiremen
   SURVIVAL_RECOVERY_ACTIVATIONS: [
     req("Casts", "CATALOG_ABILITY_AND_FRIENDLY_ACTORS"),
     req("Buffs", "CATALOG_ABILITY_AND_FRIENDLY_ACTORS"),
+    req("Healing", "FRIENDLY_HEALING", { includeResources: true }),
   ],
   SURVIVAL_DAMAGE_TAKEN: [
     req("DamageTaken", "FRIENDLY_DAMAGE_TAKEN", { includeResources: true }),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExperiencePhase1Result } from "@mplus/scoring";
-import { buildScoreExplainabilityV1 } from "@mplus/scoring";
+import { applyScoreContext, buildScoreExplainabilityV1 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
 import {
   contributorsFromLimitations,
@@ -72,6 +72,13 @@ function baseResult(
     publicationEnabled: false,
     experience,
     explainability,
+    appliedContext: applyScoreContext({
+      seasonId: "season-1",
+      rawScoreBeforeContext: 70,
+      canonicalRunSelection: null,
+      seasonContextRevision: null,
+      seasonScoringSpec: { classSlug: "mage", specSlug: "fire", source: "PROFILE" },
+    }),
     performanceAggregate: {
       state: "UNAVAILABLE",
       data: null,

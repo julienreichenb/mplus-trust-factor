@@ -64,6 +64,33 @@ export type {
 } from "./model-config/index.js";
 
 export { clamp, clamp01, approxEqual, sum, safeDivide } from "./math.js";
+export {
+  applyScoreContext,
+  computeTrueMedian,
+  defaultNeutralTierFactors,
+  isCompleteCanonicalRunSelection,
+  pickStepBandAnchor,
+  resolveAnchorsAgainstDistribution,
+  toScoreContextProjection,
+  DEFAULT_CONTEXT_GRADE_THRESHOLDS,
+  validateMedianKeyDistributionPoints,
+  validatePercentileAnchors,
+  validateTierFactors,
+  validateSpecAssignments,
+  characterMedianOfEightLevels,
+  empiricalCdfQuantile,
+  isCompleteEightDungeonLevels,
+  medianKeySnapshotIdentityHash,
+  pointsFromHistogram,
+} from "./context/index.js";
+export type {
+  ApplyScoreContextInput,
+  DistributionValidationIssue,
+  ResolvedKeyAnchor,
+  SeasonScoringSpecInput,
+  StepBandPick,
+  ValidatedMedianKeyDistributionPoints,
+} from "./context/index.js";
 export { normalizeRawValue, applyHistoricalDecay, sampleSizeConfidence } from "./normalize.js";
 export { validateScoreModelConfig } from "./validate.js";
 export { calculateMetricScores } from "./metrics.js";
@@ -767,6 +794,7 @@ export {
   parseSurvivalV2ModelConfig,
   resolveSurvivalV2ModelConfig,
   fingerprintSurvivalV2ModelConfig,
+  overlaySurvivalActiveHealingFromScoreModel,
 } from "./survival/v2/index.js";
 export type {
   SurvivalV2RelativeDamageMode,

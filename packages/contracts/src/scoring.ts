@@ -1,4 +1,5 @@
 import type { IsoDateTime } from "./identity.js";
+import type { ScoreSnapshotContextProjection } from "./score-context.js";
 
 export type ScoreDimension =
   | "PERFORMANCE"
@@ -143,4 +144,9 @@ export interface ScoreSnapshotDTO {
   dimensions: DimensionScoreDTO[];
   redFlags: RedFlagDTO[];
   explanation: unknown;
+  /**
+   * Authoritative post-composite key/meta context. Absent on legacy rows.
+   * overallScore is the contextual final when present, else the raw composite.
+   */
+  scoreContext?: ScoreSnapshotContextProjection;
 }

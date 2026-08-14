@@ -33,4 +33,58 @@ describe("BulkCharacterProcessingService Agent 08 hook", () => {
       { createdByUserId: "user-1" },
     );
   });
+
+  it("enqueueRecalculateForSeasonScores pins season and never cohort-falls-back", async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: "op-1",
+      mode: "RECALCULATE_ONLY",
+    });
+    const service = Object.create(BulkCharacterProcessingService.prototype) as BulkCharacterProcessingService;
+    (service as unknown as { create: typeof create }).create = create;
+    const ids = Array.from({ length: 2 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+
+    await service.enqueueRecalculateForSeasonScores({
+      seasonId: "11111111-1111-4111-8111-111111111111",
+      scoreModelId: null,
+      characterIds: ids,
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "RECALCULATE_ONLY",
+        characterIds: ids,
+        pinnedSeasonId: "11111111-1111-4111-8111-111111111111",
+        logicalKey: "season-context:11111111-1111-4111-8111-111111111111:chunk:0",
+      }),
+      expect.anything(),
+    );
+    expect(create.mock.calls[0]?.[0].characterIds).not.toBeNull();
+  });
+
+  it("chunks >500 explicit ids without dropping pinnedSeasonId", async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: "op-chunk",
+      mode: "RECALCULATE_ONLY",
+      completionSemantics: "CHILD_DISPATCH_FINISHED",
+      childOutcomesTracked: false,
+    });
+    const service = Object.create(BulkCharacterProcessingService.prototype) as BulkCharacterProcessingService;
+    (service as unknown as { create: typeof create }).create = create;
+    const ids = Array.from({ length: 501 }, (_, i) => {
+      const n = String(i + 1).padStart(12, "0");
+      return `11111111-1111-4111-8111-${n}`;
+    });
+    await service.enqueueRecalculateForSeasonScores({
+      seasonId: "11111111-1111-4111-8111-111111111111",
+      scoreModelId: null,
+      characterIds: ids,
+    });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]?.[0].pinnedSeasonId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(create.mock.calls[1]?.[0].pinnedSeasonId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(create.mock.calls[0]?.[0].characterIds).toHaveLength(500);
+    expect(create.mock.calls[1]?.[0].characterIds).toHaveLength(1);
+    expect(create.mock.calls[0]?.[0].logicalKey).toContain("chunk:0");
+    expect(create.mock.calls[1]?.[0].logicalKey).toContain("chunk:1");
+  });
 });

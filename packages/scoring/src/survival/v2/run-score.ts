@@ -9,6 +9,9 @@ import {
   mergePressureClusters,
   scoreSurvivalV2EmergencyRecovery,
 } from "./recovery.js";
+import {
+  scoreSurvivalV2ActiveHealing,
+} from "./active-healing.js";
 import { resolveSurvivalV2Weights } from "./weights.js";
 import {
   SURVIVAL_V2_MODEL_CONFIG,
@@ -49,6 +52,16 @@ export function scoreSurvivalV2Run(
     selfHealCatalogCoverage: fact.healthEvidence.catalogSelfHealCoverage,
     config,
   });
+  const activeHealing = scoreSurvivalV2ActiveHealing({
+    events: fact.activeHealingEvents ?? [],
+    recoveryActivations: fact.recoveryTimedActivations ?? [],
+    config,
+  });
+  recovery.evidence = {
+    ...recovery.evidence,
+    activeHealing,
+  };
+  limitations.push(...activeHealing.limitations);
 
   const relativeDamageShadow = scoreSurvivalV2RelativeDamageShadow({
     fact: fact.relativeDamage,
@@ -75,18 +88,18 @@ export function scoreSurvivalV2Run(
   defensive.weightUsed = weights.defensive;
   recovery.weightUsed = weights.recovery;
 
-  const behavioralScore =
+  const behavioralScoreRaw =
     (outcome.score ?? 0) * weights.outcome +
     (defensive.score ?? 0) * weights.defensive +
     (recovery.score ?? 0) * weights.recovery +
     (relativeBlend != null ? relativeBlend * weights.relativeDamage : 0);
+  const bonus = activeHealing.cappedCredit;
+  const behavioralScore = Math.min(100, Math.max(0, behavioralScoreRaw + bonus));
 
   const healthBlocksBehavioral =
     fact.healthEvidence.mode === "MISSING" ||
     fact.healthEvidence.mode === "OUTCOME_ONLY";
 
-  // Outcome always scores; thin health evidence still yields a valid run score
-  // (confidence caps applied at season aggregate).
   const valid = outcome.state === "SCORED";
 
   return {

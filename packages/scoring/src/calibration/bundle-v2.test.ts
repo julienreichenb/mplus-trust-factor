@@ -21,6 +21,7 @@ import {
   UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCORE_FLOOR,
 } from "../utility/v2/index.js";
+import { SURVIVAL_V2_ALGORITHM_VERSION } from "../survival/v2/index.js";
 import {
   createDefaultscoringDimensionConfigSet,
   withscoringDimensionConfigs,
@@ -137,7 +138,7 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
       confidenceAlgorithmVersions: { overall: "conf-v1" },
       dimensionAlgorithmVersions: {
         PERFORMANCE: "performance-phase2-v1",
-        SURVIVAL: "survival-v2-phase2-contextual-0.2.0",
+        SURVIVAL: SURVIVAL_V2_ALGORITHM_VERSION,
         UTILITY: UTILITY_V2_ALGORITHM_VERSION,
         EXPERIENCE: "experience-v3.phase1.0.1.0",
       },

@@ -24,6 +24,9 @@ if (!dbAvailable) {
 }
 
 afterAll(async () => {
+  await prisma.season.deleteMany({
+    where: { slug: "pub-cancel-season", blizzardSeasonId: 999001 },
+  }).catch(() => undefined);
   await prisma.$disconnect();
 });
 

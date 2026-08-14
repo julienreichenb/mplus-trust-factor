@@ -62,6 +62,19 @@ export function seasonAuthoritySlug(blizzardSeasonId: number): string {
   return `blizzard-season-${blizzardSeasonId}`;
 }
 
+/** Technical / fixture Season slugs that must never be product scoring seasons. */
+export function isNonProductSeasonSlug(slug: string | null | undefined): boolean {
+  if (!slug) return false;
+  const s = slug.trim().toLowerCase();
+  if (s === "auto-current" || s === "placeholder-current" || s.startsWith("placeholder")) {
+    return true;
+  }
+  if (s === "pub-cancel-season" || s.startsWith("pub-cancel-season-")) {
+    return true;
+  }
+  return false;
+}
+
 function regionKey(regionCode: string): string {
   return regionCode.trim().toUpperCase();
 }

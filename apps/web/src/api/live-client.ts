@@ -69,6 +69,14 @@ function identityPath(identity: CharacterIdentityInput): string {
   return `/api/v1/characters/${encodeURIComponent(identity.region)}/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name)}`;
 }
 
+/** JSON Accept always; Content-Type only when a body is present (Fastify rejects empty JSON bodies). */
+export function jsonFetchHeaders(hasBody: boolean): Headers {
+  const headers = new Headers();
+  headers.set("Accept", "application/json");
+  if (hasBody) headers.set("Content-Type", "application/json");
+  return headers;
+}
+
 function buildQueryString(params?: Record<string, string | number | undefined>): string {
   if (!params) return "";
   const search = new URLSearchParams();
@@ -86,16 +94,10 @@ export function createLiveApiClient(options: {
 }): MplusApiClient {
   const base = options.baseUrl.replace(/\/$/, "");
 
-  function headers(extra?: HeadersInit): Headers {
-    const h = new Headers(extra);
-    h.set("Accept", "application/json");
-    return h;
-  }
-
   async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     const response = await fetch(`${base}${path}`, {
       method: "GET",
-      headers: headers(),
+      headers: jsonFetchHeaders(false),
       credentials: "include",
       signal,
     });
@@ -111,7 +113,7 @@ export function createLiveApiClient(options: {
     const hasBody = body !== undefined;
     const response = await fetch(`${base}${path}`, {
       method,
-      headers: headers(hasBody ? { "Content-Type": "application/json" } : undefined),
+      headers: jsonFetchHeaders(hasBody),
       body: hasBody ? JSON.stringify(body) : undefined,
       credentials: "include",
       signal,

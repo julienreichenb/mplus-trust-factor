@@ -207,4 +207,17 @@ describe("AdminTuningPage", () => {
     ).toBe("80");
     wrapper.unmount();
   });
+
+  it("exposes Survival active hybrid healing controls and saves them", async () => {
+    const wrapper = await mountPage();
+    expect(wrapper.find("[data-testid='survival-active-healing']").exists()).toBe(true);
+    const self = wrapper.get("[data-testid='survival-ah-self-weight']");
+    await self.setValue("2");
+    await wrapper.get("[data-testid='tuning-save']").trigger("click");
+    await flushPromises();
+    expect(updateModel).toHaveBeenCalled();
+    const saved = updateModel.mock.calls[0]![1] as { survivalActiveHealing: { selfWeight: number } };
+    expect(saved.survivalActiveHealing.selfWeight).toBe(2);
+    wrapper.unmount();
+  });
 });

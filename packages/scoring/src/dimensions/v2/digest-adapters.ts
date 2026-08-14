@@ -336,6 +336,16 @@ export function survivalFactDocumentFromDigest(
           : 0,
     },
     relativeDamage: null,
+    activeHealingEvents: (digest.survival.activeHealingEvents ?? []).map((e) => ({
+      canonicalEventId: e.canonicalEventId,
+      timestampMs: e.timestampMs,
+      primarySpellId: e.primarySpellId,
+      targetRelation: e.targetRelation,
+      effectiveAmount: e.effectiveAmount,
+      effectiveHealPctMaxHp: e.effectiveHealPctMaxHp,
+      evidenceQuality: e.evidenceQuality,
+    })),
+    recoveryTimedActivations: timedRecovery,
     limitations,
   };
 }

@@ -11,7 +11,7 @@ import type {
   ScoreSnapshotDTO,
 } from "@mplus/contracts";
 import { hashRefreshContract } from "@mplus/contracts";
-import type { ExperiencePhase1Result } from "@mplus/scoring";
+import type { ExperiencePhase1Result, ScoringRunSelection } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import { recordProviderResult } from "../provider-recording.js";
 import { scoreCharacter, type ScoreCharacterResult } from "./score-character.js";
@@ -97,6 +97,8 @@ export interface AuthoritativeScoringInput {
    * previous-season regional class rank — does not trigger an extra RIO call.
    */
   raiderIoProfile?: RaiderIoCharacterProfile | null;
+  /** Canonical 8-run selection for this calculation (selectScoringRuns). */
+  canonicalRunSelection?: ScoringRunSelection | null;
 }
 
 export interface AuthoritativeScoringResult {
@@ -482,6 +484,7 @@ export async function runAuthoritativeScoring(
       performanceAggregateTtlSeconds: ttlSeconds,
       performanceAggregateProvider,
       experience,
+      canonicalRunSelection: input.canonicalRunSelection ?? null,
     });
 
     return {

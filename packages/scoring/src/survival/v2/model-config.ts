@@ -6,6 +6,7 @@ import {
   ModelConfigValidationError,
   isRecord,
   rejectUnknownKeys,
+  requireBoolean,
   requireNumber,
   requireObject,
   requireString,
@@ -17,6 +18,7 @@ import {
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   SURVIVAL_V2_MODEL_CONFIG,
   type SurvivalV2ModelConfig,
+  type SurvivalV2ActiveHealingConfig,
 } from "./constants.js";
 
 const ROOT_KEYS = new Set([
@@ -30,6 +32,7 @@ const ROOT_KEYS = new Set([
   "danger",
   "defensiveRate",
   "metricKeys",
+  "activeHealing",
 ]);
 
 const CALIBRATION_STATUSES = new Set([
@@ -226,6 +229,12 @@ export function parseSurvivalV2ModelConfig(raw: unknown): SurvivalV2ModelConfig 
     }
   }
 
+  let activeHealing: SurvivalV2ActiveHealingConfig = SURVIVAL_V2_MODEL_CONFIG.activeHealing;
+  if (raw.activeHealing != null) {
+    const parsedHeal = parseActiveHealing(requireObject(raw, "activeHealing", errors), errors);
+    if (parsedHeal) activeHealing = parsedHeal;
+  }
+
   if (errors.length > 0) {
     throw new ModelConfigValidationError("SURVIVAL", errors);
   }
@@ -241,6 +250,7 @@ export function parseSurvivalV2ModelConfig(raw: unknown): SurvivalV2ModelConfig 
     danger,
     defensiveRate,
     metricKeys,
+    activeHealing,
   }) as SurvivalV2ModelConfig;
 }
 
@@ -249,6 +259,113 @@ export function resolveSurvivalV2ModelConfig(override?: unknown): SurvivalV2Mode
     return SURVIVAL_V2_MODEL_CONFIG;
   }
   return parseSurvivalV2ModelConfig(override);
+}
+
+function parseActiveHealing(
+  raw: Record<string, unknown> | null,
+  errors: string[],
+): SurvivalV2ActiveHealingConfig | null {
+  if (!raw) return null;
+  rejectUnknownKeys(
+    raw,
+    new Set([
+      "enabled",
+      "minEffectiveHealPctMaxHp",
+      "selfWeight",
+      "allyWeight",
+      "eventCreditCurve",
+      "diminishingExponent",
+      "maxSurvivalBonusPoints",
+    ]),
+    "activeHealing",
+    errors,
+  );
+  const enabled = requireBoolean(raw, "enabled", errors);
+  const minEffectiveHealPctMaxHp = requireNumber(raw, "minEffectiveHealPctMaxHp", errors, {
+    min: 0,
+    max: 1,
+  });
+  const selfWeight = requireNumber(raw, "selfWeight", errors, { min: 0 });
+  const allyWeight = requireNumber(raw, "allyWeight", errors, { min: 0 });
+  const diminishingExponent = requireNumber(raw, "diminishingExponent", errors, { min: 0.01 });
+  const maxSurvivalBonusPoints = requireNumber(raw, "maxSurvivalBonusPoints", errors, {
+    min: 0,
+    max: 100,
+  });
+  const curveRaw = raw.eventCreditCurve;
+  if (!Array.isArray(curveRaw) || curveRaw.length < 2) {
+    errors.push("activeHealing.eventCreditCurve must have at least 2 knots");
+    return null;
+  }
+  const knots: Array<{ effectiveHealPctMaxHp: number; credit: number }> = [];
+  for (let i = 0; i < curveRaw.length; i += 1) {
+    const row = curveRaw[i];
+    if (!isRecord(row)) {
+      errors.push(`activeHealing.eventCreditCurve[${i}] must be an object`);
+      continue;
+    }
+    rejectUnknownKeys(
+      row,
+      new Set(["effectiveHealPctMaxHp", "credit"]),
+      `activeHealing.eventCreditCurve[${i}]`,
+      errors,
+    );
+    const x = requireNumber(row, "effectiveHealPctMaxHp", errors, { min: 0, max: 1 });
+    const credit = requireNumber(row, "credit", errors, { min: 0 });
+    if (x != null && credit != null) knots.push({ effectiveHealPctMaxHp: x, credit });
+  }
+  for (let i = 1; i < knots.length; i += 1) {
+    if (knots[i]!.effectiveHealPctMaxHp <= knots[i - 1]!.effectiveHealPctMaxHp) {
+      errors.push("activeHealing.eventCreditCurve X positions must be strictly increasing");
+      break;
+    }
+  }
+  if (
+    enabled == null ||
+    minEffectiveHealPctMaxHp == null ||
+    selfWeight == null ||
+    allyWeight == null ||
+    diminishingExponent == null ||
+    maxSurvivalBonusPoints == null ||
+    knots.length < 2
+  ) {
+    return null;
+  }
+  return Object.freeze({
+    enabled,
+    minEffectiveHealPctMaxHp,
+    selfWeight,
+    allyWeight,
+    eventCreditCurve: Object.freeze(knots),
+    diminishingExponent,
+    maxSurvivalBonusPoints,
+  });
+}
+
+/**
+ * Admin/root `survivalActiveHealing` overlays package or persisted Survival config.
+ * Root field wins over scoring.survival.activeHealing when both are present.
+ */
+export function overlaySurvivalActiveHealingFromScoreModel(
+  config: SurvivalV2ModelConfig,
+  scoreModelConfig: unknown,
+): SurvivalV2ModelConfig {
+  if (!isRecord(scoreModelConfig)) return config;
+  const scoring = scoreModelConfig.scoring;
+  const scoringHeal =
+    isRecord(scoring) && isRecord(scoring.survival) ? scoring.survival.activeHealing : undefined;
+  const raw =
+    scoreModelConfig.survivalActiveHealing != null
+      ? scoreModelConfig.survivalActiveHealing
+      : scoringHeal;
+  if (raw == null) return config;
+  if (!isRecord(raw)) return config;
+  const errors: string[] = [];
+  const parsed = parseActiveHealing(raw, errors);
+  if (!parsed || errors.length > 0) {
+    throw new ModelConfigValidationError("SURVIVAL", errors.length > 0 ? errors : ["invalid activeHealing"]);
+  }
+  return { ...config, activeHealing: parsed };
 }
 
 export { SURVIVAL_V2_ALGORITHM_VERSION };

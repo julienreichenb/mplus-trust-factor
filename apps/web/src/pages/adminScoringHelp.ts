@@ -109,6 +109,17 @@ export const COMPONENT_HELP = {
       label: "Emergency recovery",
       whatItMeans: "Self-heals and recovery tools after dangerous pressure windows.",
     },
+    activeHealing: {
+      title: "Active hybrid healing",
+      whatItMeans:
+        "Meaningful self and ally heals from Retribution, Protection, and Enhancement only. Healers are not scored here. Spell lists are not admin-editable.",
+      enabled: "Include this recovery add-on in Survival.",
+      minPct: "Minimum effective heal as a percent of the target’s max health.",
+      selfWeight: "How strongly self-heals contribute.",
+      allyWeight: "How strongly heals on other party players contribute.",
+      diminishing: "Diminishing-returns exponent on summed event credit (lower = stronger falloff).",
+      cap: "Maximum Survival score points added after the existing Survival mix (0–100).",
+    },
   },
   experience: {
     previousSeasonScore: {

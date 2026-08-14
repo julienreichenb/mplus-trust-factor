@@ -75,6 +75,12 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
     template: "Emergency recovery scored {value}",
     visibility: "PUBLIC",
   },
+  "survival.active_healing": {
+    labelKey: "score.survival.active_healing",
+    template:
+      "Active healing: {selfCreditedEventCount} self, {allyCreditedEventCount} ally (capped {cappedCredit})",
+    visibility: "PUBLIC",
+  },
   "survival.relative_avoidable_damage": {
     labelKey: "score.survival.relative_avoidable_damage",
     template: "Relative avoidable damage scored {value}",

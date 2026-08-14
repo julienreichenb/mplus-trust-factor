@@ -12,6 +12,8 @@ import {
   contributorsFromLegacyConfidenceContext,
   defaultSkillDimensionWeights,
   productDimensionExplainabilityFields,
+  gradeScore,
+  toScoreContextProjection,
   type ExperiencePhase1Result,
 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
@@ -180,10 +182,27 @@ export function scoreCharacterResultToSnapshotDto(input: {
     },
   );
 
-  const overallScore =
+  const rawComposite =
     input.persisted?.composite ?? partial.composite ?? 0;
+  const applied = input.result.appliedContext;
+  const overallScore =
+    applied != null &&
+    applied.finalScore != null &&
+    Number.isFinite(applied.finalScore) &&
+    applied.rawScoreBeforeContext === (input.persisted?.composite ?? partial.composite)
+      ? applied.finalScore
+      : rawComposite;
   const confidence = input.persisted?.confidence ?? partial.confidence;
-  const grade: Grade = partial.grade;
+  const grade: Grade =
+    applied != null &&
+    applied.finalScore != null &&
+    Number.isFinite(applied.finalScore) &&
+    applied.rawScoreBeforeContext === (input.persisted?.composite ?? partial.composite)
+      ? gradeScore(
+          applied.finalScore,
+          input.gradeThresholds ?? { S: 90, A: 80, B: 65, C: 50 },
+        )
+      : partial.grade;
 
   // Same public projector as CharacterScore API reads — never rebuild from limitations.
   const perfExplain = productDimensionExplainabilityFields(
@@ -291,8 +310,11 @@ export function scoreCharacterResultToSnapshotDto(input: {
       : null,
     dimensions,
     calculatedAt: input.calculatedAt,
-    inputFingerprint: input.inputFingerprint,
+    inputFingerprint: applied
+      ? `${input.inputFingerprint}:ctx:${applied.contextRevisionKey}`
+      : input.inputFingerprint,
     redFlags: [],
+    ...(applied ? { scoreContext: toScoreContextProjection(applied) } : {}),
     explanation: {
       scoringVersion: input.result.scoringVersion ?? SCORING_VERSION,
       characterScoreId: input.result.characterScoreId,
@@ -308,6 +330,12 @@ export function scoreCharacterResultToSnapshotDto(input: {
       effectiveWeights: partial.effectiveWeights,
       experience: input.result.experience,
       explainabilityFingerprint: explainability.fingerprint,
+      ...(applied
+        ? {
+            scoreContext: applied,
+            canonicalScoringRunSelection: applied.key.canonicalRuns,
+          }
+        : {}),
       selectedRuns: orchestration.characterDigests.map((d) => ({
         slotId: d.slotId,
         dungeonSlug: d.dungeonSlug,

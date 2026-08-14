@@ -39,6 +39,16 @@ export const QUEUE_NAMES = {
    * Does not require global scoring_* flags; publication remains blocked.
    */
   ScoringShadowCanary: "scoring-shadow-canary",
+  /**
+   * Admin Key-context Raider.IO addon median-key distribution ingest.
+   * Isolated from character refresh / scoring providers.
+   */
+  keyDistributionRefresh: "key-distribution-refresh",
+  /**
+   * Daily (and on-demand) product-level scoring-season data sync.
+   * Calls synchronizeScoringSeasonData — does not mutate published policy.
+   */
+  scoringSeasonDataSync: "scoring-season-data-sync",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -302,6 +312,11 @@ export const bulkCharacterProcessingInputSchema = z
      * Must not be combined with minMythicPlusScore or maxCharacters.
      */
     characterIds: z.array(z.string().uuid()).max(BULK_EXPLICIT_CHARACTER_IDS_MAX).nullable().optional(),
+    /**
+     * When set, RECALCULATE_ONLY child jobs score this season even if the
+     * global effective scoring season changes before execution.
+     */
+    pinnedSeasonId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (Array.isArray(data.characterIds) && data.characterIds.length === 0) {
@@ -392,6 +407,23 @@ export interface RefreshEtaFields {
   estimateConfidence: EstimateConfidence | null;
   schedulingState: RefreshSchedulingState | null;
 }
+
+export const keyDistributionRefreshJobSchema = z.object({
+  refreshId: z.string().uuid(),
+  seasonId: z.string().uuid(),
+  region: z.enum(["EU", "US", "KR", "TW"]),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type KeyDistributionRefreshJob = z.infer<typeof keyDistributionRefreshJobSchema>;
+
+export const scoringSeasonDataSyncJobSchema = z.object({
+  trigger: z.enum(["schedule", "admin", "startup"]).default("schedule"),
+  blizzardSeasonId: z.number().int().positive().optional(),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type ScoringSeasonDataSyncJob = z.infer<typeof scoringSeasonDataSyncJobSchema>;
 
 export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;

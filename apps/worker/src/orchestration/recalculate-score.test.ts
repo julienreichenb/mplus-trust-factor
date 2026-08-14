@@ -139,6 +139,9 @@ describe("runRecalculateScore — contract stability", () => {
           getModelByKeyVersion: vi.fn(async () => model),
           saveScoreSnapshot,
         },
+        run: {
+          findRunsForCharacterInSeason: vi.fn(async () => []),
+        },
       },
     };
 

@@ -15,6 +15,7 @@ import { buildAdminCalibrationRoutes } from "./routes/admin-calibration.js";
 import { buildAdminExplainabilityV2Routes } from "./routes/admin-explainability-v2.js";
 import { buildAdminRefreshJobRoutes } from "./routes/admin-refresh-jobs.js";
 import { buildAdminCharacterDetailRoutes } from "./routes/admin-character-detail.js";
+import { buildAdminScoreContextRoutes } from "./routes/admin-score-context.js";
 import { buildCharacterRoutes } from "./routes/characters.js";
 import { buildComparisonRoutes } from "./routes/comparisons.js";
 import { buildJobRoutes } from "./routes/jobs.js";
@@ -395,6 +396,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(buildAdminExplainabilityV2Routes(container));
   await app.register(buildAdminRefreshJobRoutes(container));
   await app.register(buildAdminCharacterDetailRoutes(container));
+  await app.register(buildAdminScoreContextRoutes(container));
   await app.register(buildAuthRoutes(env, container.authService));
 
   return app;

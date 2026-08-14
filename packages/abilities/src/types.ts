@@ -157,6 +157,11 @@ export interface AbilityRule {
    */
   interruptProfile?: InterruptCapabilityProfile;
   requiresSuccessfulTarget?: boolean;
+  /**
+   * When true, Healing events of this rule may contribute Survival active-heal
+   * credit for the rule's specSlugs (hybrid self/ally toolkit). Catalog-owned.
+   */
+  survivalActiveHeal?: boolean;
   /** canonicalKey of the ability this replaces. */
   replacementFor?: string;
   /** Additional spell IDs that resolve to this rule (aliases / cast variants). */

@@ -68,11 +68,20 @@ export const OBSOLETE_TWW_DUNGEON_SLUGS: readonly string[] = Object.freeze(
 
 export type MplusZoneCatalogRegistry = Map<number, MplusZoneCatalogEntry>;
 
-export function createDefaultMplusZoneCatalogRegistry(): MplusZoneCatalogRegistry {
+export function createProductionMplusZoneCatalogRegistry(): MplusZoneCatalogRegistry {
+  return new Map([[ZONE_47_MIDNIGHT_S1_CATALOG.wclZoneId, ZONE_47_MIDNIGHT_S1_CATALOG]]);
+}
+
+export function createFixtureMplusZoneCatalogRegistry(): MplusZoneCatalogRegistry {
   return new Map([
     [ZONE_47_MIDNIGHT_S1_CATALOG.wclZoneId, ZONE_47_MIDNIGHT_S1_CATALOG],
     [ZONE_45_FIXTURE_SEASON_13_CATALOG.wclZoneId, ZONE_45_FIXTURE_SEASON_13_CATALOG],
   ]);
+}
+
+/** Production default — never includes fixture season mappings. */
+export function createDefaultMplusZoneCatalogRegistry(): MplusZoneCatalogRegistry {
+  return createProductionMplusZoneCatalogRegistry();
 }
 
 export function registerMplusZoneCatalog(
@@ -113,7 +122,7 @@ export function createFixtureRegistryCatalogDiscoverer(): (input: {
   dungeonSlugs: string[];
   encounterIds: number[];
 }> {
-  const registry = createDefaultMplusZoneCatalogRegistry();
+  const registry = createFixtureMplusZoneCatalogRegistry();
   return async ({ blizzardSeasonId }) => {
     const matches = lookupZoneCatalogByBlizzardSeasonId(registry, blizzardSeasonId);
     if (matches.length !== 1) {

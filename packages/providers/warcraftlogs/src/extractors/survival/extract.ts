@@ -210,6 +210,8 @@ export function extractSurvivalFromCapabilityPackage(
     const timestampMs = event.timestampMs;
     const sourceActorId = event.sourceActorId;
     if (spellId == null || sourceActorId == null) continue;
+    // Healing events prove impact; Casts/Buffs prove toolkit activation.
+    if (event.dataset === "Healing") continue;
 
     const kind = sourceKindFor(sourceActorId, playerIds, ownerByActor);
     const sourceOwner =
@@ -280,6 +282,13 @@ export function extractSurvivalFromCapabilityPackage(
         rawDefensiveEventCount += 1;
         rawDefensiveByOwner.set(sourceOwner, (rawDefensiveByOwner.get(sourceOwner) ?? 0) + 1);
       } else if (activationKind === "RECOVERY") {
+        if (
+          targetPlayer != null &&
+          sourceOwner != null &&
+          targetPlayer !== sourceOwner
+        ) {
+          continue;
+        }
         rawRecoveryEventCount += 1;
         rawRecoveryByOwner.set(sourceOwner, (rawRecoveryByOwner.get(sourceOwner) ?? 0) + 1);
       }

@@ -3,6 +3,7 @@
  * Requires explicit confirmation. Do not run against staging/production.
  */
 import type { PrismaClient } from "@mplus/database";
+import { isNonProductSeasonSlug } from "../season-authority.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
 import { synchronizeActiveMplusSeasonCatalog } from "./synchronize.js";
 import {
@@ -35,8 +36,7 @@ export interface ActiveSeasonRepairPlan {
 }
 
 function isPlaceholder(slug: string): boolean {
-  const s = slug.toLowerCase();
-  return s === "placeholder-current" || s === "auto-current" || s.startsWith("placeholder");
+  return isNonProductSeasonSlug(slug);
 }
 
 export async function planActiveMplusSeasonRepair(input: {

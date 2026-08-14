@@ -10,6 +10,8 @@ import {
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
+  keyDistributionRefreshJobSchema,
+  scoringSeasonDataSyncJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
 } from "@mplus/contracts";
@@ -28,6 +30,8 @@ import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
 import { runScoringEvidenceExportJob } from "./orchestration/scoring-evidence-export.js";
 import { runScoringShadowCanaryJob } from "./orchestration/scoring/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
+import { runKeyDistributionRefresh } from "./orchestration/key-distribution-refresh.js";
+import { runScheduledScoringSeasonDataSync } from "./orchestration/active-mplus-season/scoring-season-data-sync.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
@@ -381,6 +385,36 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
+  const keyDistribution = new Worker(
+    QUEUE_NAMES.keyDistributionRefresh,
+    async (job) => {
+      const payload = keyDistributionRefreshJobSchema.parse(job.data);
+      return runKeyDistributionRefresh({
+        prisma: container.prisma,
+        logger: container.logger,
+        refreshId: payload.refreshId,
+        seasonId: payload.seasonId,
+        region: payload.region,
+      });
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  const scoringSeasonDataSync = new Worker(
+    QUEUE_NAMES.scoringSeasonDataSync,
+    async (job) => {
+      const payload = scoringSeasonDataSyncJobSchema.parse(job.data);
+      return runScheduledScoringSeasonDataSync({
+        prisma: container.prisma,
+        logger: container.logger,
+        blizzardSeasonId: payload.blizzardSeasonId,
+        warcraftlogs: container.providers.warcraftlogs,
+        providerMode: container.env.PROVIDER_MODE,
+      });
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
   for (const worker of [
     refresh,
     refreshCalibration,
@@ -394,6 +428,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     shadowCanary,
     evidenceSlot,
     evidenceFinalize,
+    keyDistribution,
+    scoringSeasonDataSync,
   ]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
@@ -431,6 +467,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     shadowCanary,
     evidenceSlot,
     evidenceFinalize,
+    keyDistribution,
+    scoringSeasonDataSync,
   ];
 }
 

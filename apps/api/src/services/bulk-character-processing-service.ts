@@ -10,6 +10,7 @@ import type {
 } from "@mplus/contracts";
 import {
   BULK_OPERATION_ITEMS_DETAIL_LIMIT,
+  BULK_EXPLICIT_CHARACTER_IDS_MAX,
   bulkCharacterProcessingInputSchema,
   isExplicitBulkCharacterSelection,
 } from "@mplus/contracts";
@@ -240,6 +241,46 @@ export class BulkCharacterProcessingService {
       },
       { createdByUserId: opts.createdByUserId ?? null },
     );
+  }
+
+  /**
+   * Season-targeted RECALCULATE_ONLY after a context-policy publish.
+   * Does not rescore in-request. Provider-free child jobs reuse persisted evidence.
+   */
+  async enqueueRecalculateForSeasonScores(
+    input: {
+      seasonId: string;
+      scoreModelId: string | null;
+      characterIds: string[];
+      createdByUserId?: string | null;
+      logicalKeyPrefix?: string;
+    },
+  ): Promise<BulkOperationDTO | null> {
+    if (input.characterIds.length === 0) return null;
+    let first: BulkOperationDTO | null = null;
+    const prefix = input.logicalKeyPrefix ?? `season-context:${input.seasonId}`;
+    for (let offset = 0; offset < input.characterIds.length; offset += BULK_EXPLICIT_CHARACTER_IDS_MAX) {
+      const chunk = input.characterIds.slice(offset, offset + BULK_EXPLICIT_CHARACTER_IDS_MAX);
+      const chunkIndex = Math.floor(offset / BULK_EXPLICIT_CHARACTER_IDS_MAX);
+      const operation = await this.create(
+        {
+          mode: "RECALCULATE_ONLY",
+          minMythicPlusScore: null,
+          scoreModelId: input.scoreModelId,
+          batchSize: 25,
+          maxCharacters: null,
+          maxWclCalls: null,
+          dryRun: false,
+          allowFullRefreshOnIncompatible: false,
+          logicalKey: `${prefix}:chunk:${chunkIndex}`,
+          characterIds: chunk,
+          pinnedSeasonId: input.seasonId,
+        },
+        { createdByUserId: input.createdByUserId ?? null },
+      );
+      first ??= operation;
+    }
+    return first;
   }
 
   async list(limit = 50): Promise<BulkOperationDTO[]> {

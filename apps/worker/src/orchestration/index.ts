@@ -29,6 +29,7 @@ export * from "./publication-flow.js";
 export * from "./discover-owned-characters.js";
 export * from "./concurrency.js";
 export * from "./season-authority.js";
+export * from "./key-distribution-refresh.js";
 export * from "./active-mplus-season/index.js";
 export * from "./refresh-eligibility-gate.js";
 export * from "./character-public-bootstrap.js";

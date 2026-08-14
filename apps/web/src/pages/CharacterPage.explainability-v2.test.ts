@@ -232,6 +232,7 @@ describe("CharacterPage score explanation authority", () => {
 
     expect(api.getCharacterProfile).toHaveBeenCalled();
     expect(wrapper.find("[data-testid='explainability-v2']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='score-context-breakdown']").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("Selected-run evidence (Scoring V2)");
     expect(wrapper.text()).not.toContain("V2 top contributor must not appear");
     expect(wrapper.html()).not.toMatch(/manifestContentHash|inputFingerprint|reportCode|scoreModelId/i);

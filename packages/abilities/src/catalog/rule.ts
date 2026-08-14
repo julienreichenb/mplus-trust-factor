@@ -31,6 +31,7 @@ export interface RuleInput {
   raceSlugs?: string[];
   interruptProfile?: InterruptCapabilityProfile;
   requiresSuccessfulTarget?: boolean;
+  survivalActiveHeal?: boolean;
   replacementFor?: string;
   aliases?: number[];
   activationSpellIds?: number[];
@@ -180,6 +181,7 @@ export function rule(input: RuleInput): AbilityRule {
     raceSlugs: input.raceSlugs ? [...input.raceSlugs] : undefined,
     interruptProfile: input.interruptProfile,
     requiresSuccessfulTarget: input.requiresSuccessfulTarget,
+    survivalActiveHeal: input.survivalActiveHeal,
     replacementFor: input.replacementFor,
     aliases: input.aliases ? [...input.aliases] : undefined,
     activationSpellIds:

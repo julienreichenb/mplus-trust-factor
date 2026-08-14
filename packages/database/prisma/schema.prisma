@@ -72,6 +72,12 @@ enum ScoreModelStatus {
   ARCHIVED
 }
 
+enum SeasonScoreContextRevisionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum RedFlagSeverity {
   INFO
   LOW
@@ -252,8 +258,12 @@ model Season {
   characterScores        CharacterScore[]
   performanceAggregates  CharacterPerformanceAggregate[]
   experienceEvidence     CharacterExperienceEvidence[]
+  medianKeyDistributions SeasonMedianKeyDistributionSnapshot[]
+  scoreContextRevisions  SeasonScoreContextRevision[]
+  keyDistributionRefreshes ScoreContextKeyDistributionRefresh[]
 
   @@unique([regionId, slug])
+  @@unique([regionId, blizzardSeasonId], map: "seasons_region_blizzard_season_id_key")
   @@map("seasons")
 }
 
@@ -1113,6 +1123,7 @@ model User {
   runtimeSettingsUpdated RuntimeSetting[] @relation("RuntimeSettingUpdatedBy")
   scoringEvidenceExports ScoringEvidenceExport[]
   shadowCanariesRequested ScoringShadowCanary[] @relation("ShadowCanaryRequestedBy")
+  scoreContextRevisions  SeasonScoreContextRevision[]
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -2321,33 +2332,146 @@ model CharacterExperienceEvidence {
 }
 
 /**
- * Current character score for a season + scoring version.
- * selectedRuns stores the cohort identities used for audit/debug.
+ * Current character score for a season + scoring version + context revision.
+ * `composite` is the raw P/S/U/E partial composite (never context-adjusted).
+ * `contextualScore` is the post-context clamped final score when context ran.
+ * selectedRuns stores EvidenceManifest digest slots (not the canonical 8-run set).
  */
 model CharacterScore {
-  id               String   @id @default(uuid()) @db.Uuid
-  characterId      String   @map("character_id") @db.Uuid
-  seasonId         String   @map("season_id") @db.Uuid
-  scoringVersion   String   @map("scoring_version")
-  performance      Float?
-  utility          Float?
-  survival         Float?
-  experience       Float?
-  composite        Float?
-  confidence       Float?
-  tier             String?
-  dimensionDetails Json?    @map("dimension_details")
-  selectedRuns     Json     @map("selected_runs")
-  calculatedAt     DateTime @map("calculated_at") @db.Timestamptz(3)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                   String   @id @default(uuid()) @db.Uuid
+  characterId          String   @map("character_id") @db.Uuid
+  seasonId             String   @map("season_id") @db.Uuid
+  scoringVersion       String   @map("scoring_version")
+  /**
+   * Published SeasonScoreContextRevision.id, or "none" when no published revision.
+   * Keeps one operational row per applied context revision (historical rows retained).
+   */
+  contextRevisionKey   String   @default("none") @map("context_revision_key")
+  contextRevisionId    String?  @map("context_revision_id") @db.Uuid
+  performance          Float?
+  utility              Float?
+  survival             Float?
+  experience           Float?
+  composite            Float?
+  contextualScore      Float?   @map("contextual_score")
+  confidence           Float?
+  tier                 String?
+  dimensionDetails     Json?    @map("dimension_details")
+  selectedRuns         Json     @map("selected_runs")
+  calculatedAt         DateTime @map("calculated_at") @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  season    Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  contextDistributionSnapshotId String? @map("context_distribution_snapshot_id") @db.Uuid
 
-  @@unique([characterId, seasonId, scoringVersion])
+  character       Character                     @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  season          Season                        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  contextRevision SeasonScoreContextRevision?   @relation(fields: [contextRevisionId], references: [id], onDelete: SetNull)
+  contextDistributionSnapshot SeasonMedianKeyDistributionSnapshot? @relation(fields: [contextDistributionSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([characterId, seasonId, scoringVersion, contextRevisionKey], map: "character_scores_ctx_rev_uidx")
   @@index([characterId, seasonId])
+  @@index([seasonId, calculatedAt])
   @@map("character_scores")
+}
+
+/**
+ * Immutable imported season-wide median-key percentile distribution.
+ * Not Experience rating cutoffs and not Performance k50/k90/k99.
+ */
+model SeasonMedianKeyDistributionSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  seasonId       String   @map("season_id") @db.Uuid
+  source         String
+  provenance     Json     @default("{}")
+  sourceVersion  String?  @map("source_version")
+  collectedAt    DateTime @map("collected_at") @db.Timestamptz(3)
+  effectiveAt    DateTime? @map("effective_at") @db.Timestamptz(3)
+  contentHash    String   @map("content_hash")
+  points         Json
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  season    Season                       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  regionBindings ScoreContextRevisionRegionSnapshot[]
+  characterScores CharacterScore[]
+  refreshes ScoreContextKeyDistributionRefresh[]
+
+  @@index([seasonId, collectedAt(sort: Desc)])
+  @@unique([seasonId, contentHash])
+  @@map("season_median_key_distribution_snapshots")
+}
+
+/**
+ * Background Raider.IO addon median-key distribution ingest (not character refresh).
+ */
+model ScoreContextKeyDistributionRefresh {
+  id               String    @id @default(uuid()) @db.Uuid
+  seasonId         String    @map("season_id") @db.Uuid
+  region           String
+  status           String
+  errorMessage     String?   @map("error_message")
+  snapshotId       String?   @map("snapshot_id") @db.Uuid
+  requestedByUserId String?  @map("requested_by_user_id") @db.Uuid
+  startedAt        DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  season   Season                                @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  snapshot SeasonMedianKeyDistributionSnapshot?  @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([seasonId, createdAt(sort: Desc)])
+  @@map("score_context_key_distribution_refreshes")
+}
+
+/**
+ * Shared Key+Meta policy for one Blizzard season (not regional).
+ * Exactly one PUBLISHED revision per blizzardSeasonId is enforced on publish.
+ * Regional median-key snapshots are frozen via ScoreContextRevisionRegionSnapshot.
+ */
+model SeasonScoreContextRevision {
+  id                       String                            @id @default(uuid()) @db.Uuid
+  blizzardSeasonId         Int                               @map("blizzard_season_id")
+  seasonId                 String?                           @map("season_id") @db.Uuid
+  version                  Int
+  status                   SeasonScoreContextRevisionStatus  @default(DRAFT)
+  tierFactors              Json                              @map("tier_factors")
+  specAssignments          Json                              @map("spec_assignments")
+  percentileAnchors        Json                              @map("percentile_anchors")
+  createdByUserId          String?                           @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime                          @default(now()) @map("created_at") @db.Timestamptz(3)
+  publishedAt              DateTime?                         @map("published_at") @db.Timestamptz(3)
+  updatedAt                DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  originSeason           Season?                                @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  createdBy              User?                                  @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  characterScores        CharacterScore[]
+  regionSnapshots        ScoreContextRevisionRegionSnapshot[]
+
+  @@unique([blizzardSeasonId, version])
+  @@index([blizzardSeasonId, status])
+  @@map("season_score_context_revisions")
+}
+
+/**
+ * Publication binding: one frozen regional distribution snapshot per region
+ * for a shared policy revision. Draft bindings may be updated by adopt-latest;
+ * published bindings are immutable.
+ */
+model ScoreContextRevisionRegionSnapshot {
+  id                       String   @id @default(uuid()) @db.Uuid
+  revisionId               String   @map("revision_id") @db.Uuid
+  regionCode               String   @map("region_code")
+  distributionSnapshotId   String   @map("distribution_snapshot_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  revision               SeasonScoreContextRevision          @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  distributionSnapshot   SeasonMedianKeyDistributionSnapshot @relation(fields: [distributionSnapshotId], references: [id], onDelete: Restrict)
+
+  @@unique([revisionId, regionCode])
+  @@index([distributionSnapshotId])
+  @@map("score_context_revision_region_snapshots")
 }
 
 /**

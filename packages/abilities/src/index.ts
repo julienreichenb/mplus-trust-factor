@@ -90,6 +90,8 @@ export {
   rule,
 } from "./catalog/rule.js";
 
+export { isSurvivalActiveHealRule } from "./survival/active-heal.js";
+
 export {
   OFFENSIVE_COVERAGE_EXEMPTIONS,
   exemptionFor,

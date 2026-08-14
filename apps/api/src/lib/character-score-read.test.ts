@@ -60,6 +60,177 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(dto.confidence).toBe(0.72);
   });
 
+  it("uses contextual final score as overallScore and keeps raw composite in explanation", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 73.421,
+        contextualScore: 80.763,
+        dimensionDetails: {
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 1,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 73.421,
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns: [],
+              medianKeyLevel: 19.5,
+              appliedAnchorPercentileBps: 9000,
+              appliedAnchorKeyThreshold: 20,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.1,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "MANUAL_IMPORT",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "AVAILABLE",
+              classSlug: "mage",
+              specSlug: "fire",
+              specSource: "WCL_ACTIVE_DUNGEONS",
+              tier: 5,
+              factor: 1,
+              reason: null,
+            },
+            combinedFactor: 1.1,
+            preClampAdjustedScore: 80.7631,
+            wasClamped: false,
+            finalScore: 80.763,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.overallScore).toBe(80.763);
+    expect(dto.scoreContext?.rawScoreBeforeContext).toBe(73.421);
+    expect(dto.scoreContext?.keyContext.appliedAnchorPercentileLabel).toBe("P90");
+    expect(dto.explanation).toMatchObject({ composite: 73.421 });
+  });
+
+  it("product grade follows FINAL SCORE, not raw composite", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 75,
+        contextualScore: 93.75,
+        tier: "S",
+        dimensionDetails: {
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 2,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 75,
+            rawGrade: "B",
+            finalGrade: "S",
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns: [],
+              medianKeyLevel: 20,
+              appliedAnchorPercentileBps: 9000,
+              appliedAnchorKeyThreshold: 16,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.25,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "MANUAL_IMPORT",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "AVAILABLE",
+              classSlug: "mage",
+              specSlug: "fire",
+              specSource: "test",
+              tier: 5,
+              factor: 1,
+              reason: null,
+            },
+            combinedFactor: 1.25,
+            preClampAdjustedScore: 93.75,
+            wasClamped: false,
+            finalScore: 93.75,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6, gradeThresholds: { S: 90, A: 80, B: 65, C: 50 } },
+    );
+    expect(dto.overallScore).toBe(93.75);
+    expect(dto.grade).toBe("S");
+    expect(dto.scoreContext?.rawGrade).toBe("B");
+    expect(dto.scoreContext?.finalGrade).toBe("S");
+    expect(dto.explanation).toMatchObject({ composite: 75 });
+  });
+
+  it("I: public scoreContext exposes only canonical 8 runs, not EvidenceManifest slots", () => {
+    const canonicalRuns = Array.from({ length: 8 }, (_, i) => ({
+      dungeonSlug: `dungeon-${i}`,
+      canonicalRunId: `run-${i}`,
+      keyLevel: 20 + i,
+    }));
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 70,
+        contextualScore: 70,
+        dimensionDetails: {
+          evidenceManifest: { slots: Array.from({ length: 16 }, (_, i) => ({ slot: i })) },
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 1,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 70,
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns,
+              medianKeyLevel: 23.5,
+              appliedAnchorPercentileBps: 9900,
+              appliedAnchorKeyThreshold: 22,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.1,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "FIXTURE_LOCAL",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "NOT_CONFIGURED",
+              classSlug: "mage",
+              specSlug: "frost",
+              specSource: "test",
+              tier: null,
+              factor: 1,
+              reason: "SPEC_META_NOT_CONFIGURED",
+            },
+            combinedFactor: 1.1,
+            preClampAdjustedScore: 77,
+            wasClamped: false,
+            finalScore: 77,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.scoreContext?.keyContext.canonicalRuns).toHaveLength(8);
+    expect(JSON.stringify(dto.scoreContext)).not.toContain("evidenceManifest");
+    expect(JSON.stringify(dto.scoreContext)).not.toContain('"slots"');
+  });
+
   it("does not keep stale tier=U when P/U/S composite is calculable", () => {
     const dto = mapCharacterScoreToSnapshotDto(
       {

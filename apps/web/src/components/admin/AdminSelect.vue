@@ -9,11 +9,17 @@ const props = withDefaults(
     disabled?: boolean;
     hint?: string | null;
     error?: string | null;
+    /** Optional test id on the native select. */
+    controlTestId?: string;
+    /** Wider control for season names. */
+    wide?: boolean;
   }>(),
   {
     disabled: false,
     hint: null,
     error: null,
+    controlTestId: undefined,
+    wide: false,
   },
 );
 
@@ -32,7 +38,7 @@ const describedBy = computed(() => {
 </script>
 
 <template>
-  <label class="admin-select" :for="selectId">
+  <label class="admin-select" :class="{ 'admin-select--wide': wide }" :for="selectId">
     <span class="admin-select__label">{{ label }}</span>
     <span class="admin-select__control-wrap">
       <select
@@ -42,7 +48,7 @@ const describedBy = computed(() => {
         :disabled="disabled"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedBy"
-        data-testid="admin-select"
+        :data-testid="controlTestId ?? 'admin-select'"
         @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -65,7 +71,12 @@ const describedBy = computed(() => {
 .admin-select {
   display: grid;
   gap: var(--space-2);
-  min-width: min(100%, 18rem);
+  min-width: min(100%, 11rem);
+}
+
+.admin-select--wide {
+  min-width: min(100%, 22rem);
+  flex: 1 1 18rem;
 }
 
 .admin-select__label {

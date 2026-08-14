@@ -1,0 +1,300 @@
+{
+  "provenance": {
+    "region": "eu",
+    "date": "2026-08-14T08:05:36Z",
+    "currentSeasonId": 0,
+    "numCharactersHeader": 1880464,
+    "recordSizeInBytes": 30,
+    "encodingOrder": [
+      1,
+      2,
+      5,
+      6,
+      9,
+      10,
+      11,
+      12,
+      14,
+      15
+    ],
+    "dungeonSeasonSlug": "season-mn-1",
+    "dungeonNames": [
+      "Pit of Saron",
+      "Skyreach",
+      "Seat of the Triumvirate",
+      "Algeth'ar Academy",
+      "Windrunner Spire",
+      "Magisters' Terrace",
+      "Maisara Caverns",
+      "Nexus-Point Xenas"
+    ],
+    "source": "github.com/RaiderIO/raiderio-addon releases",
+    "artifact": "RaiderIO-v202608140600.zip",
+    "tag": "v202608140600"
+  },
+  "lookupBytes": 13809660,
+  "namedCharacters": 460322,
+  "eligibleRule": "EU addon-indexed characters with a current-season key level > 0 on all 8 ns.dungeons slots. Median = average of sorted positions 4 and 5 (1-based). Character dungeon levels, not warband overlay. Timed/untimed not required. No local CharacterScore. No score-to-key conversion.",
+  "counts": {
+    "namedCharacters": 460322,
+    "headerNumCharacters": 1880464,
+    "lookupRecordSlots": 460322,
+    "headerNumCharactersNote": "provider.numCharacters on the EU file (1880464) does not equal named EU rows; named rows match lookupBytes/recordSizeInBytes. Treat named EU rows as the regional population size.",
+    "currentScoreGt0": 457646,
+    "anyDungeonKey": 457650,
+    "eligibleAllEight": 360123,
+    "completeness0to8": [
+      2672,
+      411,
+      5472,
+      11184,
+      16916,
+      17287,
+      19799,
+      26458,
+      360123
+    ]
+  },
+  "samplesAllEight": [
+    {
+      "realm": "Aegwynn",
+      "name": "Abusemen",
+      "currentScore": 3039,
+      "levels": [
+        13,
+        14,
+        13,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "chests": [
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        1,
+        2
+      ],
+      "median": 12
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Acerà",
+      "currentScore": 3447,
+      "levels": [
+        16,
+        16,
+        16,
+        17,
+        16,
+        16,
+        16,
+        15
+      ],
+      "chests": [
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "median": 16
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Adalârd",
+      "currentScore": 3016,
+      "levels": [
+        12,
+        15,
+        10,
+        12,
+        12,
+        11,
+        15,
+        13
+      ],
+      "chests": [
+        2,
+        1,
+        3,
+        1,
+        1,
+        2,
+        1,
+        1
+      ],
+      "median": 12
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Adeliná",
+      "currentScore": 3412,
+      "levels": [
+        16,
+        16,
+        15,
+        16,
+        17,
+        17,
+        15,
+        15
+      ],
+      "chests": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "median": 16
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Adibubblex",
+      "currentScore": 2755,
+      "levels": [
+        10,
+        12,
+        12,
+        12,
+        10,
+        10,
+        10,
+        10
+      ],
+      "chests": [
+        2,
+        2,
+        2,
+        1,
+        2,
+        2,
+        0,
+        2
+      ],
+      "median": 10
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Adryala",
+      "currentScore": 3005,
+      "levels": [
+        13,
+        13,
+        13,
+        13,
+        13,
+        12,
+        13,
+        10
+      ],
+      "chests": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2
+      ],
+      "median": 13
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Aegonv",
+      "currentScore": 2886,
+      "levels": [
+        10,
+        12,
+        12,
+        12,
+        12,
+        10,
+        12,
+        10
+      ],
+      "chests": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3
+      ],
+      "median": 12
+    },
+    {
+      "realm": "Aegwynn",
+      "name": "Aerodracthyl",
+      "currentScore": 4028,
+      "levels": [
+        22,
+        21,
+        21,
+        20,
+        22,
+        21,
+        21,
+        21
+      ],
+      "chests": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "median": 21
+    }
+  ],
+  "distributionEligibleAllEight": {
+    "min": 2,
+    "max": 25,
+    "P50": {
+      "raw": 13,
+      "nearestHalf": 13
+    },
+    "P60": {
+      "raw": 14,
+      "nearestHalf": 14
+    },
+    "P75": {
+      "raw": 16,
+      "nearestHalf": 16
+    },
+    "P90": {
+      "raw": 18,
+      "nearestHalf": 18
+    },
+    "P95": {
+      "raw": 20,
+      "nearestHalf": 20
+    },
+    "P99": {
+      "raw": 22,
+      "nearestHalf": 22
+    },
+    "P99_9": {
+      "raw": 23,
+      "nearestHalf": 23
+    }
+  }
+}

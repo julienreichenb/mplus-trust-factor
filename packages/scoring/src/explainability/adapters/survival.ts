@@ -149,6 +149,62 @@ export function reconstructSurvivalComponentContributions(
   return out;
 }
 
+function summarizeActiveHealing(dungeons: SurvivalV2DungeonAggregate[]): {
+  selfCredited: number;
+  allyCredited: number;
+  selfPct: number;
+  allyPct: number;
+  rawCredit: number;
+  diminishedCredit: number;
+  cappedCredit: number;
+  limitations: string[];
+} | null {
+  let selfCredited = 0;
+  let allyCredited = 0;
+  let selfPct = 0;
+  let allyPct = 0;
+  let rawCredit = 0;
+  let diminishedCredit = 0;
+  let cappedCredit = 0;
+  const limitations = new Set<string>();
+  let seen = false;
+  for (const dungeon of dungeons) {
+    for (const run of dungeon.runs) {
+      const evidence = run.recovery.evidence.activeHealing as
+        | {
+            self?: { creditedEventCount?: number; totalEffectiveHealingPctMaxHp?: number };
+            ally?: { creditedEventCount?: number; totalEffectiveHealingPctMaxHp?: number };
+            rawCredit?: number;
+            diminishedCredit?: number;
+            cappedCredit?: number;
+            limitations?: string[];
+          }
+        | undefined;
+      if (evidence == null) continue;
+      seen = true;
+      selfCredited += evidence.self?.creditedEventCount ?? 0;
+      allyCredited += evidence.ally?.creditedEventCount ?? 0;
+      selfPct += evidence.self?.totalEffectiveHealingPctMaxHp ?? 0;
+      allyPct += evidence.ally?.totalEffectiveHealingPctMaxHp ?? 0;
+      rawCredit += evidence.rawCredit ?? 0;
+      diminishedCredit += evidence.diminishedCredit ?? 0;
+      cappedCredit += evidence.cappedCredit ?? 0;
+      for (const lim of evidence.limitations ?? []) limitations.add(lim);
+    }
+  }
+  if (!seen) return null;
+  return {
+    selfCredited,
+    allyCredited,
+    selfPct,
+    allyPct,
+    rawCredit,
+    diminishedCredit,
+    cappedCredit,
+    limitations: [...limitations].sort(),
+  };
+}
+
 export function adaptSurvivalExplainability(
   result: SurvivalV2ComputeResult | null | undefined,
 ): DimensionExplainabilityV1 {
@@ -211,6 +267,29 @@ export function adaptSurvivalExplainability(
             representedDungeonCount: result.dungeons.filter((d) =>
               d.runs.some((r) => r.valid && r.behavioralScore != null),
             ).length,
+          },
+        }),
+      );
+    }
+    const healing = summarizeActiveHealing(result.dungeons);
+    if (healing != null) {
+      drivers.push(
+        buildScoreDriver({
+          code: "survival.active_healing",
+          direction: healing.cappedCredit > 0 ? "POSITIVE" : "NEUTRAL",
+          value: healing.cappedCredit,
+          weight: 1,
+          contribution: healing.cappedCredit,
+          materiality: healing.cappedCredit,
+          params: {
+            selfCreditedEventCount: healing.selfCredited,
+            allyCreditedEventCount: healing.allyCredited,
+            selfEffectiveHealPctMaxHp: healing.selfPct,
+            allyEffectiveHealPctMaxHp: healing.allyPct,
+            rawCredit: healing.rawCredit,
+            diminishedCredit: healing.diminishedCredit,
+            cappedCredit: healing.cappedCredit,
+            limitations: healing.limitations.join(","),
           },
         }),
       );

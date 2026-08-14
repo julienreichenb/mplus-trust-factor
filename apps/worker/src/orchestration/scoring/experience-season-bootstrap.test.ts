@@ -280,6 +280,9 @@ function createPrismaFake(initial: SeasonRow[]) {
         const row = seasons.find((s) => {
           if (where.regionId != null && s.regionId !== where.regionId) return false;
           if (where.slug != null && s.slug !== where.slug) return false;
+          if (where.blizzardSeasonId != null && s.blizzardSeasonId !== where.blizzardSeasonId) {
+            return false;
+          }
           if (where.isCurrent === true && !s.isCurrent) return false;
           return true;
         });

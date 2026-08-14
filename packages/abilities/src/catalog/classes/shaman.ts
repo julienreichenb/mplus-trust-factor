@@ -91,6 +91,18 @@ export const SHAMAN_RULES: AbilityRule[] = [
     cooldownSeconds: 120,
   }),
   rule({
+    canonicalKey: "shaman.active-heal.healing-surge",
+    name: "Healing Surge",
+    spellIds: [8004],
+    classSlug: "shaman",
+    specSlugs: ["enhancement"],
+    roles: DPS,
+    category: "SELF_HEAL",
+    sharedAcrossSpecs: false,
+    survivalActiveHeal: true,
+    cooldownSeconds: 0,
+  }),
+  rule({
     canonicalKey: "shaman.group-utility.spirit-link-totem",
     name: "Spirit Link Totem",
     spellIds: [98008],

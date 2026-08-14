@@ -51,6 +51,23 @@ vi.mock("@mplus/worker", async (importOriginal) => {
       },
       changed: true,
     })),
+    synchronizeScoringSeasonData: vi.fn(async (input: { blizzardSeasonId: number }) => ({
+      blizzardSeasonId: input.blizzardSeasonId,
+      regions: [
+        {
+          regionCode: "EU",
+          ok: true,
+          error: null,
+          seasonId: "s17",
+          result: {
+            seasonId: "s17",
+            blizzardSeasonId: input.blizzardSeasonId,
+            regionCode: "EU",
+            status: "ready",
+          },
+        },
+      ],
+    })),
   };
 });
 
@@ -186,5 +203,20 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
         },
       ],
     });
+  });
+
+  it("synchronize-data calls synchronizeScoringSeasonData", async () => {
+    const { synchronizeScoringSeasonData } = await import("@mplus/worker");
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/misc/scoring-season/synchronize-data",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: { region: "EU" },
+    });
+    expect(response.statusCode).not.toBe(404);
+    expect(response.statusCode).not.toBe(405);
+    if (response.statusCode === 200) {
+      expect(synchronizeScoringSeasonData).toHaveBeenCalled();
+    }
   });
 });

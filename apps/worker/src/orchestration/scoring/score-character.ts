@@ -7,20 +7,23 @@
  * feeds it into role-aware Performance (`performance-role-aware-v1`). Detailed playerscore
  * digests remain score-neutral for Performance.
  */
-import {
-  CharacterScoreRepository,
-  type PrismaClient,
-  type ArtifactRepository,
-  type EvidenceRepository,
-} from "@mplus/database";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import type {
+  AppliedScoreContext,
   CharacterSeasonEvidenceManifestV2,
   EvidenceCandidateMetadataV2,
   EvidenceRole,
   RegionCode,
   ScoreExplainabilityV1,
+  SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
+import {
+  CharacterScoreRepository,
+  SeasonScoreContextRepository,
+  type PrismaClient,
+  type ArtifactRepository,
+  type EvidenceRepository,
+} from "@mplus/database";
 import {
   orchestrateScoringRuns,
   type LiveProviderPermission,
@@ -50,9 +53,12 @@ import {
   resolveTunableWeights,
   trustDimensionWeightsFromTunable,
   extractPersistedRoleAwarePerformanceEvidence,
+  applyScoreContext,
+  gradeScore,
   type ExperiencePhase1Result,
   type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
+  type ScoringRunSelection,
 } from "@mplus/scoring";
 
 /** Bumped when season-scoped scoring identity (WCL M+ spec vs current profile) activates. */
@@ -154,6 +160,10 @@ export interface ScoreCharacterInput {
    * One call per scoring operation when facts are missing; ignored when provider forbidden.
    */
   rankingParseProvider?: FetchCharacterZoneRankingsParseProvider | null;
+  /** Canonical 8-run selection produced once by selectScoringRuns for this calculation. */
+  canonicalRunSelection?: ScoringRunSelection | null;
+  /** Optional frozen published context revision (tests). When omitted, loaded from DB. */
+  seasonContextRevision?: SeasonScoreContextRevisionDoc | null;
   /** Test override for ensure port. */
   ensurePerformanceAggregate?: (
     input: Parameters<
@@ -195,6 +205,8 @@ export interface ScoreCharacterResult {
    * Character/season points_and_damage aggregate consumed by Performance Phase 2.
    */
   performanceAggregate: ScoreCharacterPerformanceAggregateExposure;
+  /** Post-composite key/meta context. Never mutates P/S/U/E. */
+  appliedContext: AppliedScoreContext;
 }
 
 export async function scoreCharacter(
@@ -420,7 +432,54 @@ export async function scoreCharacter(
 
   const composite = partial.composite;
   const confidence = partial.confidence;
-  const tier = partial.grade;
+
+  const contextRepo = new SeasonScoreContextRepository(input.prisma);
+  const seasonContextRevision =
+    input.seasonContextRevision !== undefined
+      ? input.seasonContextRevision
+      : await contextRepo.findPublishedForSeason(input.seasonId);
+
+  let regionalDistribution: SeasonScoreContextRevisionDoc["distribution"] | undefined;
+  let regionalDistributionMissing = false;
+  if (input.seasonContextRevision === undefined && seasonContextRevision) {
+    const seasonRow = await input.prisma.season?.findUnique?.({
+      where: { id: input.seasonId },
+      select: { region: { select: { code: true } } },
+    });
+    const regionCode = seasonRow?.region?.code;
+    if (!regionCode) {
+      regionalDistributionMissing = true;
+      regionalDistribution = null;
+    } else {
+      const frozen = await contextRepo.findFrozenRegionalSnapshot({
+        revisionId: seasonContextRevision.id,
+        regionCode,
+      });
+      regionalDistribution = frozen;
+      regionalDistributionMissing = frozen == null;
+    }
+  }
+
+  const appliedContext = applyScoreContext({
+    seasonId: input.seasonId,
+    rawScoreBeforeContext: composite,
+    canonicalRunSelection: input.canonicalRunSelection ?? null,
+    seasonContextRevision,
+    regionalDistribution,
+    regionalDistributionMissing,
+    seasonScoringSpec: {
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      source: "SEASON_SCORING_IDENTITY",
+    },
+    gradeThresholds,
+  });
+
+  const contextualScore = appliedContext.finalScore;
+  const tier =
+    contextualScore != null && Number.isFinite(contextualScore)
+      ? gradeScore(contextualScore, gradeThresholds)
+      : partial.grade;
 
   // Build explainability exactly once from the same calculator outputs as the score.
   // Pure / provider-free — must not alter P/S/U/E, composite, or provider accounting.
@@ -454,11 +513,15 @@ export async function scoreCharacter(
       characterId: input.identity.characterId,
       seasonId: input.seasonId,
       scoringVersion,
+      contextRevisionKey: appliedContext.contextRevisionKey,
+      contextRevisionId: appliedContext.contextRevisionId,
+      contextDistributionSnapshotId: appliedContext.key.distributionSnapshotId,
       performance: performance?.score ?? null,
       utility: utility?.score ?? null,
       survival: survival?.score ?? null,
       experience: experienceScore,
       composite,
+      contextualScore,
       confidence,
       tier,
       dimensionDetails: JSON.parse(
@@ -529,6 +592,8 @@ export async function scoreCharacter(
               }
             : null,
           experience: experienceResult,
+          scoreContext: appliedContext,
+          canonicalScoringRunSelection: input.canonicalRunSelection ?? null,
           // Canonical audit object (not public projection) — same calculation as columns.
           explainability,
           performanceAggregate: {
@@ -567,5 +632,6 @@ export async function scoreCharacter(
       aggregateRowId: performanceAggregate.aggregateRowId,
       contentHash: performanceAggregate.contentHash,
     },
+    appliedContext,
   };
 }

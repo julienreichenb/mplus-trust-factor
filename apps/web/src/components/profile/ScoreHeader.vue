@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { CharacterProfileView } from "../../api/types";
 import { humanizeSlug, presentGrade, resolveDataConfidence } from "../../lib/characterViewModel";
 import { filterDimensionsForModel, formatPercent, formatScore } from "../../lib/format";
@@ -11,6 +11,8 @@ import MetaChip from "../common/MetaChip.vue";
 import TrustRadarChart from "../charts/TrustRadarChart.vue";
 import HeroInsightAccordion from "./HeroInsightAccordion.vue";
 import ActiveRerolls from "../character/ActiveRerolls.vue";
+import ScoreContextBreakdown from "./ScoreContextBreakdown.vue";
+import ScoreContextPopover from "./ScoreContextPopover.vue";
 import type { ActiveRerollCharacterDTO } from "@mplus/contracts";
 
 const props = defineProps<{
@@ -49,9 +51,7 @@ const confidenceLabel = computed(() =>
 const partialDimensionsNote = computed(() => {
   const dims = props.profile.score?.dimensions ?? [];
   const missing = dims.filter(
-    (d) =>
-      d.dimension !== "AUTHENTICITY" &&
-      (d.state === "UNAVAILABLE" || d.score == null),
+    (d) => d.dimension !== "AUTHENTICITY" && (d.state === "UNAVAILABLE" || d.score == null),
   );
   if (missing.length === 0) return null;
   return "Unavailable dimensions are excluded from the overall score; remaining weights are renormalized.";
@@ -64,32 +64,146 @@ const classSpec = computed(() => {
   ].filter(Boolean);
   return parts.join(" ");
 });
+
+const scoreContext = computed(() => props.profile.score?.scoreContext ?? null);
+
+const rawScore = computed(() => {
+  const value = scoreContext.value?.rawScoreBeforeContext;
+  return value != null && Number.isFinite(value) ? value : null;
+});
+
+const showRawScore = computed(() => {
+  const raw = rawScore.value;
+  const published = props.profile.score?.overallScore;
+  if (raw == null || published == null || !Number.isFinite(published)) return false;
+  return Math.round(raw) !== Math.round(published);
+});
+
+const rawGrade = computed(() => scoreContext.value?.rawGrade ?? null);
+
+const keyFactor = computed(() => {
+  const value = scoreContext.value?.keyContext.factor;
+  return value != null && Number.isFinite(value) ? value : null;
+});
+
+const metaFactor = computed(() => {
+  const value = scoreContext.value?.metaContext.factor;
+  return value != null && Number.isFinite(value) ? value : null;
+});
+
+function factorChipKind(factor: number | null): "bonus" | "malus" | "neutral" {
+  if (factor == null || Math.abs(factor - 1) < 0.005) return "neutral";
+  return factor > 1 ? "bonus" : "malus";
+}
+
+function factorChipLabel(kind: "Key level" | "Meta", factor: number | null): string {
+  const formatted = factor != null ? factor.toFixed(2) : "1.00";
+  return `${kind} ×${formatted}`;
+}
+
+const rawBarOpen = ref(false);
+
+const rawBarToggleLabel = computed(() => (rawBarOpen.value ? "Hide raw score" : "Show raw score"));
+
+function toggleRawBar(): void {
+  rawBarOpen.value = !rawBarOpen.value;
+}
+
+const gradeAriaLabel = computed(() => {
+  const parts = [`${grade.value.title}: ${grade.value.interpretation}`];
+  if (showRawScore.value && rawScore.value != null) {
+    parts.push(`Raw Trust Score ${formatScore(rawScore.value, 1)}`);
+  }
+  return parts.join(", ");
+});
 </script>
 
 <template>
   <header class="score-header" data-testid="score-header">
     <div class="hero-grid">
       <div class="trust" aria-label="Trust Factor summary">
-        <div
-          class="trust__header"
-          role="img"
-          :aria-label="`${grade.title}: ${grade.interpretation}`"
-        >
-          <TierGradeLetter
-            class="trust__grade"
-            :tier="profile.score?.grade ?? null"
-            size="xl"
-            surface="panel"
-          />
-          <div class="trust__meta">
-            <span class="trust__meta-title">{{ grade.title }}</span>
-            <span class="trust__meta-label">{{ grade.interpretation }}</span>
+        <div class="trust__heading">
+          <div class="trust__header" role="img" :aria-label="gradeAriaLabel">
+            <TierGradeLetter
+              class="trust__grade"
+              :tier="profile.score?.grade ?? null"
+              size="xl"
+              surface="panel"
+            />
+            <div class="trust__meta">
+              <span class="trust__meta-title">{{ grade.title }}</span>
+              <span class="trust__meta-label">{{ grade.interpretation }}</span>
+            </div>
+            <div v-if="!grade.isUnrated" class="trust__score-block">
+              <div class="trust__value-row">
+                <span class="trust__value mpts-data" data-testid="overall-score">{{
+                  formatScore(profile.score?.overallScore, 1)
+                }}</span>
+                <span class="trust__scale">/ 100</span>
+              </div>
+            </div>
           </div>
-          <div v-if="!grade.isUnrated" class="trust__value-row">
-            <span class="trust__value mpts-data" data-testid="overall-score">{{
-              formatScore(profile.score?.overallScore, 0)
-            }}</span>
-            <span class="trust__scale">/ 100</span>
+          <div
+            v-if="showRawScore || (!grade.isUnrated && scoreContext)"
+            class="trust__raw-collapse"
+          >
+            <div class="trust__raw-actions">
+              <button
+                v-if="showRawScore"
+                type="button"
+                class="trust__raw-toggle"
+                data-testid="raw-score-toggle"
+                :aria-expanded="rawBarOpen ? 'true' : 'false'"
+                aria-controls="raw-score-bar"
+                @click="toggleRawBar"
+              >
+                {{ rawBarToggleLabel }}
+              </button>
+              <ScoreContextPopover v-if="!grade.isUnrated && scoreContext">
+                <span class="trust__help">?</span>
+                <template #panel>
+                  <ScoreContextBreakdown :score="profile.score" />
+                </template>
+              </ScoreContextPopover>
+            </div>
+            <div
+              v-if="showRawScore && rawBarOpen"
+              id="raw-score-bar"
+              class="trust__raw-bar"
+              data-testid="raw-score-bar"
+            >
+              <div class="trust__raw-bar-start">
+                <TierGradeLetter
+                  class="trust__raw-grade"
+                  :tier="rawGrade"
+                  size="sm"
+                  surface="panel"
+                  data-testid="raw-grade"
+                />
+                <div class="trust__raw-bar-score">
+                  <span class="trust__raw-value-row">
+                    <span class="trust__raw-value mpts-data" data-testid="raw-score">{{
+                      formatScore(rawScore, 1)
+                    }}</span>
+                    <span class="trust__raw-scale">/ 100</span>
+                  </span>
+                </div>
+                <span
+                  class="trust__context-chip"
+                  :data-kind="factorChipKind(keyFactor)"
+                  data-testid="key-context-chip"
+                >
+                  {{ factorChipLabel("Key level", keyFactor) }}
+                </span>
+                <span
+                  class="trust__context-chip"
+                  :data-kind="factorChipKind(metaFactor)"
+                  data-testid="meta-context-chip"
+                >
+                  {{ factorChipLabel("Meta", metaFactor) }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -172,7 +286,8 @@ const classSpec = computed(() => {
                   v-if="displayedCharacterIsMain"
                   class="main-chip"
                   data-testid="displayed-main-chip"
-                >MAIN</span>
+                  >MAIN</span
+                >
                 <div class="meta">
                   <p class="meta__server">{{ profile.realmSlug }} · {{ profile.region }}</p>
                   <p
@@ -184,10 +299,7 @@ const classSpec = computed(() => {
                   </p>
                 </div>
               </div>
-              <ActiveRerolls
-                v-if="activeRerolls?.length"
-                :characters="activeRerolls"
-              />
+              <ActiveRerolls v-if="activeRerolls?.length" :characters="activeRerolls" />
             </div>
 
             <HeroInsightAccordion :profile="profile" />
@@ -422,6 +534,117 @@ const classSpec = computed(() => {
   min-height: 100%;
 }
 
+.trust__heading {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.trust__raw-collapse {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.trust__raw-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.trust__raw-actions :deep(.score-pop) {
+  display: inline-flex;
+  align-items: center;
+  justify-self: auto;
+}
+
+.trust__raw-actions :deep(.score-pop__trigger) {
+  display: inline-flex;
+  align-items: center;
+}
+
+.trust__help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 28%);
+  background: rgb(255 255 255 / 8%);
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.trust__raw-toggle {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-gold-300);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.trust__raw-toggle:hover,
+.trust__raw-toggle:focus-visible {
+  color: var(--color-brand-hover);
+}
+
+.trust__raw-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+.trust__raw-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.trust__raw-bar-start {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.trust__raw-bar-score {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.trust__raw-value-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.trust__raw-value {
+  font-family: var(--font-data);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.trust__raw-scale {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
 .trust__header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -429,8 +652,21 @@ const classSpec = computed(() => {
   align-items: center;
 }
 
-.trust__grade {
-  grid-row: 1 / span 1;
+.trust__score-block {
+  display: grid;
+  justify-items: end;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.trust__score-caption {
+  font-family: var(--font-data);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  line-height: 1.2;
 }
 
 .trust__meta {
@@ -478,9 +714,32 @@ const classSpec = computed(() => {
 }
 
 .trust__scale {
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
-  font-size: var(--text-base);
-  font-weight: 600;
+}
+
+.trust__context-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: rgb(255 255 255 / 5%);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.trust__context-chip[data-kind="bonus"] {
+  color: var(--color-gold-300);
+}
+
+.trust__context-chip[data-kind="malus"] {
+  color: #fca5a5;
+}
+
+.trust__context-chip[data-kind="neutral"] {
+  color: var(--color-text-muted);
 }
 
 .trust__stats {

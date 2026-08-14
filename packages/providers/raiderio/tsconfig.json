@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../contracts" },
     { "path": "../../config" },
-    { "path": "../../domain" }
+    { "path": "../../domain" },
+    { "path": "../../scoring" }
   ]
 }

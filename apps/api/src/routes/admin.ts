@@ -1045,6 +1045,28 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
           });
         },
       );
+
+      protectedApp.post(
+        "/api/v1/admin/misc/scoring-season/synchronize-data",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                region: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+              },
+            },
+          },
+        },
+        async (request) => {
+          const body = (request.body ?? {}) as { region?: string };
+          return miscService.synchronizeSeasonData({
+            regionCode: body.region ?? "EU",
+          });
+        },
+      );
     });
   };
 }

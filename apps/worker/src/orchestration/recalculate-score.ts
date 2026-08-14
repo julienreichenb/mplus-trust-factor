@@ -11,6 +11,7 @@ import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { requirePersistedCatalogWclZoneId } from "./active-mplus-season/catalog-metadata.js";
 import { runAuthoritativeScoring } from "./scoring/refresh-bridge.js";
+import { selectCanonicalRunsFromPersistedMythicRuns } from "./scoring/canonical-run-selection-from-persisted.js";
 import { mythicRunToEvidenceCandidateMetadataList } from "@mplus/scoring";
 import {
   buildCandidatesFromPersistedDigests,
@@ -23,8 +24,10 @@ import {
 } from "./scoring/season-scoring-identity.js";
 
 /**
- * Recomputes a character's score via scoreCharacter (provider-free when live calls are off).
- * No legacy calculateScore path.
+ * Recomputes a character's score via scoreCharacter (provider-free).
+ * Canonical 8 runs are rebuilt from persisted MythicRun rows with selectScoringRuns
+ * (architecture A). Job.seasonId is the scoring season — never the effective season
+ * at worker execution time.
  */
 export async function runRecalculateScore(
   container: WorkerContainer,
@@ -93,6 +96,20 @@ export async function runRecalculateScore(
     include: { dungeon: true },
   });
   const activeDungeonSlugs = seasonDungeons.map((d) => d.dungeon.slug);
+  const expectedDungeonCount =
+    season.dungeonCount > 0 ? season.dungeonCount : seasonDungeons.length;
+
+  const persistedSeasonRuns =
+    (await container.repositories.run?.findRunsForCharacterInSeason?.(
+      job.characterId,
+      job.seasonId,
+    )) ?? [];
+  const canonicalRunSelection = selectCanonicalRunsFromPersistedMythicRuns({
+    seasonSlug: season.slug,
+    expectedDungeonCount,
+    allowedDungeonSlugs: activeDungeonSlugs,
+    persistedRuns: persistedSeasonRuns,
+  });
 
   const participants = await container.prisma.runParticipant.findMany({
     where: { characterId: job.characterId, run: { seasonId: job.seasonId } },
@@ -195,6 +212,8 @@ export async function runRecalculateScore(
     region: region.code,
     realm: realm.slug,
     characterName: character.displayName,
+    canonicalRunSelection,
+    forceProviderFree: true,
   });
 
   const explanationBase =

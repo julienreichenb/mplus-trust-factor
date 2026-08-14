@@ -33,6 +33,7 @@ import {
   resolveRoleAwarePerformanceWeights,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
+  overlaySurvivalActiveHealingFromScoreModel,
   type SeasonDifficultyPolicyV2,
   type PerformancePhase2ComputeResult,
   type PerformanceThroughputChannelFact,
@@ -1085,7 +1086,10 @@ export async function orchestrateScoringRuns(
   void difficultyPolicy;
 
   const { weights: tunableWeights } = resolveTunableWeights(input.scoreModelConfig);
-  const survivalModelConfig = applyTunableWeightsToSurvivalConfig(tunableWeights);
+  const survivalModelConfig = overlaySurvivalActiveHealingFromScoreModel(
+    applyTunableWeightsToSurvivalConfig(tunableWeights),
+    input.scoreModelConfig,
+  );
   const utilityModelConfig = applyTunableWeightsToUtilityConfig(tunableWeights);
   const performanceWeights = resolveRoleAwarePerformanceWeights(tunableWeights);
 

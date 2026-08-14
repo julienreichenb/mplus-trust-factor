@@ -9,13 +9,22 @@ import type {
 import { api } from "../api/client";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import AdminSelect from "../components/admin/AdminSelect.vue";
+import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
+import { ADMIN_SCORING_DEFAULT_REGION } from "../lib/adminScoringRegion";
 
 const router = useRouter();
 
 const REGION_OPTIONS = ["EU", "US", "KR", "TW"] as const satisfies ReadonlyArray<RegionCode>;
 
 type RegionOption = (typeof REGION_OPTIONS)[number];
-type BusyAction = "realms" | "season" | "scoringSeasonLoad" | "scoringSeasonSave" | null;
+type BusyAction =
+  | "realms"
+  | "season"
+  | "scoringSeasonLoad"
+  | "scoringSeasonSave"
+  | "scoringSeasonSync"
+  | null;
 
 interface SeasonSyncResultRow {
   region: string;
@@ -29,7 +38,7 @@ interface SeasonSyncResultRow {
   changed: boolean;
 }
 
-const selectedRegions = ref<RegionOption[]>(["EU"]);
+const selectedRegions = ref<RegionOption[]>([ADMIN_SCORING_DEFAULT_REGION]);
 const forceDetails = ref(false);
 const busyAction = ref<BusyAction>(null);
 const error = ref<string | null>(null);
@@ -48,6 +57,18 @@ const anyBusy = computed(() => busyAction.value !== null);
 const pinnableSeasons = computed(
   () => scoringSeasonStatus.value?.seasons.filter((s) => s.pinnable) ?? [],
 );
+
+const seasonSelectOptions = computed(() =>
+  pinnableSeasons.value.map((season) => ({
+    value: String(season.blizzardSeasonId),
+    label: `${formatScoringSeasonLabel(season)}${season.isBlizzardCurrent ? " (Blizzard current)" : ""}`,
+  })),
+);
+
+const modeSelectOptions = [
+  { value: "AUTO", label: "Auto" },
+  { value: "PINNED", label: "Pinned" },
+];
 
 const pinnedWarning = computed(() => {
   const status = scoringSeasonStatus.value;
@@ -123,7 +144,7 @@ async function loadScoringSeason(): Promise<void> {
   busyAction.value = "scoringSeasonLoad";
   error.value = null;
   try {
-    const region = selectedRegions.value[0] ?? "EU";
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
     const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(
       `/api/v1/admin/misc/scoring-season?region=${region}`,
     );
@@ -145,7 +166,7 @@ async function saveScoringSeason(): Promise<void> {
   error.value = null;
   message.value = null;
   try {
-    const region = selectedRegions.value[0] ?? "EU";
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
     const body =
       draftMode.value === "AUTO"
         ? {
@@ -168,6 +189,32 @@ async function saveScoringSeason(): Promise<void> {
       status.selection.mode === "AUTO"
         ? "Scoring season set to Auto (Blizzard current)."
         : `Scoring season pinned to Blizzard ${status.selection.blizzardSeasonId}.`;
+  } catch (err) {
+    if (!handleAuthError(err)) error.value = (err as Error).message;
+  } finally {
+    busyAction.value = null;
+  }
+}
+
+async function synchronizeSeasonData(): Promise<void> {
+  if (anyBusy.value || !scoringSeasonStatus.value) return;
+  busyAction.value = "scoringSeasonSync";
+  error.value = null;
+  message.value = null;
+  try {
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
+    const body = await fetchJson<{
+      ok: true;
+      status: ScoringSeasonSelectionStatusDTO;
+    }>("/api/v1/admin/misc/scoring-season/synchronize-data", {
+      method: "POST",
+      body: JSON.stringify({ region }),
+    });
+    applyScoringSeasonStatus(body.status);
+    const catalogReady = body.status.seasonData?.catalogReady;
+    message.value = catalogReady
+      ? "Season data synchronized."
+      : "Season data sync finished with incomplete catalog.";
   } catch (err) {
     if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
@@ -267,55 +314,73 @@ onMounted(() => {
             <dt>Detected by Blizzard</dt>
             <dd data-testid="detected-blizzard-season">
               <template v-if="scoringSeasonStatus.detectedCurrentSeason">
-                {{ scoringSeasonStatus.detectedCurrentSeason.name }}
-                / Blizzard {{ scoringSeasonStatus.detectedCurrentSeason.blizzardSeasonId }}
+                {{ formatScoringSeasonLabel(scoringSeasonStatus.detectedCurrentSeason) }}
               </template>
               <template v-else>—</template>
             </dd>
           </div>
-          <div>
-            <dt>Mode</dt>
-            <dd>
-              <select
-                v-model="draftMode"
-                data-testid="scoring-season-mode"
-                :disabled="anyBusy"
-              >
-                <option value="AUTO">Auto</option>
-                <option value="PINNED">Pinned</option>
-              </select>
-            </dd>
-          </div>
-          <div v-if="draftMode === 'PINNED'">
-            <dt>Season</dt>
-            <dd>
-              <select
-                v-model.number="draftPinnedBlizzardSeasonId"
-                data-testid="scoring-season-pin"
-                :disabled="anyBusy || pinnableSeasons.length === 0"
-              >
-                <option
-                  v-for="season in pinnableSeasons"
-                  :key="season.id"
-                  :value="season.blizzardSeasonId!"
-                >
-                  {{ season.name }} / Blizzard {{ season.blizzardSeasonId }}
-                  <template v-if="season.isBlizzardCurrent"> (current)</template>
-                </option>
-              </select>
-              <p v-if="pinnableSeasons.length === 0" class="muted">
-                No pinnable seasons with a validated M+ catalog.
-              </p>
-            </dd>
+          <div class="scoring-season-controls">
+            <AdminSelect
+              :model-value="draftMode"
+              label="Mode"
+              :options="modeSelectOptions"
+              :disabled="anyBusy"
+              control-test-id="scoring-season-mode"
+              @update:model-value="draftMode = $event === 'PINNED' ? 'PINNED' : 'AUTO'"
+            />
+            <AdminSelect
+              :model-value="draftPinnedBlizzardSeasonId == null ? '' : String(draftPinnedBlizzardSeasonId)"
+              label="Season"
+              wide
+              :options="seasonSelectOptions"
+              :disabled="anyBusy || draftMode !== 'PINNED' || pinnableSeasons.length === 0"
+              control-test-id="scoring-season-pin"
+              :hint="pinnableSeasons.length === 0 ? 'No seasons with a Blizzard season id.' : null"
+              @update:model-value="draftPinnedBlizzardSeasonId = $event ? Number($event) : null"
+            />
           </div>
           <div>
             <dt>Effective scoring season</dt>
             <dd data-testid="effective-scoring-season">
               <template v-if="scoringSeasonStatus.effectiveScoringSeason">
-                {{ scoringSeasonStatus.effectiveScoringSeason.name }}
-                / Blizzard {{ scoringSeasonStatus.effectiveScoringSeason.blizzardSeasonId }}
+                {{ formatScoringSeasonLabel(scoringSeasonStatus.effectiveScoringSeason) }}
               </template>
               <template v-else>—</template>
+            </dd>
+          </div>
+        </dl>
+        <dl
+          v-if="scoringSeasonStatus?.seasonData"
+          class="scoring-season-grid season-data-grid"
+          data-testid="season-data-status"
+        >
+          <div>
+            <dt>Identity</dt>
+            <dd data-testid="season-data-identity">
+              {{ scoringSeasonStatus.seasonData.identityReady ? "Ready" : "Missing" }}
+            </dd>
+          </div>
+          <div>
+            <dt>Dungeon catalog</dt>
+            <dd data-testid="season-data-dungeons">
+              {{ scoringSeasonStatus.seasonData.dungeonCount }}
+              /
+              {{ scoringSeasonStatus.seasonData.expectedDungeonCount ?? "—" }}
+            </dd>
+          </div>
+          <div>
+            <dt>WCL bindings</dt>
+            <dd data-testid="season-data-wcl">
+              {{ scoringSeasonStatus.seasonData.catalogReady ? "Ready" : "Not ready" }}
+              <template v-if="scoringSeasonStatus.seasonData.wclZoneId != null">
+                (zone {{ scoringSeasonStatus.seasonData.wclZoneId }})
+              </template>
+            </dd>
+          </div>
+          <div>
+            <dt>Median-key distribution</dt>
+            <dd data-testid="season-data-distribution">
+              {{ scoringSeasonStatus.seasonData.medianKeyDistribution?.status ?? "Missing" }}
             </dd>
           </div>
         </dl>
@@ -327,15 +392,26 @@ onMounted(() => {
           {{ pinnedWarning }}
         </p>
       </div>
-      <button
-        type="button"
-        class="btn"
-        data-testid="save-scoring-season-button"
-        :disabled="anyBusy || !scoringSeasonStatus"
-        @click="saveScoringSeason"
-      >
-        {{ busyAction === "scoringSeasonSave" ? "Saving…" : "Save" }}
-      </button>
+      <div class="tool-row__actions">
+        <button
+          type="button"
+          class="btn"
+          data-testid="save-scoring-season-button"
+          :disabled="anyBusy || !scoringSeasonStatus"
+          @click="saveScoringSeason"
+        >
+          {{ busyAction === "scoringSeasonSave" ? "Saving…" : "Save" }}
+        </button>
+        <button
+          type="button"
+          class="btn"
+          data-testid="sync-season-data-button"
+          :disabled="anyBusy || !scoringSeasonStatus"
+          @click="synchronizeSeasonData"
+        >
+          {{ busyAction === "scoringSeasonSync" ? "Synchronizing…" : "Synchronize season data" }}
+        </button>
+      </div>
     </article>
 
     <article class="tool-row" data-testid="realm-sync-tool">
@@ -436,6 +512,12 @@ onMounted(() => {
   flex: 1;
   min-width: 14rem;
 }
+.tool-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
 .tool-row h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -497,16 +579,18 @@ code {
   gap: 0.75rem;
   margin: 0;
 }
+.scoring-season-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
 .scoring-season-grid dt {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
 .scoring-season-grid dd {
   margin: 0.15rem 0 0;
-}
-.scoring-season-grid select {
-  min-height: 2.25rem;
-  max-width: 100%;
 }
 .pinned-warning {
   margin: 0;

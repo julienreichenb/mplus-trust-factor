@@ -10,7 +10,7 @@
  */
 import type { PrismaClient, Season } from "@mplus/database";
 import { getScoringSeasonSelection } from "./selection-setting.js";
-import { seasonAuthoritySlug } from "../season-authority.js";
+import { seasonAuthoritySlug, isNonProductSeasonSlug } from "../season-authority.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
 
 export interface EffectiveScoringSeasonRow {
@@ -54,11 +54,6 @@ export async function requireEffectiveScoringSeasonRow(
   return row;
 }
 
-function isPlaceholderSeasonSlug(slug: string): boolean {
-  const s = slug.toLowerCase();
-  return s === "placeholder-current" || s === "auto-current" || s.startsWith("placeholder");
-}
-
 /**
  * Resolve the platform effective scoring Season row for a region.
  * Missing RuntimeSetting ⇒ AUTO (Blizzard isCurrent).
@@ -82,7 +77,7 @@ export async function peekEffectiveScoringSeasonRow(
         },
         orderBy: { updatedAt: "desc" },
       }));
-    if (!pinned || isPlaceholderSeasonSlug(pinned.slug)) return null;
+    if (!pinned || isNonProductSeasonSlug(pinned.slug)) return null;
     return toPeekRow(pinned, "PINNED");
   }
 
@@ -90,7 +85,7 @@ export async function peekEffectiveScoringSeasonRow(
     where: { regionId: input.regionId, isCurrent: true },
     orderBy: { updatedAt: "desc" },
   });
-  if (!current || isPlaceholderSeasonSlug(current.slug)) return null;
+  if (!current || isNonProductSeasonSlug(current.slug)) return null;
   return toPeekRow(current, "AUTO");
 }
 
@@ -114,7 +109,7 @@ export async function peekEffectiveScoringSeasonRowGlobal(
         where: { blizzardSeasonId: selection.blizzardSeasonId },
         orderBy: [{ isCurrent: "desc" }, { updatedAt: "desc" }],
       }));
-    if (!pinned || isPlaceholderSeasonSlug(pinned.slug)) return null;
+    if (!pinned || isNonProductSeasonSlug(pinned.slug)) return null;
     return toPeekRow(pinned, "PINNED");
   }
 
@@ -122,7 +117,7 @@ export async function peekEffectiveScoringSeasonRowGlobal(
     where: { isCurrent: true },
     orderBy: { updatedAt: "desc" },
   });
-  if (!current || isPlaceholderSeasonSlug(current.slug)) return null;
+  if (!current || isNonProductSeasonSlug(current.slug)) return null;
   return toPeekRow(current, "AUTO");
 }
 
