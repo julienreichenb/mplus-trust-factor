@@ -776,7 +776,7 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   it("resolve profile-only path does not enqueue when character is ineligible", async () => {
     const name = uniqueName("LowLevelResolve");
     // Seed below max level with no mythic rating eligibility.
-    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+    const seeded = await seedRefreshEligibilityEvidenceForTest(container.worker, {
       region: "EU",
       realmSlug: "tarren-mill",
       name,
@@ -784,9 +784,30 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       mythicRating: null,
     });
 
-    const before = await prisma.ingestionJob.count({
-      where: { jobType: "refresh-character" },
+    const unrelated = uniqueName("UnrelatedRefresh");
+    const unrelatedSeed = await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: unrelated,
     });
+    await prisma.ingestionJob.create({
+      data: {
+        jobType: "refresh-character",
+        characterId: unrelatedSeed.characterId,
+        status: "QUEUED",
+        dedupeKey: `test-unrelated-${unrelatedSeed.characterId}`,
+        payload: {
+          region: "EU",
+          realmSlug: "tarren-mill",
+          name: unrelated,
+        },
+        priority: 0,
+        scheduledAt: new Date(),
+      },
+    });
+
+    const jobWhere = { characterId: seeded.characterId, jobType: "refresh-character" as const };
+    const before = await prisma.ingestionJob.count({ where: jobWhere });
 
     const resolved = await app.inject({
       method: "POST",
@@ -798,9 +819,7 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     expect(resolved.json().refreshId).toBeUndefined();
     expect(resolved.json().profilePath).toContain(name);
 
-    const after = await prisma.ingestionJob.count({
-      where: { jobType: "refresh-character" },
-    });
+    const after = await prisma.ingestionJob.count({ where: jobWhere });
     expect(after).toBe(before);
 
     const refresh = await app.inject({
