@@ -135,6 +135,31 @@ describe("applyScoreContext", () => {
     expect(applied.wasClamped).toBe(false);
   });
 
+  it("A2: 75 × 1.10 × 1.05 uses exact multiply then clamp (IEEE, no extra rounding)", () => {
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 75,
+      canonicalRunSelection: selection([22, 22, 22, 22, 22, 22, 22, 22]),
+      seasonContextRevision: revision({
+        percentileAnchors: [{ percentileBps: 9900, factor: 1.1 }],
+        specAssignments: [{ classSlug: "mage", specSlug: "fire", tier: 4 }],
+        tierFactors: { 1: 1, 2: 1, 3: 1, 4: 1.05, 5: 1 },
+        distribution: {
+          ...revision().distribution!,
+          points: [{ percentileBps: 9900, medianKeyThreshold: 22 }],
+        },
+      }),
+      seasonScoringSpec: { classSlug: "mage", specSlug: "fire", source: "test" },
+      gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
+    });
+    const expectedCombined = 1.1 * 1.05;
+    const expectedPreClamp = 75 * expectedCombined;
+    expect(applied.combinedFactor).toBe(expectedCombined);
+    expect(applied.preClampAdjustedScore).toBe(expectedPreClamp);
+    expect(applied.finalScore).toBe(expectedPreClamp);
+    expect(applied.finalGrade).toBe("A");
+  });
+
   it("E: step anchors at exact / between / below / above", () => {
     const rev = revision();
     const spec = { classSlug: "mage", specSlug: "fire", source: "WCL_ACTIVE_DUNGEONS" as const };
@@ -203,6 +228,31 @@ describe("applyScoreContext", () => {
     });
     expect(applied.key.appliedAnchorPercentileBps).toBe(9990);
     expect(applied.key.factor).toBe(1.5);
+  });
+
+  it("F2: duplicate threshold winner is greatest percentileBps, not larger factor", () => {
+    const rev = revision({
+      percentileAnchors: [
+        { percentileBps: 9900, factor: 1.5 },
+        { percentileBps: 9990, factor: 1.05 },
+      ],
+      distribution: {
+        ...revision().distribution!,
+        points: [
+          { percentileBps: 9900, medianKeyThreshold: 22 },
+          { percentileBps: 9990, medianKeyThreshold: 22 },
+        ],
+      },
+    });
+    const applied = applyScoreContext({
+      seasonId: "season-a",
+      rawScoreBeforeContext: 80,
+      canonicalRunSelection: selection([22, 22, 22, 22, 22, 22, 22, 22]),
+      seasonContextRevision: rev,
+      seasonScoringSpec: { classSlug: "mage", specSlug: "fire", source: "WCL_ACTIVE_DUNGEONS" },
+    });
+    expect(applied.key.appliedAnchorPercentileBps).toBe(9990);
+    expect(applied.key.factor).toBe(1.05);
   });
 
   it("G: missing distribution → ×1 UNKNOWN", () => {

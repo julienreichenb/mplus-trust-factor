@@ -32,7 +32,7 @@ function state(id: string, status: "DRAFT" | "PUBLISHED", distMissing: boolean) 
     season: { ... (id === "season-a" ? seasonA : seasonB), blizzardSeasonId: 1, regionCode: "EU" },
     published: status === "PUBLISHED" ? revision(status, distMissing) : null,
     draft: status === "DRAFT" ? revision(status, distMissing) : null,
-    history: [],
+    history: [{ id: "rev-0", version: 1, status: "ARCHIVED", publishedAt: "2026-01-01T00:00:00.000Z" }],
     distributions: distMissing
       ? []
       : [{ id: "dist-1", source: "FIXTURE", sourceVersion: "v1", collectedAt: "2026-01-01T00:00:00.000Z", pointCount: 2 }],
@@ -115,6 +115,13 @@ describe("AdminScoreContextPage", () => {
     expect(wrapper.find("[data-testid='anchor-table']").text()).toContain("P90");
     expect(wrapper.find("[data-testid='anchor-table']").text()).toContain("+18");
     expect(wrapper.find("[data-testid='save-draft']").attributes("disabled")).toBeUndefined();
+    expect(wrapper.find("[data-testid='revision-history']").text()).toContain("ARCHIVED");
+    expect(wrapper.find("[data-testid='add-anchor']").exists()).toBe(true);
+    const bpsInput = wrapper.find("[data-testid='add-anchor-row'] input");
+    await bpsInput.setValue(8500);
+    await wrapper.find("[data-testid='add-anchor']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-testid='remove-anchor-8500']").exists()).toBe(true);
 
     await wrapper.find("[data-testid='season-selector']").setValue("season-b");
     await flushPromises();

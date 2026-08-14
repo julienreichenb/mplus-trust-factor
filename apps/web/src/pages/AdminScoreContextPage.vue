@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { formatPercentileBpsLabel } from "@mplus/contracts";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 
@@ -228,6 +229,43 @@ function setAnchorFactor(bps: number, factor: number): void {
   if (!editing.value) return;
   const row = editing.value.percentileAnchors.find((a) => a.percentileBps === bps);
   if (row) row.factor = factor;
+  const resolved = editing.value.resolvedAnchors.find((a) => a.percentileBps === bps);
+  if (resolved) resolved.factor = factor;
+}
+
+const newAnchorBps = ref(9000);
+const newAnchorFactor = ref(1);
+
+function addAnchor(): void {
+  if (!editing.value) return;
+  const percentileBps = Math.round(Number(newAnchorBps.value));
+  const factor = Number(newAnchorFactor.value);
+  if (!Number.isInteger(percentileBps) || percentileBps < 1 || percentileBps > 10000) {
+    error.value = "percentileBps must be an integer from 1 to 10000";
+    return;
+  }
+  if (!Number.isFinite(factor) || factor <= 0) {
+    error.value = "Anchor factor must be a finite number greater than 0";
+    return;
+  }
+  if (editing.value.percentileAnchors.some((a) => a.percentileBps === percentileBps)) {
+    error.value = "Duplicate percentileBps";
+    return;
+  }
+  error.value = null;
+  editing.value.percentileAnchors.push({ percentileBps, factor });
+  editing.value.resolvedAnchors.push({
+    percentileBps,
+    percentileLabel: formatPercentileBpsLabel(percentileBps),
+    medianKeyThreshold: null,
+    factor,
+  });
+}
+
+function removeAnchor(percentileBps: number): void {
+  if (!editing.value) return;
+  editing.value.percentileAnchors = editing.value.percentileAnchors.filter((a) => a.percentileBps !== percentileBps);
+  editing.value.resolvedAnchors = editing.value.resolvedAnchors.filter((a) => a.percentileBps !== percentileBps);
 }
 </script>
 
@@ -296,6 +334,12 @@ function setAnchorFactor(bps: number, factor: number): void {
     <p v-if="readOnly && displayed?.status === 'PUBLISHED'" class="muted" data-testid="published-readonly">
       Published revisions are read-only. Open a draft to edit.
     </p>
+    <ul v-if="state?.history?.length" data-testid="revision-history" class="muted">
+      <li v-for="row in state.history" :key="row.id">
+        v{{ row.version }} · {{ row.status }}
+        {{ row.publishedAt ? `· published ${row.publishedAt}` : "" }}
+      </li>
+    </ul>
 
     <section v-if="displayed">
       <h3>Meta tiers</h3>
@@ -344,6 +388,7 @@ function setAnchorFactor(bps: number, factor: number): void {
             <th>Percentile</th>
             <th>Median key</th>
             <th>Factor</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -362,9 +407,31 @@ function setAnchorFactor(bps: number, factor: number): void {
                 @change="setAnchorFactor(anchor.percentileBps, Number(($event.target as HTMLInputElement).value))"
               />
             </td>
+            <td>
+              <button
+                type="button"
+                class="btn"
+                :disabled="readOnly"
+                :data-testid="`remove-anchor-${anchor.percentileBps}`"
+                @click="removeAnchor(anchor.percentileBps)"
+              >
+                Remove
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
+      <div v-if="!readOnly" class="actions" data-testid="add-anchor-row">
+        <label>
+          percentileBps
+          <input v-model.number="newAnchorBps" type="number" min="1" max="10000" step="1" />
+        </label>
+        <label>
+          factor
+          <input v-model.number="newAnchorFactor" type="number" min="0.01" step="0.01" />
+        </label>
+        <button type="button" class="btn" data-testid="add-anchor" @click="addAnchor">Add percentile anchor</button>
+      </div>
     </section>
 
     <section>

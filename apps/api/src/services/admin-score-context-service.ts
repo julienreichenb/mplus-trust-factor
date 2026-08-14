@@ -223,6 +223,11 @@ export class AdminScoreContextService {
     const existing = await repo.findDraftForSeason(seasonId);
     if (existing) return toAdminRevisionView(existing);
     const published = await repo.findPublishedForSeason(seasonId);
+    const defaultV1Anchors = [
+      { percentileBps: 9000, factor: 1 },
+      { percentileBps: 9900, factor: 1 },
+      { percentileBps: 9990, factor: 1 },
+    ];
     try {
       const created = await repo.createDraft({
         seasonId,
@@ -230,7 +235,10 @@ export class AdminScoreContextService {
         distributionSnapshotId: published?.distribution?.id ?? null,
         tierFactors: published?.tierFactors,
         specAssignments: published?.specAssignments ?? [],
-        percentileAnchors: published?.percentileAnchors ?? [],
+        percentileAnchors:
+          published?.percentileAnchors && published.percentileAnchors.length > 0
+            ? published.percentileAnchors
+            : defaultV1Anchors,
       });
       const doc = await repo.findById(created.id);
       if (!doc) {
