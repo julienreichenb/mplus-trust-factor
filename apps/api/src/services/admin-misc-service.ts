@@ -10,6 +10,7 @@ import {
   evaluateSeasonCatalogReadiness,
   ScoringSeasonSelectionConflictError,
   ScoringSeasonNotPinnableError,
+  isNonProductSeasonSlug,
 } from "@mplus/worker";
 import type {
   AdminRealmSyncResponse,
@@ -139,7 +140,7 @@ export class AdminMiscService {
 
     const options: ScoringSeasonOptionDTO[] = [];
     for (const season of seasons) {
-      if (season.slug === "auto-current" || season.slug.startsWith("placeholder")) {
+      if (isNonProductSeasonSlug(season.slug)) {
         continue;
       }
       const readiness = await evaluateSeasonCatalogReadiness(prisma, season);

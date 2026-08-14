@@ -223,21 +223,31 @@ async function findOrCreateSeason(input: {
     return refreshed;
   }
 
-  const created = await prisma.season.create({
-    data: {
-      regionId,
-      slug,
-      name: entry.name ?? `Mythic+ ${entry.raiderIoSeasonSlug}`,
-      blizzardSeasonId: entry.blizzardSeasonId,
-      providerSeasonId: entry.raiderIoSeasonSlug,
-      isCurrent: false,
-      ...(entry.startsAt ? { startsAt: new Date(entry.startsAt) } : {}),
-      ...(entry.endsAt ? { endsAt: new Date(entry.endsAt) } : {}),
-      metadata: {},
-    },
-    select: { id: true, metadata: true },
-  });
-  return created;
+  try {
+    return await prisma.season.create({
+      data: {
+        regionId,
+        slug,
+        name: entry.name ?? `Mythic+ ${entry.raiderIoSeasonSlug}`,
+        blizzardSeasonId: entry.blizzardSeasonId,
+        providerSeasonId: entry.raiderIoSeasonSlug,
+        isCurrent: false,
+        ...(entry.startsAt ? { startsAt: new Date(entry.startsAt) } : {}),
+        ...(entry.endsAt ? { endsAt: new Date(entry.endsAt) } : {}),
+        metadata: {},
+      },
+      select: { id: true, metadata: true },
+    });
+  } catch (err) {
+    const code = typeof err === "object" && err && "code" in err ? (err as { code: unknown }).code : null;
+    if (code !== "P2002" || entry.blizzardSeasonId == null) throw err;
+    const raced = await prisma.season.findFirst({
+      where: { regionId, blizzardSeasonId: entry.blizzardSeasonId },
+      select: { id: true, metadata: true },
+    });
+    if (!raced) throw err;
+    return raced;
+  }
 }
 
 function mergeMetadata(

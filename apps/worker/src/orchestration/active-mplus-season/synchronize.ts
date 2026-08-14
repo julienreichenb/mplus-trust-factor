@@ -3,8 +3,7 @@
  * Writes SeasonDungeon + validated metadata. Never uses max(zoneId) heuristics.
  */
 import type { Prisma, PrismaClient } from "@mplus/database";
-import { ensureDungeon } from "../../persistence/run-repository.js";
-import { seasonAuthoritySlug } from "../season-authority.js";
+import { ensureDungeon, ensureRegionalBlizzardSeason } from "../../persistence/run-repository.js";
 import {
   mergeActiveMplusCatalogMetadata,
   type PersistedActiveMplusCatalogMetadata,
@@ -145,23 +144,12 @@ export async function synchronizeActiveMplusSeasonCatalog(
     );
   }
 
-  const slug = seasonAuthoritySlug(input.blizzardSeasonId);
-  let season = await input.prisma.season.findFirst({
-    where: { regionId: input.regionId, slug },
-  });
-  if (!season) {
-    season = await input.prisma.season.create({
-      data: {
-        regionId: input.regionId,
-        slug,
-        name: catalog.displayName,
-        blizzardSeasonId: input.blizzardSeasonId,
-        isCurrent: false,
-        dungeonCount: catalog.dungeonSlugs.length,
-        metadata: {},
-      },
-    });
-  }
+  const season = await ensureRegionalBlizzardSeason(
+    input.prisma,
+    input.regionId,
+    input.blizzardSeasonId,
+    { name: catalog.displayName },
+  );
 
   let createdBindings = 0;
   let alreadyPresent = 0;

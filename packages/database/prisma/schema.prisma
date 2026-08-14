@@ -262,6 +262,7 @@ model Season {
   scoreContextRevisions  SeasonScoreContextRevision[]
 
   @@unique([regionId, slug])
+  @@unique([regionId, blizzardSeasonId], map: "seasons_region_blizzard_season_id_key")
   @@map("seasons")
 }
 

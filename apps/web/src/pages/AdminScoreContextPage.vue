@@ -6,6 +6,7 @@ import { formatPercentileBpsLabel } from "@mplus/contracts";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
+import { adminScoringSeasonQuery } from "../lib/adminScoringRegion";
 
 const props = defineProps<{ embedded?: boolean }>();
 
@@ -119,7 +120,7 @@ const scoringSeasonModeLabel = computed(() => {
 
 async function loadScoringSeasonAuthority(): Promise<void> {
   const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(
-    "/api/v1/admin/misc/scoring-season?region=EU",
+    adminScoringSeasonQuery(),
   );
   scoringSeason.value = status;
   const id = status.effectiveScoringSeason?.id;

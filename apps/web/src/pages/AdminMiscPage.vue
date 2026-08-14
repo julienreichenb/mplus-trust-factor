@@ -11,6 +11,7 @@ import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import AdminSelect from "../components/admin/AdminSelect.vue";
 import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
+import { ADMIN_SCORING_DEFAULT_REGION } from "../lib/adminScoringRegion";
 
 const router = useRouter();
 
@@ -31,7 +32,7 @@ interface SeasonSyncResultRow {
   changed: boolean;
 }
 
-const selectedRegions = ref<RegionOption[]>(["EU"]);
+const selectedRegions = ref<RegionOption[]>([ADMIN_SCORING_DEFAULT_REGION]);
 const forceDetails = ref(false);
 const busyAction = ref<BusyAction>(null);
 const error = ref<string | null>(null);
@@ -137,7 +138,7 @@ async function loadScoringSeason(): Promise<void> {
   busyAction.value = "scoringSeasonLoad";
   error.value = null;
   try {
-    const region = selectedRegions.value[0] ?? "EU";
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
     const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(
       `/api/v1/admin/misc/scoring-season?region=${region}`,
     );
@@ -159,7 +160,7 @@ async function saveScoringSeason(): Promise<void> {
   error.value = null;
   message.value = null;
   try {
-    const region = selectedRegions.value[0] ?? "EU";
+    const region = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
     const body =
       draftMode.value === "AUTO"
         ? {

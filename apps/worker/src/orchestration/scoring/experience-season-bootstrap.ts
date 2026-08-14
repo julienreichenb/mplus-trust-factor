@@ -18,6 +18,7 @@ import type {
 } from "@mplus/contracts";
 import type { Prisma, PrismaClient } from "@mplus/database";
 import { seasonAuthoritySlug } from "../season-authority.js";
+import { ensureRegionalBlizzardSeason } from "../../persistence/run-repository.js";
 import { peekEffectiveScoringSeasonRow } from "../active-mplus-season/effective-season-peek.js";
 import {
   synchronizeSeasonPopulationPolicy,
@@ -773,11 +774,16 @@ async function upsertSeasonDates(input: {
   regionId: string;
   dto: BlizzardSeasonDTO;
 }): Promise<{ id: string; created: boolean }> {
-  const slug = seasonAuthoritySlug(input.dto.blizzardSeasonId);
-  const existing = await input.prisma.season.findFirst({
-    where: { regionId: input.regionId, slug },
-    select: { id: true, startsAt: true, endsAt: true, blizzardSeasonId: true },
+  const before = await input.prisma.season.findFirst({
+    where: { regionId: input.regionId, blizzardSeasonId: input.dto.blizzardSeasonId },
+    select: { id: true },
   });
+  const season = await ensureRegionalBlizzardSeason(
+    input.prisma as PrismaClient,
+    input.regionId,
+    input.dto.blizzardSeasonId,
+    { name: input.dto.name ?? `Blizzard Season ${input.dto.blizzardSeasonId}` },
+  );
 
   const startsAt =
     input.dto.startTimestamp != null && Number.isFinite(input.dto.startTimestamp)
@@ -788,31 +794,13 @@ async function upsertSeasonDates(input: {
       ? new Date(input.dto.endTimestamp)
       : undefined;
 
-  if (existing) {
-    const data: Prisma.SeasonUpdateInput = {
-      blizzardSeasonId: input.dto.blizzardSeasonId,
-    };
-    // Only write timestamps when provider supplies them — never clear existing dates.
-    if (startsAt) data.startsAt = startsAt;
-    if (endsAt) data.endsAt = endsAt;
-    await input.prisma.season.update({ where: { id: existing.id }, data });
-    return { id: existing.id, created: false };
-  }
-
-  const created = await input.prisma.season.create({
-    data: {
-      regionId: input.regionId,
-      slug,
-      name: input.dto.name ?? `Blizzard Season ${input.dto.blizzardSeasonId}`,
-      blizzardSeasonId: input.dto.blizzardSeasonId,
-      isCurrent: false,
-      ...(startsAt ? { startsAt } : {}),
-      ...(endsAt ? { endsAt } : {}),
-      metadata: {},
-    },
-    select: { id: true },
-  });
-  return { id: created.id, created: true };
+  const data: Prisma.SeasonUpdateInput = {
+    blizzardSeasonId: input.dto.blizzardSeasonId,
+  };
+  if (startsAt) data.startsAt = startsAt;
+  if (endsAt) data.endsAt = endsAt;
+  await input.prisma.season.update({ where: { id: season.id }, data });
+  return { id: season.id, created: !before };
 }
 
 /**

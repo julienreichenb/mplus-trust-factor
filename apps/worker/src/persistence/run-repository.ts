@@ -33,6 +33,73 @@ export async function ensureDungeon(client: PrismaClientOrTx, dungeonSlug: strin
   });
 }
 
+function isTechnicalSeasonSlug(slug: string): boolean {
+  const s = slug.toLowerCase();
+  return (
+    s === "auto-current" ||
+    s === "placeholder-current" ||
+    s.startsWith("placeholder") ||
+    s === "pub-cancel-season" ||
+    s.startsWith("pub-cancel-season-")
+  );
+}
+
+function isPrismaUniqueConflict(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "P2002"
+  );
+}
+
+/**
+ * Canonical Blizzard-backed Season identity is (regionId, blizzardSeasonId).
+ * Race-safe: lookup by id then slug, create, retry on unique conflict.
+ */
+export async function ensureRegionalBlizzardSeason(
+  client: PrismaClientOrTx,
+  regionId: string,
+  blizzardSeasonId: number,
+  options: { name?: string; isCurrent?: boolean } = {},
+): Promise<Season> {
+  const slug = `blizzard-season-${blizzardSeasonId}`;
+  const name = options.name ?? `Blizzard Season ${blizzardSeasonId}`;
+
+  const byId = await client.season.findFirst({ where: { regionId, blizzardSeasonId } });
+  const existing =
+    (byId && !isTechnicalSeasonSlug(byId.slug) ? byId : null) ??
+    (await client.season.findFirst({ where: { regionId, slug } }));
+  if (existing) {
+    return client.season.update({
+      where: { id: existing.id },
+      data: {
+        blizzardSeasonId,
+        ...(options.isCurrent != null ? { isCurrent: options.isCurrent } : {}),
+      },
+    });
+  }
+
+  try {
+    return await client.season.create({
+      data: {
+        regionId,
+        slug,
+        name,
+        blizzardSeasonId,
+        isCurrent: options.isCurrent ?? false,
+      },
+    });
+  } catch (err) {
+    if (!isPrismaUniqueConflict(err)) throw err;
+    const raced =
+      (await client.season.findFirst({ where: { regionId, blizzardSeasonId } })) ??
+      (await client.season.findFirst({ where: { regionId, slug } }));
+    if (!raced) throw err;
+    return raced;
+  }
+}
+
 export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: string): Promise<Season> {
   const current = await client.season.findFirst({ where: { regionId, isCurrent: true } });
   if (current) return current;
@@ -40,9 +107,16 @@ export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: st
   const globalCurrent = await client.season.findFirst({ where: { regionId: null, isCurrent: true } });
   if (globalCurrent) return globalCurrent;
 
-  return client.season.create({
-    data: { regionId, slug: "auto-current", name: "Auto-created current season", isCurrent: true },
-  });
+  try {
+    return await client.season.create({
+      data: { regionId, slug: "auto-current", name: "Auto-created current season", isCurrent: true },
+    });
+  } catch (err) {
+    if (!isPrismaUniqueConflict(err)) throw err;
+    const raced = await client.season.findFirst({ where: { regionId, slug: "auto-current" } });
+    if (!raced) throw err;
+    return raced;
+  }
 }
 
 export interface EnsureBlizzardCurrentSeasonOptions {
@@ -62,50 +136,31 @@ export async function ensureBlizzardCurrentSeason(
   blizzardSeasonId: number,
   options: EnsureBlizzardCurrentSeasonOptions = {},
 ): Promise<Season> {
-  const slug = `blizzard-season-${blizzardSeasonId}`;
-  const existing = await client.season.findFirst({ where: { regionId, slug } });
   const verifiedAtIso = options.authorityVerifiedAt?.toISOString();
   const authoritySource = options.authoritySource ?? "blizzard";
 
   await client.season.updateMany({
-    where: { regionId, isCurrent: true, NOT: { slug } },
+    where: { regionId, isCurrent: true, NOT: { blizzardSeasonId } },
     data: { isCurrent: false },
   });
 
-  if (existing) {
-    const previousMeta =
-      existing.metadata && typeof existing.metadata === "object"
-        ? (existing.metadata as Record<string, unknown>)
-        : {};
-    return client.season.update({
-      where: { id: existing.id },
-      data: {
-        isCurrent: true,
-        blizzardSeasonId,
-        name: `Blizzard Season ${blizzardSeasonId}`,
-        metadata: {
-          ...previousMeta,
-          blizzardSeasonId,
-          source: "blizzard",
-          authoritySource,
-          ...(verifiedAtIso ? { authorityVerifiedAt: verifiedAtIso } : {}),
-          // Preserve or seed active dungeon slugs so Icecrown cannot re-enter selection.
-          dungeonSlugs: Array.isArray(previousMeta.dungeonSlugs)
-            ? previousMeta.dungeonSlugs
-            : undefined,
-        },
-      },
-    });
-  }
+  const season = await ensureRegionalBlizzardSeason(client, regionId, blizzardSeasonId, {
+    name: `Blizzard Season ${blizzardSeasonId}`,
+    isCurrent: true,
+  });
 
-  return client.season.create({
+  const previousMeta =
+    season.metadata && typeof season.metadata === "object"
+      ? (season.metadata as Record<string, unknown>)
+      : {};
+  return client.season.update({
+    where: { id: season.id },
     data: {
-      regionId,
-      slug,
-      name: `Blizzard Season ${blizzardSeasonId}`,
       isCurrent: true,
       blizzardSeasonId,
+      name: `Blizzard Season ${blizzardSeasonId}`,
       metadata: {
+        ...previousMeta,
         blizzardSeasonId,
         source: "blizzard",
         authoritySource,
@@ -122,7 +177,14 @@ export async function ensureSeasonBySlug(
 ): Promise<Season> {
   const existing = await client.season.findFirst({ where: { regionId, slug } });
   if (existing) return existing;
-  return client.season.create({ data: { regionId, slug, name: capitalize(slug) } });
+  try {
+    return await client.season.create({ data: { regionId, slug, name: capitalize(slug) } });
+  } catch (err) {
+    if (!isPrismaUniqueConflict(err)) throw err;
+    const raced = await client.season.findFirst({ where: { regionId, slug } });
+    if (!raced) throw err;
+    return raced;
+  }
 }
 
 function capitalize(value: string): string {

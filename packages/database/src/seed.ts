@@ -545,8 +545,19 @@ async function seed(): Promise<void> {
   const existingCurrent = await prisma.season.findFirst({
     where: { regionId: region.id, slug: "placeholder-current" },
   });
+  const hasBlizzardSeason = await prisma.season.findFirst({
+    where: { regionId: region.id, blizzardSeasonId: { not: null } },
+    select: { id: true },
+  });
 
-  if (existingCurrent) {
+  if (hasBlizzardSeason) {
+    if (existingCurrent) {
+      await prisma.season.update({
+        where: { id: existingCurrent.id },
+        data: { isCurrent: false },
+      });
+    }
+  } else if (existingCurrent) {
     await prisma.season.update({
       where: { id: existingCurrent.id },
       data: {

@@ -17,6 +17,7 @@ import {
 import {
   requireVerifiedSeasonAuthority,
   seasonAuthoritySlug,
+  isNonProductSeasonSlug,
   type SeasonAuthorityDeps,
   type VerifiedSeasonAuthority,
 } from "../season-authority.js";
@@ -79,12 +80,7 @@ export interface ResolveEffectiveScoringSeasonInput {
 }
 
 function isPlaceholderSeason(season: Season): boolean {
-  const slug = season.slug.toLowerCase();
-  return (
-    slug === "placeholder-current" ||
-    slug === "auto-current" ||
-    slug.startsWith("placeholder")
-  );
+  return isNonProductSeasonSlug(season.slug);
 }
 
 async function loadSeasonByBlizzardId(

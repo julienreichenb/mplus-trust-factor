@@ -5,6 +5,7 @@
 import type { PrismaClient, Season } from "@mplus/database";
 import { EVIDENCE_SLOTS_PER_DUNGEON } from "@mplus/contracts";
 import { canonicalDungeonKey } from "../run-fusion.js";
+import { isNonProductSeasonSlug } from "../season-authority.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
 import {
   ACTIVE_MPLUS_SEASON_AUTHORITY_VERSION,
@@ -33,12 +34,7 @@ export interface ResolveActiveMplusSeasonInput {
 }
 
 function isPlaceholderSeason(season: Season): boolean {
-  const slug = season.slug.toLowerCase();
-  return (
-    slug === "placeholder-current" ||
-    slug === "auto-current" ||
-    slug.startsWith("placeholder")
-  );
+  return isNonProductSeasonSlug(season.slug);
 }
 
 function hasValidatedCatalog(season: Season): boolean {
