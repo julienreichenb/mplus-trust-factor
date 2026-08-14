@@ -78,22 +78,21 @@ import {
   buildWclSummaryRequestFingerprint,
   isCompatiblePointsAndDamageSummary,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
-  resolveMplusZoneConfig,
 } from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
-import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
+import { ensureBlizzardCurrentSeason } from "../persistence/run-repository.js";
 import { ensurePersistedSeasonDungeonBindings } from "./active-mplus-season/synchronize.js";
+import type { VerifiedSeasonAuthority } from "./season-authority.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
-import {
-  allowFixtureZoneDefaultsForProviderMode,
-  resolveActiveRefreshContract,
-} from "./build-refresh-contract.js";
+import { reconcileDetailedAcquisitionFromDigests } from "./scoring/reconcile-detailed-acquisition.js";
 import {
   RefreshContractPreflightError,
+  assertPublicationContractMatchesJob,
+  resolvePublicationRefreshContract,
   runRefreshContractPreflight,
 } from "./refresh-contract-preflight.js";
 import {
@@ -674,7 +673,8 @@ export async function runRefreshPipeline(
   // ── Contract preflight barrier (fail-fast, before any provider work) ─────
   // Guarantees zero Blizzard / Raider.IO / WCL calls, zero run/metric/
   // provider-state/snapshot writes, and zero WCL budget on mismatch.
-  let preflightAuthority: Awaited<ReturnType<typeof runRefreshContractPreflight>>["authority"];
+  let preflightEffective: Awaited<ReturnType<typeof runRefreshContractPreflight>>["effective"];
+  let preflightAuthority: VerifiedSeasonAuthority;
   try {
     const preflight = await runRefreshContractPreflight(
       {
@@ -683,6 +683,7 @@ export async function runRefreshPipeline(
         logger,
         env: container.env,
         getActiveModel: (key) => repositories.score.getActiveModel(key),
+        warcraftlogs: providers.warcraftlogs,
       },
       jobPayload,
       {
@@ -690,7 +691,18 @@ export async function runRefreshPipeline(
         correlationId: ctx.correlationId ?? ctx.requestId,
       },
     );
-    preflightAuthority = preflight.authority;
+    preflightEffective = preflight.effective;
+    // Eligibility + SeasonDungeon queries use the EFFECTIVE scoring season.
+    preflightAuthority = {
+      regionCode: preflightEffective.detected.regionCode,
+      regionId: preflightEffective.detected.regionId,
+      seasonRowId: preflightEffective.applicationSeasonId,
+      blizzardSeasonId: preflightEffective.blizzardSeasonId,
+      slug: preflightEffective.seasonSlug,
+      authoritySource: preflightEffective.detected.authoritySource,
+      authorityVerifiedAt: preflightEffective.detected.authorityVerifiedAt,
+      resolution: preflightEffective.detected.resolution,
+    };
   } catch (preflightError) {
     if (preflightError instanceof RefreshContractPreflightError) {
       job = await repositories.job.markFailed(job.id, preflightError.toJobError());
@@ -1115,7 +1127,7 @@ export async function runRefreshPipeline(
         try {
           const seasonProfile = await providers.blizzard.getMythicKeystoneSeasonProfile(
             identity,
-            currentSeasonId,
+            preflightEffective.blizzardSeasonId,
             ctx,
           );
           blizzardRuns = seasonProfile.data.runs;
@@ -1226,9 +1238,7 @@ export async function runRefreshPipeline(
       let cutoffs: RaiderIoSeasonCutoffs | null = null;
       // Season cutoffs are optional and must remain non-blocking (live often HTTP 500).
       try {
-        const seasonSlug =
-          profile.data.currentSeason?.seasonSlug ??
-          (await ensureCurrentSeason(container.prisma, character.regionId)).slug;
+        const seasonSlug = preflightEffective.seasonSlug;
         const cutoffsResult = await providers.raiderio.getSeasonCutoffs(
           identity.region,
           seasonSlug,
@@ -1328,6 +1338,7 @@ export async function runRefreshPipeline(
 
     const wclCtx: ProviderFetchContext = {
       ...ctx,
+      wclZoneId: preflightEffective.wclZoneId,
       ...(activeDungeonSlugs.length > 0
         ? { wclActiveDungeonSlugs: [...activeDungeonSlugs] }
         : {}),
@@ -1347,10 +1358,7 @@ export async function runRefreshPipeline(
         OBS_EVENTS.refreshProviderPhaseStarted,
       );
 
-      const zoneId = resolveMplusZoneConfig({
-        env: process.env,
-        allowFixtureDefault: allowFixtureZoneDefaultsForProviderMode(container.env.PROVIDER_MODE),
-      }).zoneId;
+      const zoneId = preflightEffective.wclZoneId;
       const summaryFingerprint = buildWclSummaryRequestFingerprint({
         region: identity.region,
         realmSlug: identity.realmSlug,
@@ -1626,30 +1634,31 @@ export async function runRefreshPipeline(
   disagreements.push(...reconcile.disagreements);
   fusionWarnings.push(...reconcile.warnings);
 
-  // Resolve Blizzard current season from the regional season index — never from
-  // a character profile seasons[] array — before persistence so runs/scores share one identity.
+  // Snapshot Blizzard-detected isCurrent for diagnostics (not scoring identity).
   const previousDatabaseSeason = await container.prisma.season.findFirst({
     where: { regionId: character.regionId, isCurrent: true },
     select: { id: true, slug: true, blizzardSeasonId: true },
   });
 
-  // Real season transition after enqueue: supersede obsolete jobs without a public technical failure.
+  // Job was enqueued for a different *effective* scoring season than preflight resolved.
+  // Setting AUTO/PINNED changes are fail-closed here and at contract preflight — never
+  // silently score Blizzard-detected 18 while the job/contract is PINNED 17.
   if (
     jobPayload.authoritativeSeasonId != null &&
-    currentSeasonId != null &&
-    jobPayload.authoritativeSeasonId !== currentSeasonId
+    jobPayload.authoritativeSeasonId !== preflightEffective.blizzardSeasonId
   ) {
     logger.info(
       {
         ...logBase,
         event: "refresh_season_authority",
         reason: "job_season_superseded",
-        authoritativeSeasonId: currentSeasonId,
+        authoritativeSeasonId: preflightEffective.blizzardSeasonId,
+        detectedBlizzardSeasonId: currentSeasonId,
         jobAuthoritativeSeasonId: jobPayload.authoritativeSeasonId,
         previousDatabaseSeasonId: previousDatabaseSeason?.blizzardSeasonId ?? null,
         previousDatabaseSeasonSlug: previousDatabaseSeason?.slug ?? null,
       },
-      "refresh job superseded by season authority change",
+      "refresh job superseded by effective scoring season change",
     );
     await repositories.job.markFailed(job.id, {
       code: "SEASON_AUTHORITY_SUPERSEDED",
@@ -1667,25 +1676,29 @@ export async function runRefreshPipeline(
     };
   }
 
-  const season =
-    currentSeasonId != null
-      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId, {
-          authoritySource:
-            authoritativeSeasonSource === "season_index.current_season"
-              ? "season_index.current_season"
-              : "blizzard",
-          authorityVerifiedAt: new Date(),
-        })
-      : await ensureCurrentSeason(container.prisma, character.regionId);
+  // Keep Season.isCurrent aligned with Blizzard detected season (A). Scoring uses
+  // the effective season row from preflight — never the detected-current row when PINNED.
+  if (currentSeasonId != null) {
+    await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId, {
+      authoritySource:
+        authoritativeSeasonSource === "season_index.current_season"
+          ? "season_index.current_season"
+          : "blizzard",
+      authorityVerifiedAt: new Date(),
+    });
+  }
+
+  const season = preflightEffective.season;
   logger.info(
     {
       ...logBase,
       event: "refresh_season_authority",
       region: identity.region,
-      authoritativeSeasonId: currentSeasonId,
-      authoritativeSeasonSlug: currentSeasonId != null ? `blizzard-season-${currentSeasonId}` : null,
+      authoritativeSeasonId: preflightEffective.blizzardSeasonId,
+      authoritativeSeasonSlug: preflightEffective.seasonSlug,
+      detectedBlizzardSeasonId: currentSeasonId,
       authoritySource: authoritativeSeasonSource,
-      seasonResolutionSource: authoritativeSeasonSource,
+      seasonResolutionSource: preflightEffective.selectionMode,
       characterProfileSeasonIds,
       characterProfileContainsCurrentSeason:
         currentSeasonId != null && characterProfileSeasonIds.includes(currentSeasonId),
@@ -2084,7 +2097,7 @@ export async function runRefreshPipeline(
     string,
     { startTime: number; endTime: number; encounterId: number | null; encounterName: string | null }
   >();
-  const runCoverageById: Record<string, number> = {};
+  let runCoverageById: Record<string, number> = {};
   const runDiagnostics: Array<Record<string, unknown>> = [];
   const earlyClassSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
   const earlySpecSlug = blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
@@ -2772,9 +2785,9 @@ export async function runRefreshPipeline(
   }
 
   const selectedRunCount = scoringRunSelection.selectedRuns.length;
-  const matchedReportCount = runDiagnostics.filter((d) => d.wclReportMatched === true).length;
-  const usableCombatRunCount = runDiagnostics.filter((d) => d.detailedAnalysis === true).length;
-  const detailedRunCount = usableCombatRunCount;
+  let matchedReportCount = runDiagnostics.filter((d) => d.wclReportMatched === true).length;
+  let usableCombatRunCount = runDiagnostics.filter((d) => d.detailedAnalysis === true).length;
+  let detailedRunCount = usableCombatRunCount;
 
   const presentationMetaByRunId: Record<
     string,
@@ -2800,7 +2813,7 @@ export async function runRefreshPipeline(
     };
   }
   scoringRunSelection = applyRunMetadataToSelection(scoringRunSelection, presentationMetaByRunId);
-  const contractScoringRunSelection = toContractScoringRunSelection(
+  let contractScoringRunSelection = toContractScoringRunSelection(
     scoringRunSelection,
     presentationMetaByRunId,
     dungeonNamesBySlug,
@@ -2838,9 +2851,12 @@ export async function runRefreshPipeline(
       survivalRows.length > 0 ||
       survivalBindPool.length > 0 ||
       survivalRunSelection.selectedRuns.some((e) => e.wclReportMatched);
-    const survivalOkForSuccess =
-      !survivalRequiredFailed &&
-      (!survivalCandidatesWithWcl || survivalRows.length > 0);
+    // When detailed ReportEvents are deferred to scoreCharacter, empty
+    // Survival V1.1.1 rows are expected — do not stamp WCL UNAVAILABLE.
+    const survivalOkForSuccess = deferDetailedWclAcquisitionToScoring
+      ? !survivalRequiredFailed
+      : !survivalRequiredFailed &&
+        (!survivalCandidatesWithWcl || survivalRows.length > 0);
     const wclOkForSuccess = performanceOkForSuccess && survivalOkForSuccess;
     const visibilitySummary = {
       wclVisibility,
@@ -3167,8 +3183,9 @@ export async function runRefreshPipeline(
 
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
   // zero coverage as evidence that logs are hidden.
-  const selectedRunCoverage = selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
-  const freshness =
+  // May be reconciled upward after deferred scoreCharacter digests land.
+  let selectedRunCoverage = selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
+  let freshness =
     wclVisibility === "HIDDEN"
       ? 0.35
       : wclDataState === "NO_PUBLIC_LOGS" ||
@@ -3749,19 +3766,33 @@ export async function runRefreshPipeline(
   } as ScoreModelConfig;
 
   // ── Final publication / TOCTOU contract barrier ─────────────────────────
-  // Re-resolve immediately before score calculation/publication. Protects
-  // against contract changes that occur after the job-start preflight.
+  // Freshly re-resolve Effective Scoring Season immediately before score
+  // calculation/publication. Never rebuild the late contract from the
+  // job-start preflightEffective object — RuntimeSetting / detected season
+  // may have changed while this job was in flight.
   // Do not remove or weaken this guard. Cancellation is re-checked atomically
   // inside the publication transaction (publicationGuard).
   await assertNotCancelled("pre_publication");
 
-  const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
-    scoringModelKey: model.key,
-    scoringModelVersion: model.version,
-    activeSeasonId: season.slug,
-    providerMode: container.env.PROVIDER_MODE,
-    env: process.env,
-  });
+  const publicationResolved = await resolvePublicationRefreshContract(
+    {
+      prisma: container.prisma,
+      blizzard: providers.blizzard,
+      logger,
+      env: container.env,
+      getActiveModel: (key) => repositories.score.getActiveModel(key),
+      warcraftlogs: providers.warcraftlogs,
+    },
+    jobPayload,
+    {
+      scoringModelKey: model.key,
+      scoringModelVersion: model.version,
+      correlationId: ctx.correlationId ?? ctx.requestId,
+    },
+  );
+  const publicationEffective = publicationResolved.effective;
+  const refreshContract = publicationResolved.contract;
+  const computedContractHash = publicationResolved.hash;
 
   if (
     jobPayload.refreshContractHash &&
@@ -3777,7 +3808,11 @@ export async function runRefreshPipeline(
         currentRefreshContractHash: computedContractHash,
         refreshContract,
         characterId: character.id,
-        contractSeasonSlug: season.slug,
+        preflightSeasonSlug: season.slug,
+        preflightWclZoneId: preflightEffective.wclZoneId,
+        contractSeasonSlug: publicationEffective.activeSeasonId,
+        publicationBlizzardSeasonId: publicationEffective.blizzardSeasonId,
+        publicationWclZoneId: publicationEffective.wclZoneId,
         triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
       },
       "refresh contract publication/TOCTOU mismatch — refusing to publish divergent snapshot",
@@ -3793,6 +3828,11 @@ export async function runRefreshPipeline(
 
   // Authoritative scoring — scoreCharacter() only. No legacy calculateScore fallback.
   const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
+  const {
+    resolveSeasonScoringIdentity,
+    seasonIdentityAllowsDamageWarmHit,
+    seasonScoringIdentityLogFields,
+  } = await import("./scoring/season-scoring-identity.js");
   const { mythicRunToEvidenceCandidateMetadataList } = await import("@mplus/scoring");
   const { runAuthoritativeScoring } = await import("./scoring/refresh-bridge.js");
   const frozenIdentity = resolveFrozenCharacterIdentity({
@@ -3811,16 +3851,44 @@ export async function runRefreshPipeline(
         }
       : null,
   });
+  const seasonScoringIdentity = resolveSeasonScoringIdentity({
+    profileIdentity: {
+      classSlug: frozenIdentity.classSlug,
+      specSlug: frozenIdentity.specSlug,
+      role: frozenIdentity.role,
+    },
+    wclPerformanceEvidence: {
+      specRanks: Array.isArray(wclPerformanceRecord?.global?.specRanks)
+        ? (wclPerformanceRecord.global.specRanks as Array<{ spec?: string | null }>)
+        : [],
+      dungeonAggregates: wclDungeonAggregates,
+    },
+    activeDungeonSlugs,
+  });
+  logger.info(
+    {
+      ...logBase,
+      ...seasonScoringIdentityLogFields({
+        profileIdentity: {
+          classSlug: frozenIdentity.classSlug,
+          specSlug: frozenIdentity.specSlug,
+          role: frozenIdentity.role,
+        },
+        seasonIdentity: seasonScoringIdentity,
+      }),
+    },
+    "season_scoring_identity_resolved",
+  );
 
   // Persist discovery damage throughput as Performance aggregate V2 warm-hit for DPS/TANK.
   // Healers need aliased healing+damage — leave that to ensure (do not write incomplete V2).
+  // Use season scoring identity, not the current logout/profile spec.
   if (
     wclPerformanceRecord?.state === "OK" &&
     wclPerformanceRecord.raw != null &&
     typeof refreshContract.zoneId === "number" &&
     refreshContract.zoneId > 0 &&
-    frozenIdentity.role != null &&
-    (frozenIdentity.role === "DPS" || frozenIdentity.role === "TANK")
+    seasonIdentityAllowsDamageWarmHit(seasonScoringIdentity)
   ) {
     try {
       const { CharacterPerformanceAggregateRepository } = await import("@mplus/database");
@@ -3829,8 +3897,8 @@ export async function runRefreshPipeline(
         buildRoleAwarePerformanceAggregateRequestFingerprint,
       } = await import("@mplus/provider-warcraftlogs");
       const built = buildRoleAwareAggregateFromRaw({
-        role: frozenIdentity.role === "TANK" ? "TANK" : "DPS",
-        targetSpecSlug: frozenIdentity.specSlug,
+        role: seasonScoringIdentity.role === "TANK" ? "TANK" : "DPS",
+        targetSpecSlug: seasonScoringIdentity.specSlug,
         zoneId: refreshContract.zoneId,
         partition: refreshContract.partition,
         damageRaw: wclPerformanceRecord.raw,
@@ -3844,7 +3912,7 @@ export async function runRefreshPipeline(
           zoneId: refreshContract.zoneId,
           partition: refreshContract.partition,
           role: built.compact.role,
-          specSlug: frozenIdentity.specSlug,
+          specSlug: seasonScoringIdentity.specSlug,
         });
         const ttlSeconds = Math.max(
           1,
@@ -3915,9 +3983,9 @@ export async function runRefreshPipeline(
     characterId: character.id,
     seasonId: season.id,
     seasonSlug: season.slug,
-    role: frozenIdentity.role,
-    classSlug: frozenIdentity.classSlug,
-    specSlug: frozenIdentity.specSlug,
+    role: seasonScoringIdentity.role,
+    classSlug: seasonScoringIdentity.classSlug,
+    specSlug: seasonScoringIdentity.specSlug,
     refreshContract,
     evidenceCutoffAt: scoreCalculatedAt.toISOString(),
     highKeyPolicyId: "high-key-policy-v1",
@@ -3931,8 +3999,199 @@ export async function runRefreshPipeline(
     realm: identity.realmSlug,
     characterName: identity.name,
     raiderIoProfile,
+    beforeCharacterScorePersist: async () => {
+      await assertPublicationContractMatchesJob(
+        {
+          prisma: container.prisma,
+          blizzard: providers.blizzard,
+          logger,
+          env: container.env,
+          getActiveModel: (key) => repositories.score.getActiveModel(key),
+          warcraftlogs: providers.warcraftlogs,
+        },
+        jobPayload,
+        {
+          expectedHash: jobPayload.refreshContractHash ?? computedContractHash,
+          scoringModelKey: model.key,
+          scoringModelVersion: model.version,
+          correlationId: ctx.correlationId ?? ctx.requestId,
+        },
+      );
+    },
   });
   const orch = scoringOutcome.scoreResult?.orchestration;
+  if (orch && deferDetailedWclAcquisitionToScoring) {
+    const reconciled = reconcileDetailedAcquisitionFromDigests({
+      selectedRuns: scoringRunSelection.selectedRuns.map((entry) => ({
+        canonicalRunId: entry.canonicalRunId,
+        dungeonSlug: entry.dungeonSlug,
+      })),
+      digests: orch.characterDigests.map((row) => ({
+        dungeonSlug: row.dungeonSlug,
+        reportCode: row.digest.reportCode,
+        fightId: row.digest.fightId,
+        reportRevision: row.digest.reportRevision,
+        utilityCompleteness: row.digest.utility.completeness,
+        survivalCompleteness: row.digest.survival.completeness,
+      })),
+      fightAccounting: orch.accounting.fights.map((f) => ({
+        reportCode: f.sourceFight.reportCode,
+        fightId: f.sourceFight.fightId,
+        reportRevision: f.sourceFight.reportRevision,
+        packageCreated: f.packageCreated,
+        digestsCreated: f.digestsCreated,
+        digestsReused: f.digestsReused,
+      })),
+      targetDigestFailures: orch.targetDigestFailures,
+      fightFailures: orch.fightFailures,
+    });
+
+    detailedRunCount = reconciled.detailedRunCount;
+    usableCombatRunCount = reconciled.detailedRunCount;
+    matchedReportCount = reconciled.detailedRunCount;
+    selectedRunCoverage =
+      selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
+    runCoverageById = { ...runCoverageById, ...reconciled.runCoverageById };
+
+    for (const [runId, patch] of Object.entries(reconciled.presentationMetaPatch)) {
+      const existing = presentationMetaByRunId[runId];
+      presentationMetaByRunId[runId] = {
+        dungeonName: existing?.dungeonName ?? dungeonNamesBySlug[
+          scoringRunSelection.selectedRuns.find((e) => e.canonicalRunId === runId)
+            ?.dungeonSlug ?? ""
+        ] ?? runId,
+        wclReportMatched: patch.wclReportMatched,
+        wclCoverageRatio: patch.wclCoverageRatio,
+        hasDetailedAnalysis: patch.hasDetailedAnalysis,
+      };
+    }
+    scoringRunSelection = applyRunMetadataToSelection(
+      scoringRunSelection,
+      presentationMetaByRunId,
+    );
+    contractScoringRunSelection = toContractScoringRunSelection(
+      scoringRunSelection,
+      presentationMetaByRunId,
+      dungeonNamesBySlug,
+    );
+
+    for (const slot of reconciled.slotDiagnostics) {
+      if (!slot.canonicalRunId) continue;
+      runDiagnostics.push({
+        runId: slot.canonicalRunId,
+        dungeonSlug: slot.dungeonSlug,
+        wclReportMatched: Boolean(reconciled.runCoverageById[slot.canonicalRunId]),
+        detailedAnalysis: Boolean(reconciled.runCoverageById[slot.canonicalRunId]),
+        detailedAcquisitionState: slot.state,
+        reportCode: slot.reportCode,
+        fightId: slot.fightId,
+        reportRevision: slot.reportRevision,
+        utilityCompleteness: slot.utilityCompleteness,
+        survivalCompleteness: slot.survivalCompleteness,
+        source: "deferred_scoring_digests",
+      });
+    }
+
+    logger.info(
+      {
+        ...logBase,
+        event: "detailed_acquisition_reconcile",
+        detailedRunCount,
+        selectedRunCount,
+        slotDiagnostics: reconciled.slotDiagnostics,
+        packagesCreated: orch.accounting.packagesCreated,
+        packagesReused: orch.accounting.packagesReused,
+        digestsCreated: orch.accounting.digestsCreated,
+        digestsReused: orch.accounting.digestsReused,
+        providerCalls: scoringOutcome.providerCalls,
+      },
+      "refresh: reconciled deferred detailed acquisition onto selected runs",
+    );
+
+    if (wclVisibility !== null || wclDataState !== null) {
+      wclDataState = refineWclDataState({
+        visibility: wclVisibility,
+        baseDataState: wclDataState,
+        combatFactsCount: combatFactsList.length,
+        dungeonAggregateCount: wclDungeonAggregates.length,
+        detailedEvidenceCount: detailedRunCount,
+      });
+      freshness =
+        wclVisibility === "HIDDEN"
+          ? 0.35
+          : wclDataState === "NO_PUBLIC_LOGS" ||
+              wclDataState === "RATE_LIMITED" ||
+              wclDataState === "UNAVAILABLE"
+            ? 0.45
+            : stagesSkipped.includes("refresh-raiderio") ||
+                stagesSkipped.includes("refresh-warcraftlogs-summary")
+              ? 0.55
+              : 0.75;
+
+      const utilityDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "UTILITY",
+      );
+      const survivalDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "SURVIVAL",
+      );
+      const performanceDim = scoringOutcome.snapshot.dimensions.find(
+        (d) => d.dimension === "PERFORMANCE",
+      );
+      const detailedOk =
+        detailedRunCount > 0 ||
+        utilityDim?.state === "AVAILABLE" ||
+        survivalDim?.state === "AVAILABLE";
+      const performanceOkForSuccess =
+        wclPerformanceRecord?.state === "OK" ||
+        wclPerformanceRecord?.state === "SKIPPED" ||
+        wclPerformanceRecord == null ||
+        performanceDim?.state === "AVAILABLE";
+      const wclOkForSuccess = performanceOkForSuccess && (detailedOk || !survivalRequiredFailed);
+
+      const priorRow = await container.prisma.characterProviderState.findUnique({
+        where: {
+          characterId_provider: {
+            characterId: character.id,
+            provider: "WARCRAFT_LOGS",
+          },
+        },
+        select: { metadata: true },
+      });
+      const priorMeta =
+        priorRow?.metadata && typeof priorRow.metadata === "object"
+          ? (priorRow.metadata as Record<string, unknown>)
+          : {};
+
+      await repositories.providerState.upsert({
+        characterId: character.id,
+        provider: "warcraftlogs",
+        state: wclOkForSuccess
+          ? mapWclVisibilityToState(wclVisibility, wclDataState)
+          : "UNAVAILABLE",
+        detail: wclOkForSuccess
+          ? undefined
+          : !performanceOkForSuccess
+            ? `points_and_damage Performance unavailable (${wclPerformanceRecord?.state ?? "missing"})`
+            : "Detailed WCL evidence acquisition failed",
+        wclVisibility,
+        lastAttemptAt: now,
+        ...(wclOkForSuccess ? { lastSuccessAt: now } : {}),
+        fetchedAt: now,
+        metadata: {
+          ...priorMeta,
+          wclDataState,
+          deferredDetailedAcquisition: true,
+          detailedRunCount,
+          selectedRunCount,
+          packagesCreated: orch.accounting.packagesCreated,
+          packagesReused: orch.accounting.packagesReused,
+          digestsCreated: orch.accounting.digestsCreated,
+          digestsReused: orch.accounting.digestsReused,
+          slotDiagnostics: reconciled.slotDiagnostics,
+        },
+      });
+    }
+  }
   logger.info(
     {
       ...logBase,

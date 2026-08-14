@@ -55,9 +55,9 @@ import {
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
-/** Bumped when authoritative Survival Phase 2 product path activates. */
+/** Bumped when season-scoped scoring identity (WCL M+ spec vs current profile) activates. */
 export const SCORING_VERSION =
-  "scoring-v1.performance-role-aware-v1.utility-phase2.survival-phase2";
+  "scoring-v1.performance-role-aware-v1.utility-phase3.survival-phase2.season-identity-v1";
 
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
@@ -90,6 +90,12 @@ export interface ScoreCharacterInput {
    * while score publication stays operational-only. Default true.
    */
   persistCharacterScore?: boolean;
+  /**
+   * Called immediately before CharacterScore persistence when persist is enabled.
+   * Refresh uses this to re-resolve Effective Scoring Season after calculation
+   * so a RuntimeSetting flip cannot publish a stale-season row.
+   */
+  beforeCharacterScorePersist?: () => Promise<void>;
   /**
    * Optional prevalidated frozen manifest. When supplied, orchestration skips
    * run reselection (canary / provider-free replay). Production default: undefined.
@@ -440,6 +446,9 @@ export async function scoreCharacter(
       ? performanceAggregate.data.compact
       : null;
   if (persistCharacterScore) {
+    if (input.beforeCharacterScorePersist) {
+      await input.beforeCharacterScorePersist();
+    }
     const scores = new CharacterScoreRepository(input.prisma);
     const saved = await scores.save({
       characterId: input.identity.characterId,

@@ -187,9 +187,9 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
     scoringRole: "SCORE",
     nullableOptional: false,
-    zeroEventSemantics: "Zero confirmed interrupts remain neutral floor when toolkit applies.",
+    zeroEventSemantics: "Zero confirmed interrupts score at 0 for the interrupt family when the toolkit applies.",
     knownLimitations: ["Requires hostile cast observability for full credit."],
-    outputMetricOrExplanationField: "domainBreakdown.castStops",
+    outputMetricOrExplanationField: "domainBreakdown.interrupt",
   }),
   entry({
     featurePath: "utility.interruptAttempts.VALID_OVERLAP",
@@ -202,7 +202,7 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     nullableOptional: false,
     zeroEventSemantics: "Zero overlaps is valid; no credit added.",
     knownLimitations: ["Match tolerance window applies."],
-    outputMetricOrExplanationField: "domainBreakdown.castStops",
+    outputMetricOrExplanationField: "domainBreakdown.interrupt",
   }),
   entry({
     featurePath: "utility.interruptAttempts.MATCHED_FAILED",
@@ -215,7 +215,7 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     nullableOptional: false,
     zeroEventSemantics: "Zero matched failures is valid.",
     knownLimitations: ["Partial credit only."],
-    outputMetricOrExplanationField: "domainBreakdown.castStops",
+    outputMetricOrExplanationField: "domainBreakdown.interrupt",
   }),
   entry({
     featurePath: "utility.interruptAttempts.UNMATCHED_ATTEMPT",
@@ -228,7 +228,7 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     nullableOptional: false,
     zeroEventSemantics: "Zero unmatched attempts is valid.",
     knownLimitations: ["Unmatched spam credit share is capped."],
-    outputMetricOrExplanationField: "domainBreakdown.castStops (capped)",
+    outputMetricOrExplanationField: "domainBreakdown.interrupt (capped)",
   }),
   entry({
     featurePath: "utility.hostileObservability",
@@ -241,7 +241,7 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     nullableOptional: false,
     zeroEventSemantics: "ABSENT hostile casts reduce density factor / confidence.",
     knownLimitations: ["PARTIAL observability is explicit."],
-    outputMetricOrExplanationField: "confidenceComponents / castStops density factor",
+    outputMetricOrExplanationField: "confidenceComponents / interrupt family",
   }),
   entry({
     featurePath: "utility.ccActions",
@@ -252,9 +252,9 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
     scoringRole: "SCORE",
     nullableOptional: false,
-    zeroEventSemantics: "Zero strategic CC remains neutral when toolkit applies.",
+    zeroEventSemantics: "Zero crowd control scores at 0 for that family when the toolkit applies.",
     knownLimitations: ["Dedupe window collapses repeated same-target CC."],
-    outputMetricOrExplanationField: "domainBreakdown.strategicCc",
+    outputMetricOrExplanationField: "domainBreakdown.crowdControl",
   }),
   entry({
     featurePath: "utility.supportActions",
@@ -265,9 +265,9 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
     scoringRole: "SCORE",
     nullableOptional: false,
-    zeroEventSemantics: "Zero support credit remains neutral floor when toolkit applies.",
+    zeroEventSemantics: "Zero support credit scores at 0 for group-support when the toolkit applies.",
     knownLimitations: ["Passive/rotational support is ignored or near-zero credit."],
-    outputMetricOrExplanationField: "domainBreakdown.support",
+    outputMetricOrExplanationField: "domainBreakdown.groupSupport",
   }),
   entry({
     featurePath: "utility.dispelPurgeSuccessCount",
@@ -279,8 +279,8 @@ export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntr
     scoringRole: "SCORE",
     nullableOptional: false,
     zeroEventSemantics: "Zero dispels/purges add no support credit.",
-    knownLimitations: ["Counted as support-domain credit events."],
-    outputMetricOrExplanationField: "domainBreakdown.support",
+    knownLimitations: ["Counted as dispel/purge family credit events."],
+    outputMetricOrExplanationField: "domainBreakdown.dispelPurge",
   }),
   entry({
     featurePath: "utility.activeCombatMs",

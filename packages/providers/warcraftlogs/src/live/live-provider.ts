@@ -67,10 +67,17 @@ import {
   resolveFightOwnership,
 } from "../discovery/fight-ownership.js";
 import {
+  requireRequestWclZoneId,
   resolveMplusZoneConfig,
   shouldQueryZoneRankings,
   type MplusZoneConfig,
 } from "../discovery/mplus-zone.js";
+import {
+  buildMplusCatalogEntryFromZone,
+  parseWorldDataZonesPayload,
+  selectActiveMythicPlusZone,
+  type DiscoveredMplusCatalogEntry,
+} from "../discovery/world-data-zones.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
 import { fetchDamageTakenWithResources } from "../analysis/survival-run-analysis.js";
 import {
@@ -98,7 +105,11 @@ export interface LiveWarcraftLogsProviderConfig {
     | "WCL_RATE_STOP_PERCENT"
     | "WCL_CHARACTER_TTL_SECONDS"
   >;
-  /** Explicit current M+ zone ID (preferred over WCL_MPLUS_ZONE_ID env). */
+  /**
+   * Optional fallback zone for legacy probe CLIs that do not pass
+   * ProviderFetchContext.wclZoneId. Production refresh/scoring must set
+   * context.wclZoneId from the effective scoring season catalog.
+   */
   zoneId?: number;
   zoneExpiresAt?: string | null;
   processEnv?: NodeJS.ProcessEnv;
@@ -207,7 +218,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   readonly rateLimitSupported = true as const;
   private readonly client: WclGraphQlClient;
   private readonly revisionCache = new ReportRevisionCache();
-  private readonly zoneConfig: MplusZoneConfig;
+  /** Optional constructor fallback only — never from env. Prefer ctx.wclZoneId. */
+  private readonly fallbackZoneConfig: MplusZoneConfig | null;
   private readonly logger: Pick<Console, "info" | "warn" | "error">;
 
   constructor(private readonly config: LiveWarcraftLogsProviderConfig) {
@@ -222,19 +234,79 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       logger: config.logger,
     });
     this.logger = config.logger ?? console;
-    this.zoneConfig = resolveMplusZoneConfig({
-      zoneId: config.zoneId,
-      expiresAt: config.zoneExpiresAt,
-      env: config.processEnv ?? process.env,
-      allowFixtureDefault: false,
-    });
-    if (this.zoneConfig.warning) {
-      this.logger.warn({ warning: this.zoneConfig.warning }, "wcl.mplus_zone.warning");
+    this.fallbackZoneConfig =
+      config.zoneId != null
+        ? resolveMplusZoneConfig({
+            zoneId: config.zoneId,
+            expiresAt: config.zoneExpiresAt,
+            allowFixtureDefault: false,
+          })
+        : null;
+    if (this.fallbackZoneConfig?.warning) {
+      this.logger.warn({ warning: this.fallbackZoneConfig.warning }, "wcl.mplus_zone.warning");
     }
   }
 
+  /**
+   * @deprecated Prefer request-scoped ProviderFetchContext.wclZoneId.
+   * Returns constructor fallback when present.
+   */
   getZoneConfig(): MplusZoneConfig {
-    return this.zoneConfig;
+    if (this.fallbackZoneConfig) return this.fallbackZoneConfig;
+    throw new Error(
+      "No constructor zone configured. Pass ProviderFetchContext.wclZoneId from the effective scoring season catalog.",
+    );
+  }
+
+  /** Resolve WCL zone for this request: context first, then optional constructor fallback. */
+  private resolveRequestZoneId(ctx: ProviderFetchContext): number {
+    if (ctx.wclZoneId != null) {
+      return requireRequestWclZoneId(ctx);
+    }
+    if (this.fallbackZoneConfig) {
+      return this.fallbackZoneConfig.zoneId;
+    }
+    return requireRequestWclZoneId(ctx);
+  }
+
+  private zoneRankingsAllowed(ctx: ProviderFetchContext): boolean {
+    if (ctx.wclZoneId != null) return true;
+    if (this.fallbackZoneConfig) return shouldQueryZoneRankings(this.fallbackZoneConfig);
+    return true;
+  }
+
+  /**
+   * AUTO season bootstrap: discover the active Mythic+ zone catalog from WorldData.
+   * One call per new season — not per character.
+   */
+  async discoverActiveMplusZoneCatalog(input: {
+    blizzardSeasonId: number;
+  }): Promise<DiscoveredMplusCatalogEntry> {
+    const result = await this.client.request({
+      operationName: OPERATIONS.WorldDataZones.operationName,
+      query: OPERATIONS.WorldDataZones.query,
+      variables: {},
+      region: "EU",
+    });
+    const zones = parseWorldDataZonesPayload(result.response.data);
+    const selected = selectActiveMythicPlusZone(zones);
+    if (selected.kind === "none") {
+      throw Object.assign(
+        new Error(
+          `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: no active Mythic+ WCL zone for blizzard season ${input.blizzardSeasonId}`,
+        ),
+        { code: "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE" },
+      );
+    }
+    if (selected.kind === "ambiguous") {
+      throw Object.assign(
+        new Error(
+          `ACTIVE_MPLUS_SEASON_AMBIGUOUS: ${selected.candidates.length} active Mythic+ WCL zones`,
+        ),
+        { code: "ACTIVE_MPLUS_SEASON_AMBIGUOUS" },
+      );
+    }
+    return buildMplusCatalogEntryFromZone(selected.zone, input.blizzardSeasonId);
   }
 
   async discoverCharacterRuns(
@@ -299,11 +371,12 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     const discovery = await this.discoverCharacter(identity, ctx);
     // Partition is part of the logical query identity as "current" — do not bind the
     // cache key to the response partition value or legacy/current keys diverge.
+    const zoneId = this.resolveRequestZoneId(ctx);
     const fingerprint = buildWclSummaryRequestFingerprint({
       region: identity.region,
       realmSlug: identity.realmSlug,
       name: identity.name,
-      zoneId: this.zoneConfig.zoneId,
+      zoneId,
       partition: null,
     });
     const envelope = providerEnvelope(
@@ -622,7 +695,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     providerCalls: number;
     unavailableReason: string | null;
   }> {
-    if (!shouldQueryZoneRankings(this.zoneConfig)) {
+    if (!this.zoneRankingsAllowed(input.ctx)) {
       return {
         payload: null,
         providerCalls: 0,
@@ -706,14 +779,15 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     unavailableReason: string | null;
   }> {
     const identity = requireTargetCharacter(input.ctx);
+    const zoneId = this.resolveRequestZoneId(input.ctx);
     const fetched = await this.fetchCharacterZoneRankingsParse({
       character: identity,
-      zoneId: this.zoneConfig.zoneId,
+      zoneId,
       ctx: input.ctx,
     });
     const resolved = resolveRankingParseFromZoneRankings({
       payload: fetched.payload,
-      zoneId: this.zoneConfig.zoneId,
+      zoneId,
       reportCode: input.reportCode,
       fightId: input.fightId,
       reportRevision: input.reportRevision,
@@ -939,9 +1013,10 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }
 
     const warnings: string[] = [];
-    if (this.zoneConfig.warning) {
-      warnings.push(this.zoneConfig.warning);
+    if (this.fallbackZoneConfig?.warning && ctx.wclZoneId == null) {
+      warnings.push(this.fallbackZoneConfig.warning);
     }
+    const zoneId = this.resolveRequestZoneId(ctx);
 
     let rankings: ReturnType<typeof mapZoneRankings> = [];
     let rankingCandidates: ReturnType<typeof rankingsToCandidates> = [];
@@ -974,7 +1049,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       activeDungeonSlugs.every((slug) => encounterTargetSlugs.has(slug));
 
     if (
-      shouldQueryZoneRankings(this.zoneConfig) &&
+      this.zoneRankingsAllowed(ctx) &&
       encounterTargets.length > 0 &&
       coversAllActiveDungeons
     ) {
@@ -995,7 +1070,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       rankings = mapAliasedEncounterRankings({
         characterPayload: erCharacter,
         encounters: encounterTargets,
-        zoneId: this.zoneConfig.zoneId,
+        zoneId,
       });
       const slugByEncounter = new Map(
         encounterTargets.map((e) => [e.encounterId, e.dungeonSlug] as const),
@@ -1008,7 +1083,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
 
       const perf = await this.fetchPointsAndDamageForDiscovery({
         character: identity,
-        zoneId: this.zoneConfig.zoneId,
+        zoneId,
         partition: null,
         ctx,
       });
@@ -1020,14 +1095,14 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       } else if (performance.state === "ERROR") {
         warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage ERROR");
       }
-    } else if (!shouldQueryZoneRankings(this.zoneConfig)) {
+    } else if (!this.zoneRankingsAllowed(ctx)) {
       warnings.push(
-        `Skipped encounterRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
+        `Skipped encounterRankings — configured zone ${zoneId} is expired`,
       );
       performance = pointsAndDamageErrorRecord(
         "SKIPPED",
         null,
-        `Skipped points_and_damage — configured zone ${this.zoneConfig.zoneId} is expired`,
+        `Skipped points_and_damage — configured zone ${zoneId} is expired`,
       );
     } else {
       warnings.push(

@@ -102,6 +102,7 @@
     "scoring:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:replay --",
     "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --",
     "scoring:diagnose:stabilization": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:diagnose:stabilization --",
+    "utility:trace-character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run utility:trace-character --",
     "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --"
   },
   "dependencies": {

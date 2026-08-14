@@ -10,6 +10,7 @@ import { adminRealmSyncResponseSchema, adminScoreModelSchema, errorResponseSchem
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
 import { writeAuditEvent } from "../iam/audit.js";
+import { HttpError } from "../errors.js";
 
 const backtestResponseSchema = {
   type: "object",
@@ -959,6 +960,89 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
             regions?: Array<"EU" | "US" | "KR" | "TW">;
           };
           return miscService.syncSeasonAuthority({ regions: body.regions });
+        },
+      );
+
+      protectedApp.get(
+        "/api/v1/admin/misc/scoring-season",
+        {
+          schema: {
+            tags: ["admin"],
+            querystring: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                region: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+              },
+            },
+          },
+        },
+        async (request) => {
+          const query = request.query as { region?: string };
+          return miscService.getScoringSeasonSelectionStatus({
+            regionCode: query.region ?? "EU",
+          });
+        },
+      );
+
+      protectedApp.put(
+        "/api/v1/admin/misc/scoring-season",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              required: ["mode", "expectedVersion"],
+              properties: {
+                mode: { type: "string", enum: ["AUTO", "PINNED"] },
+                blizzardSeasonId: { type: "integer", minimum: 1 },
+                expectedVersion: { type: "integer", minimum: 1 },
+                region: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+              },
+            },
+          },
+        },
+        async (request) => {
+          const body = request.body as {
+            mode: "AUTO" | "PINNED";
+            blizzardSeasonId?: number;
+            expectedVersion: number;
+            region?: string;
+          };
+          const actorId = request.auth?.user?.id ?? null;
+          if (body.mode === "PINNED") {
+            if (body.blizzardSeasonId == null) {
+              throw HttpError.badRequest(
+                "SCORING_SEASON_PIN_REQUIRED",
+                "PINNED mode requires blizzardSeasonId",
+              );
+            }
+            return miscService.setScoringSeasonSelection({
+              body: {
+                mode: "PINNED",
+                blizzardSeasonId: body.blizzardSeasonId,
+                expectedVersion: body.expectedVersion,
+              },
+              actor: {
+                userId: actorId,
+                actorType: "user",
+                ip: request.ip,
+                userAgent: request.headers["user-agent"] ?? null,
+              },
+              regionCode: body.region ?? "EU",
+            });
+          }
+          return miscService.setScoringSeasonSelection({
+            body: { mode: "AUTO", expectedVersion: body.expectedVersion },
+            actor: {
+              userId: actorId,
+              actorType: "user",
+              ip: request.ip,
+              userAgent: request.headers["user-agent"] ?? null,
+            },
+            regionCode: body.region ?? "EU",
+          });
         },
       );
     });

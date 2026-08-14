@@ -489,7 +489,7 @@ onMounted(() => {
 
             <template v-else-if="dimKey === 'utility'">
               <div
-                v-for="key in (['castStops', 'support', 'strategicCc'] as const)"
+                v-for="key in (['interrupt', 'crowdControl', 'dispelPurge', 'groupSupport', 'movement', 'combatRes', 'bloodlust'] as const)"
                 :key="key"
                 class="component-row"
               >

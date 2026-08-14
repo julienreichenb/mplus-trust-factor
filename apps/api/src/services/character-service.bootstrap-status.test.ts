@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
+
 import type { ApiContainer } from "../container.js";
 
 /**
@@ -10,8 +15,6 @@ import type { ApiContainer } from "../container.js";
 describe("CharacterService profile/status — incomplete bootstrap consistency", () => {
   const myzouthId = "4e2e51ee-9e77-44a0-ba82-4d24a68b4486";
   const identity = { region: "EU" as const, realmSlug: "burning-legion", name: "Myzouth" };
-  const verifiedAt = new Date().toISOString();
-
   const myzouthShell = {
     id: myzouthId,
     regionId: "reg-eu",
@@ -127,20 +130,22 @@ describe("CharacterService profile/status — incomplete bootstrap consistency",
             findUnique: vi.fn().mockResolvedValue({ id: "reg-eu", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-eu", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(fixtureReadySeasonRow({
+            slug: "blizzard-season-15",
+            blizzardSeasonId: 15,
+            regionId: "reg-eu",
+          })),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow({
               slug: "blizzard-season-15",
-              regionId: "reg-eu",
               blizzardSeasonId: 15,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 15,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+              regionId: "reg-eu",
+            })),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow({
+              slug: "blizzard-season-15",
+              blizzardSeasonId: 15,
+              regionId: "reg-eu",
+            })),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 6 }) },
           character: { findUnique: mockCharacterFindUnique },

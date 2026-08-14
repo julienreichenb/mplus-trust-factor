@@ -6,7 +6,8 @@ export {
   UTILITY_V2_MODEL_LABEL,
   UTILITY_V2_CALIBRATION_STATUS,
   UTILITY_V2_DOMAIN_WEIGHTS,
-  UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
+  UTILITY_V2_FAMILY_WEIGHTS,
+  UTILITY_V2_FAMILY_CURVES,
   UTILITY_V2_SCORE_FLOOR,
   UTILITY_V2_INTERRUPT_CREDITS,
   UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
@@ -19,6 +20,19 @@ export {
   type UtilityV2CalibrationStatus,
   type UtilityV2ModelConfig,
 } from "./constants.js";
+
+export {
+  UTILITY_V2_FAMILY_KEYS,
+  utilityFamilyFromCatalogCategory,
+  utilityFamilyFromCatalogRule,
+  utilityFamilyFromDigestCategory,
+  type UtilityV2FamilyKey,
+  type UtilityFamilyApplicability,
+  type UtilityFamilyApplicabilityMap,
+  type UtilityFamilyApplicabilityState,
+} from "./families.js";
+
+export { resolveUtilityToolkitFromCatalog } from "./toolkit.js";
 
 export {
   classifyInterruptAttempts,

@@ -13,6 +13,12 @@ import {
   getConcurrencySettings,
   type GetConcurrencySettingsOptions,
 } from "./scoring-runtime-settings.js";
+import {
+  getScoringSeasonSelection,
+  evaluateSeasonCatalogReadiness,
+  readActiveMplusCatalogMetadata,
+  peekEffectiveScoringSeasonRowGlobal,
+} from "@mplus/worker";
 
 function deriveModeLabel(flags: ReturnType<typeof getScoringFlagSummary>): ScoringModeLabel {
   if (!flags.enabled) return "Disabled";
@@ -74,6 +80,13 @@ export async function buildScoringOverview(
           name: true,
           isCurrent: true,
           blizzardSeasonId: true,
+          metadata: true,
+          dungeonCount: true,
+          startsAt: true,
+          endsAt: true,
+          regionId: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
       prisma.calibrationCohort.groupBy({
@@ -136,7 +149,7 @@ export async function buildScoringOverview(
     warnings.push({
       code: "CURRENT_SEASON_MISSING",
       severity: "warning",
-      message: "No current season",
+      message: "No Blizzard-detected current season",
     });
   }
   if (flags.modeLabel === "Disabled") {
@@ -151,6 +164,63 @@ export async function buildScoringOverview(
   const draftCohorts = cohortGroups.find((g) => g.status === "DRAFT")?._count._all ?? 0;
   const archivedCohorts = cohortGroups.find((g) => g.status === "ARCHIVED")?._count._all ?? 0;
 
+  const selectionRow = await getScoringSeasonSelection(prisma);
+  const peek = await peekEffectiveScoringSeasonRowGlobal(prisma);
+  const effectiveSeason = peek
+    ? await prisma.season.findUnique({
+        where: { id: peek.id },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          isCurrent: true,
+          blizzardSeasonId: true,
+          metadata: true,
+          dungeonCount: true,
+          startsAt: true,
+          endsAt: true,
+          regionId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      })
+    : null;
+
+  if (!effectiveSeason) {
+    warnings.push({
+      code: "EFFECTIVE_SCORING_SEASON_MISSING",
+      severity: "warning",
+      message: "No effective scoring season",
+    });
+  }
+
+  const detectedMeta = currentSeason
+    ? readActiveMplusCatalogMetadata(currentSeason.metadata)
+    : null;
+  const effectiveMeta = effectiveSeason
+    ? readActiveMplusCatalogMetadata(effectiveSeason.metadata)
+    : null;
+  const effectiveReady = effectiveSeason
+    ? (await evaluateSeasonCatalogReadiness(prisma, effectiveSeason)).ready
+    : false;
+
+  const toSeasonSummary = (
+    season: typeof currentSeason,
+    meta: ReturnType<typeof readActiveMplusCatalogMetadata>,
+    catalogReady?: boolean,
+  ) =>
+    season
+      ? {
+          id: season.id,
+          slug: season.slug,
+          name: season.name,
+          isCurrent: season.isCurrent,
+          blizzardSeasonId: season.blizzardSeasonId,
+          wclZoneId: meta?.wclZoneId ?? null,
+          catalogReady,
+        }
+      : null;
+
   return {
     flags,
     activeModel: activeModel
@@ -162,15 +232,16 @@ export async function buildScoringOverview(
           status: activeModel.status,
         }
       : null,
-    currentSeason: currentSeason
-      ? {
-          id: currentSeason.id,
-          slug: currentSeason.slug,
-          name: currentSeason.name,
-          isCurrent: currentSeason.isCurrent,
-          blizzardSeasonId: currentSeason.blizzardSeasonId,
-        }
-      : null,
+    currentSeason: toSeasonSummary(currentSeason, detectedMeta),
+    detectedCurrentSeason: toSeasonSummary(currentSeason, detectedMeta),
+    effectiveScoringSeason: toSeasonSummary(effectiveSeason, effectiveMeta, effectiveReady),
+    scoringSeasonSelection: {
+      mode: selectionRow.selection.mode,
+      pinnedBlizzardSeasonId:
+        selectionRow.selection.mode === "PINNED"
+          ? selectionRow.selection.blizzardSeasonId
+          : null,
+    },
     queueCounts: [
       { workloadClass: "CALIBRATION", queued: cal.queued, active: cal.active },
       { workloadClass: "OPERATION", queued: op.queued, active: op.active },

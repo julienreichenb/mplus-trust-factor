@@ -46,6 +46,8 @@ export type BulkSelectableCharacterRow = {
   mythicPlusScore: number | null;
   seasonId: string | null;
   seasonSlug: string | null;
+  /** Persisted catalog WCL zone for the effective scoring season; null if catalog incomplete. */
+  wclZoneId: number | null;
   hasSeasonObservations: boolean;
   observationSchemaVersions: Array<string | null>;
   storedRefreshContract: unknown | null;
@@ -354,27 +356,42 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
       });
 
       const regionIds = [...new Set(characters.map((c) => c.regionId))];
-      const seasons = await prisma.season.findMany({
-        where: {
-          isCurrent: true,
-          OR: [{ regionId: { in: regionIds } }, { regionId: null }],
-        },
-        select: { id: true, slug: true, regionId: true },
-      });
-      const seasonByRegion = new Map<string, { id: string; slug: string }>();
-      for (const season of seasons) {
-        if (season.regionId) {
-          seasonByRegion.set(season.regionId, { id: season.id, slug: season.slug });
+      const { mapEffectiveScoringSeasonIdsByRegion } = await import(
+        "../orchestration/active-mplus-season/effective-season-peek.js"
+      );
+      const seasonIdByRegion = await mapEffectiveScoringSeasonIdsByRegion(
+        prisma,
+        regionIds,
+      );
+      const seasonRows =
+        seasonIdByRegion.size === 0
+          ? []
+          : await prisma.season.findMany({
+              where: { id: { in: [...seasonIdByRegion.values()] } },
+              select: { id: true, slug: true, regionId: true, metadata: true },
+            });
+      const seasonByRegion = new Map<
+        string,
+        { id: string; slug: string; wclZoneId: number | null }
+      >();
+      const { readActiveMplusCatalogMetadata } = await import(
+        "../orchestration/active-mplus-season/catalog-metadata.js"
+      );
+      for (const [regionId, seasonId] of seasonIdByRegion) {
+        const row = seasonRows.find((s) => s.id === seasonId);
+        if (row) {
+          seasonByRegion.set(regionId, {
+            id: row.id,
+            slug: row.slug,
+            wclZoneId: readActiveMplusCatalogMetadata(row.metadata)?.wclZoneId ?? null,
+          });
         }
       }
-      const globalSeason = seasons.find((s) => s.regionId == null) ?? null;
 
       const result: BulkSelectableCharacterRow[] = [];
 
       for (const character of characters) {
-        const season =
-          seasonByRegion.get(character.regionId) ??
-          (globalSeason ? { id: globalSeason.id, slug: globalSeason.slug } : null);
+        const season = seasonByRegion.get(character.regionId) ?? null;
 
         let hasSeasonObservations = false;
         let observationSchemaVersions: Array<string | null> = [];
@@ -409,6 +426,7 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
           mythicPlusScore: character.snapshots[0]?.mythicRating ?? null,
           seasonId: season?.id ?? null,
           seasonSlug: season?.slug ?? null,
+          wclZoneId: season?.wclZoneId ?? null,
           hasSeasonObservations,
           observationSchemaVersions,
           storedRefreshContract,

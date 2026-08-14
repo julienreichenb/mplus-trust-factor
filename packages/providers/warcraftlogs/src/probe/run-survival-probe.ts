@@ -18,7 +18,7 @@ function envFlag(value: string | undefined, defaultValue = false): boolean {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
-function parseArgs(argv: string[]): SurvivalProbeIdentity & { outputDir: string } {
+function parseArgs(argv: string[]): SurvivalProbeIdentity & { outputDir: string; zoneId: number } {
   const flags: Record<string, string> = {};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -35,13 +35,18 @@ function parseArgs(argv: string[]): SurvivalProbeIdentity & { outputDir: string 
   const region = String(flags.region ?? "").trim().toUpperCase();
   const realmSlug = String(flags.realm ?? "").trim().toLowerCase();
   const name = String(flags.name ?? "").trim();
-  if (!region || !realmSlug || !name) {
+  const zoneIdRaw = String(flags["zone-id"] ?? "").trim();
+  const zoneId = Number(zoneIdRaw);
+  if (!region || !realmSlug || !name || !zoneIdRaw) {
     throw new Error(
-      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> [--output-dir <path>]",
+      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> --zone-id <id> [--output-dir <path>]",
     );
   }
   if (!["EU", "US", "KR", "TW"].includes(region)) {
     throw new Error(`Unsupported region "${region}"`);
+  }
+  if (!Number.isInteger(zoneId) || zoneId <= 0) {
+    throw new Error(`Invalid --zone-id: expected positive integer, got "${zoneIdRaw}"`);
   }
 
   const outputDir =
@@ -57,6 +62,7 @@ function parseArgs(argv: string[]): SurvivalProbeIdentity & { outputDir: string 
     region: region as SurvivalProbeIdentity["region"],
     realmSlug,
     name,
+    zoneId,
     outputDir,
   };
 }
@@ -134,6 +140,7 @@ async function main(): Promise<void> {
       WCL_CHARACTER_TTL_SECONDS: Number(process.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200),
     },
     processEnv: process.env,
+    zoneId: args.zoneId,
   });
 
   const { dataset, outputFiles } = await runSurvivalProbe({

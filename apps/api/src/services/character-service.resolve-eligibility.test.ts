@@ -2,6 +2,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
+
 import type { ApiContainer } from "../container.js";
 
 describe("CharacterService.resolveCharacter — shared eligibility", () => {
@@ -14,8 +19,6 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
   const mockApplyProviderProfile = vi.fn();
   const mockFindById = vi.fn();
   const mockFindByBlizzardCharacterId = vi.fn();
-
-  const verifiedAt = new Date().toISOString();
 
   function buildContainer(level: number, mythicRating: number | null): ApiContainer {
     const shell = {
@@ -68,7 +71,7 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
                 seasonId: 13,
@@ -83,20 +86,10 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -153,7 +146,12 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     mockFindByIdentity.mockResolvedValue(null);
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockGetProfile.mockResolvedValue({
       data: {
         level: 90,
@@ -165,12 +163,12 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
         blizzardCharacterId: "99",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
   });
 
   it("enqueues refresh when max level and current-season rating > 0", async () => {
     mockGetProfile.mockResolvedValue({ data: { level: 90 } });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     const service = new CharacterService(buildContainer(90, 2500));
     const result = await service.resolveCharacter({
       region: "EU",
@@ -184,7 +182,7 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
 
   it("returns profile-only READY without enqueue when below max level", async () => {
     mockGetProfile.mockResolvedValue({ data: { level: 80 } });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     const service = new CharacterService(buildContainer(80, 2500));
     const result = await service.resolveCharacter({
       region: "EU",
@@ -203,7 +201,7 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
 
   it("returns profile-only READY without enqueue when mythic rating is 0", async () => {
     mockGetProfile.mockResolvedValue({ data: { level: 90 } });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 0 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 0 }, runs: [] } });
     const service = new CharacterService(buildContainer(90, 0));
     const result = await service.resolveCharacter({
       region: "EU",

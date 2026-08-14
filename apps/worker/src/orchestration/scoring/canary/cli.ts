@@ -29,6 +29,7 @@ import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
 import {
   parseOptionalCliZoneId,
   resolveCanaryZoneId,
+  resolveCanaryZoneIdFromEffectiveSeason,
   type ResolvedCanaryZone,
 } from "./canary-zone.js";
 import {
@@ -54,7 +55,6 @@ import {
 } from "../../active-mplus-season/index.js";
 import { MIDNIGHT_SEASON_1_BLIZZARD_SEASON_ID } from "./canary-catalog.js";
 import { createWorkerContainer } from "../../../container.js";
-import { resolveWclMplusZoneMode } from "../../active-mplus-season/index.js";
 import {
   evaluateCanaryDiscoveryGates,
   isDiscoveryExecuteArmed,
@@ -345,22 +345,42 @@ export function evaluateCanaryLiveGates(
   return { allowed: true };
 }
 
-export function resolveZoneForCanaryCommand(
+export async function resolveZoneForCanaryCommand(
   args: CanaryCliArgs,
   options?: {
     env?: NodeJS.ProcessEnv;
     log?: (message: string) => void;
+    prisma?: PrismaClient;
+    regionId?: string;
+    regionCode?: string;
   },
-): ResolvedCanaryZone {
-  const env = options?.env ?? process.env;
-  const mode = resolveWclMplusZoneMode(env);
-  return resolveCanaryZoneId({
-    cliZoneId: args.zoneIdOverride,
-    env,
-    allowConflictingZoneOverride: args.allowZoneIdOverride,
-    allowMissingEnvZone: mode === "auto",
-    log: options?.log,
-  });
+): Promise<ResolvedCanaryZone> {
+  void options?.env;
+  const log = options?.log;
+
+  if (args.zoneIdOverride != null) {
+    return resolveCanaryZoneId({
+      cliZoneId: args.zoneIdOverride,
+      log,
+    });
+  }
+
+  if (options?.prisma && options.regionId) {
+    return resolveCanaryZoneIdFromEffectiveSeason({
+      prisma: options.prisma,
+      regionId: options.regionId,
+      regionCode: options.regionCode ?? args.region,
+      log,
+    });
+  }
+
+  // Caller must overwrite from season catalog (production) or pass prisma.
+  return {
+    zoneId: 0,
+    envZoneId: 0,
+    source: "effective-season",
+    overrideActive: false,
+  };
 }
 
 function identityFromArgs(args: CanaryCliArgs): CharacterIdentityInput {
@@ -421,7 +441,7 @@ export async function runCanaryPreflightCommand(
   seasonResolution: CanarySeasonResolution | null;
   characterResolution: CanaryCharacterResolution;
 }> {
-  let zone = resolveZoneForCanaryCommand(args, {
+  let zone = await resolveZoneForCanaryCommand(args, {
     env: options?.env ?? process.env,
     log: options?.log ?? ((msg) => console.warn(msg)),
   });
@@ -475,11 +495,20 @@ export async function runCanaryPreflightCommand(
       await deps.container.prisma.$disconnect().catch(() => undefined);
       throw err;
     }
-    // Prefer authority zone over CLI/env when AUTO resolved a validated catalog.
-    if (seasonResolution.configuredZoneId != null && seasonResolution.configuredZoneId > 0) {
+    // Prefer effective-season catalog zone unless an explicit --zone-id was supplied.
+    if (
+      !args.zoneIdOverride &&
+      seasonResolution.configuredZoneId != null &&
+      seasonResolution.configuredZoneId > 0
+    ) {
       zone = {
-        ...zone,
         zoneId: seasonResolution.configuredZoneId,
+        envZoneId: seasonResolution.configuredZoneId,
+        source: "effective-season",
+        overrideActive: false,
+        applicationSeasonId: seasonResolution.seasonId ?? undefined,
+        activeSeasonId: seasonResolution.seasonSlug ?? undefined,
+        blizzardSeasonId: seasonResolution.blizzardSeasonId ?? undefined,
       };
     }
     seasonId = seasonResolution.seasonId;
@@ -1029,7 +1058,7 @@ export async function runCanaryLiveCommand(
     outputDir?: string;
   },
 ): Promise<{ reportPath: string; report: CanaryLiveReport }> {
-  const zone = resolveZoneForCanaryCommand(args, {
+  let zone = await resolveZoneForCanaryCommand(args, {
     env: options?.env ?? process.env,
     log: options?.log ?? ((msg) => console.warn(msg)),
   });
@@ -1046,6 +1075,29 @@ export async function runCanaryLiveCommand(
       env: processEnv,
     });
     assertSeasonCatalogOk(seasonResolution);
+
+    if (
+      !args.zoneIdOverride &&
+      seasonResolution.configuredZoneId != null &&
+      seasonResolution.configuredZoneId > 0
+    ) {
+      zone = {
+        zoneId: seasonResolution.configuredZoneId,
+        envZoneId: seasonResolution.configuredZoneId,
+        source: "effective-season",
+        overrideActive: false,
+        applicationSeasonId: seasonResolution.seasonId ?? undefined,
+        activeSeasonId: seasonResolution.seasonSlug ?? undefined,
+        blizzardSeasonId: seasonResolution.blizzardSeasonId ?? undefined,
+      };
+    } else if (!args.zoneIdOverride) {
+      zone = await resolveZoneForCanaryCommand(args, {
+        prisma: deps.container.prisma,
+        regionId: deps.character.regionId,
+        regionCode: args.region,
+        log: options?.log ?? ((msg) => console.warn(msg)),
+      });
+    }
 
     const gate = evaluateCanaryLiveGates({
       env,

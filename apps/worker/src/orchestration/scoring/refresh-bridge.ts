@@ -66,6 +66,10 @@ export interface AuthoritativeScoringInput {
    */
   persistCharacterScore?: boolean;
   /**
+   * Forwarded to scoreCharacter — runs immediately before CharacterScore write.
+   */
+  beforeCharacterScorePersist?: () => Promise<void>;
+  /**
    * One-way safety: may ONLY reduce provider permission.
    * effectiveAllow = envAllows && !forceProviderFree.
    * Never overrides an environment denial.
@@ -465,6 +469,7 @@ export async function runAuthoritativeScoring(
       allowProviderCalls,
       publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
       persistCharacterScore: input.persistCharacterScore,
+      beforeCharacterScorePersist: input.beforeCharacterScorePersist,
       scoreModelConfig: input.scoreModelConfig,
       existingManifest: input.existingManifest,
       ports,

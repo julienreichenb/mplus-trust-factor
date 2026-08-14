@@ -18,6 +18,7 @@ import type {
 } from "@mplus/contracts";
 import type { Prisma, PrismaClient } from "@mplus/database";
 import { seasonAuthoritySlug } from "../season-authority.js";
+import { peekEffectiveScoringSeasonRow } from "../active-mplus-season/effective-season-peek.js";
 import {
   synchronizeSeasonPopulationPolicy,
   type SeasonPopulationPolicySyncResult,
@@ -43,7 +44,7 @@ export interface ExperienceSeasonBootstrapRegion {
 }
 
 export interface ExperienceSeasonBootstrapInput {
-  prisma: Pick<PrismaClient, "season">;
+  prisma: Pick<PrismaClient, "season" | "runtimeSetting">;
   regions: ExperienceSeasonBootstrapRegion[];
   blizzard: ExperienceSeasonBootstrapBlizzardPort;
   raiderIo: ExperienceSeasonBootstrapRaiderIoPort;
@@ -1030,15 +1031,18 @@ export async function bootstrapExperienceSeasonMetadata(
         hydratedSeasonCount += 1;
       }
 
-      const currentRow = await input.prisma.season.findFirst({
-        where: { regionId: region.id, isCurrent: true },
-        select: {
-          id: true,
-          blizzardSeasonId: true,
-          startsAt: true,
-          providerSeasonId: true,
-        },
-      });
+      const peek = await peekEffectiveScoringSeasonRow(input.prisma, { regionId: region.id });
+      const currentRow = peek
+        ? await input.prisma.season.findUnique({
+            where: { id: peek.id },
+            select: {
+              id: true,
+              blizzardSeasonId: true,
+              startsAt: true,
+              providerSeasonId: true,
+            },
+          })
+        : null;
 
       if (!currentRow?.blizzardSeasonId) {
         reasons.push("NO_AUTHORITATIVE_CURRENT_SEASON");

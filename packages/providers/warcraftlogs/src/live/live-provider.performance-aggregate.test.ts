@@ -125,4 +125,112 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
     ).toBeGreaterThan(0);
     expect(result.sourceRequestFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("issues CharacterZoneRankingsRoleAwareHealer with healing+damage in one request", async () => {
+    const fixture = JSON.parse(readFileSync(wallidrixePadPath, "utf8")) as {
+      rawZoneRankingsPointsAndDamage: Record<string, unknown>;
+    };
+    const damageRaw = fixture.rawZoneRankingsPointsAndDamage;
+    const healingRaw = { ...damageRaw, metric: "points_and_healing" };
+
+    const provider = new LiveWarcraftLogsProvider({
+      env: {
+        WCL_CLIENT_ID: "test-client",
+        WCL_CLIENT_SECRET: "test-secret",
+        WCL_PUBLIC_GRAPHQL_URL: "https://example.test/graphql",
+        WCL_TOKEN_URL: "https://example.test/token",
+        WCL_RATE_WARN_PERCENT: 70,
+        WCL_RATE_DEFER_PERCENT: 80,
+        WCL_RATE_STOP_PERCENT: 90,
+        WCL_CHARACTER_TTL_SECONDS: 43_200,
+      },
+      zoneId: 47,
+      processEnv: { WCL_MPLUS_ZONE_ID: "47" },
+    });
+
+    const request = vi.fn(async (args: { operationName: string }) => {
+      if (args.operationName === "RateLimitData") {
+        return {
+          response: {
+            data: {
+              rateLimitData: {
+                limitPerHour: 3600,
+                pointsSpentThisHour: 0,
+                pointsResetIn: 3600,
+              },
+            },
+            errors: undefined,
+          },
+          cost: null,
+        };
+      }
+      expect(args.operationName).toBe(
+        OPERATIONS.CharacterZoneRankingsRoleAwareHealer.operationName,
+      );
+      return {
+        response: {
+          data: {
+            characterData: {
+              character: {
+                damage: damageRaw,
+                healing: healingRaw,
+              },
+            },
+          },
+          errors: undefined,
+        },
+        cost: null,
+      };
+    });
+    vi.spyOn(provider.getGraphQlClient(), "request").mockImplementation(
+      request as never,
+    );
+
+    const result = await provider.fetchCharacterPerformanceAggregate({
+      character: {
+        name: "Aspha",
+        realmSlug: "garona",
+        region: "EU",
+      },
+      zoneId: 47,
+      partition: null,
+      role: "HEALER",
+      specSlug: "demonology",
+      ctx: {
+        region: "EU",
+        now: "2026-08-06T12:00:00.000Z",
+        requestId: "test-aspha",
+        correlationId: "test-aspha",
+        forceRefresh: false,
+        targetCharacter: {
+          name: "Aspha",
+          realmSlug: "garona",
+          region: "EU",
+        },
+      },
+    });
+
+    const healerCalls = request.mock.calls.filter(
+      (c) =>
+        (c[0] as { operationName: string }).operationName ===
+        "CharacterZoneRankingsRoleAwareHealer",
+    );
+    expect(healerCalls).toHaveLength(1);
+    const called = healerCalls[0]?.[0] as { operationName: string; query: string };
+    expect(called.query).toMatch(/metric:\s*points_and_healing/);
+    expect(called.query).toMatch(/metric:\s*points_and_damage/);
+    expect(request.mock.calls.filter((c) => (c[0] as { operationName: string }).operationName.startsWith("CharacterZoneRankings")).length).toBe(1);
+
+    expect(result.record.state, result.record.errorMessage).toBe("OK");
+    expect(result.rawPayload).toEqual({
+      damage: damageRaw,
+      healing: healingRaw,
+    });
+    expect(
+      (result.record.compact as { healing?: unknown; damage?: unknown }).healing,
+    ).not.toBeNull();
+    expect(
+      (result.record.compact as { healing?: unknown; damage?: unknown }).damage,
+    ).not.toBeNull();
+  });
 });

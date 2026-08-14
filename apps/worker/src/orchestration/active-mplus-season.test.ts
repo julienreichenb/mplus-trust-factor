@@ -22,7 +22,6 @@ import {
   mergeActiveMplusCatalogMetadata,
   readActiveMplusCatalogMetadata,
 } from "./active-mplus-season/catalog-metadata.js";
-import { resolveWclMplusZoneMode } from "./active-mplus-season/config.js";
 import { evaluatePublicationEligibility } from "./scoring/run-orchestration/publication-eligibility.js";
 
 describe("active mplus season authority primitives", () => {
@@ -87,13 +86,6 @@ describe("active mplus season authority primitives", () => {
     for (const slug of ZONE_47_MIDNIGHT_S1_CATALOG.dungeonSlugs) {
       expect(obsolete.has(slug)).toBe(false);
     }
-  });
-
-  it("AUTO is default zone mode; PINNED requires explicit config", () => {
-    expect(resolveWclMplusZoneMode({})).toBe("auto");
-    expect(resolveWclMplusZoneMode({ WCL_MPLUS_ZONE_MODE: "pinned" })).toBe(
-      "pinned",
-    );
   });
 
   it("deterministic dungeon-pool hash is order-sensitive via joined list", () => {
@@ -187,7 +179,7 @@ describe("production hardcode removal guards", () => {
     expect(src).not.toMatch(/blizzardSeasonId:\s*17/);
     expect(src).not.toMatch(/slug:\s*"blizzard-season-17"/);
     expect(src).not.toMatch(/raiderioDungeonSlugs:\s*CURRENT/);
-    expect(src).toMatch(/resolveActiveMythicPlusSeason/);
+    expect(src).toMatch(/peekEffectiveScoringSeasonRow/);
   });
 
   it("SeasonDungeonBindingsMissingError fails closed", () => {

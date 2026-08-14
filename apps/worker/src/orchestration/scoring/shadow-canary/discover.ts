@@ -11,7 +11,6 @@ import {
   OPERATIONS,
   planCandidateDiscovery,
   requireActiveDungeonEncounters,
-  resolveMplusZoneConfig,
   slugifyDungeonName,
   toCandidateMetadataV2,
   type DiscoverySourceRow,
@@ -20,6 +19,8 @@ import {
 import { resolveActiveSeasonDungeonPool } from "@mplus/scoring";
 import type { WorkerContainer } from "../../../container.js";
 import { canonicalDungeonKey } from "../../run-fusion.js";
+import { readActiveMplusCatalogMetadata } from "../../active-mplus-season/catalog-metadata.js";
+import { peekEffectiveScoringSeasonRowGlobal } from "../../active-mplus-season/effective-season-peek.js";
 
 /** Ranking evidence may lack reportRevision until selected-fight revision resolve. */
 export type ShadowCanaryRankingEvidence = Omit<RankingParseEvidenceV2, "reportRevision"> & {
@@ -110,10 +111,10 @@ export async function discoverShadowCanaryCandidates(input: {
   }>;
   dungeonPoolSource?: string;
 }): Promise<ShadowCanaryDiscoveryResult> {
-  const season = await input.container.prisma.season.findFirst({
-    where: { isCurrent: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const peek = await peekEffectiveScoringSeasonRowGlobal(input.container.prisma);
+  const season = peek
+    ? await input.container.prisma.season.findUnique({ where: { id: peek.id } })
+    : null;
   if (!season) {
     throw new Error("shadow_canary_season_required");
   }
@@ -146,10 +147,14 @@ export async function discoverShadowCanaryCandidates(input: {
     throw new Error("shadow_canary_wcl_discover_unavailable");
   }
 
-  const zoneConfig = resolveMplusZoneConfig({
-    env: process.env,
-    allowFixtureDefault: input.container.env.APP_ENV === "test",
-  });
+  const catalogMeta = readActiveMplusCatalogMetadata(season.metadata);
+  const zoneId = catalogMeta?.wclZoneId;
+  if (zoneId == null || !Number.isInteger(zoneId) || zoneId <= 0) {
+    throw new Error(
+      "shadow_canary_zone_required: effective scoring season lacks persisted wclZoneId",
+    );
+  }
+  const zoneConfig = { zoneId, expiresAt: null as string | null, expired: false };
 
   let zoneCatalogCalls = 0;
   let zoneDungeonSlugs: string[] = [];

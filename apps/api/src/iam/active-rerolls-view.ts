@@ -127,7 +127,7 @@ function compareRerolls(a: ActiveRerollCharacterDTO, b: ActiveRerollCharacterDTO
  * 3. displayed ownership probe (take 2) — fail closed on ambiguity
  * 4. one findMany of same-account ownerships (relevanceEligible || isPrimary)
  * 5. one active score model
- * 6. one seasons findMany for distinct regionIds (isCurrent)
+ * 6. one seasons lookup for distinct regionIds (effective scoring season)
  */
 export async function buildActiveRerollsView(input: {
   prisma: PrismaClient;
@@ -250,14 +250,11 @@ export async function buildActiveRerollsView(input: {
   });
 
   const regionIds = [...new Set(ownerships.map((o) => o.regionId))];
-  const seasons =
+  const { mapEffectiveScoringSeasonIdsByRegion } = await import("@mplus/worker");
+  const currentSeasonIdByRegionId =
     regionIds.length === 0
-      ? []
-      : await prisma.season.findMany({
-          where: { regionId: { in: regionIds }, isCurrent: true },
-          select: { id: true, regionId: true },
-        });
-  const currentSeasonIdByRegionId = new Map(seasons.map((s) => [s.regionId, s.id]));
+      ? new Map<string, string>()
+      : await mapEffectiveScoringSeasonIdsByRegion(prisma, regionIds);
 
   const rerolls: ActiveRerollCharacterDTO[] = [];
 

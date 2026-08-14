@@ -91,9 +91,8 @@ Supported entry points:
 - pnpm scoring-v2:replay — provider-free reconstruction
 - pnpm scoring-v2:doctor — provider-free diagnostics
 
-Contextual step commands are internalized. Zone ID remains WCL_MPLUS_ZONE_ID
-(zone **47** = Midnight Season 1). Operator paths use production PostgreSQL
-repositories; in-memory ports are test-only.
+Contextual step commands are internalized. Zone ID comes from the effective
+scoring season persisted catalog (optional CLI `--zone-id` diagnostic override only).
 
 ## Modules
 

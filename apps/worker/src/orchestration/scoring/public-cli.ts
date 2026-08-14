@@ -97,7 +97,26 @@ async function runPublicCanary(input: {
       regionCode: input.args.region,
     });
     assertSeasonCatalogOk(season);
-    const zone = resolveZoneForCanaryCommand(input.args);
+    let zone = await resolveZoneForCanaryCommand(input.args, {
+      prisma: deps.container.prisma,
+      regionId: deps.character.regionId,
+      regionCode: input.args.region,
+    });
+    if (
+      !input.args.zoneIdOverride &&
+      season.configuredZoneId != null &&
+      season.configuredZoneId > 0
+    ) {
+      zone = {
+        zoneId: season.configuredZoneId,
+        envZoneId: season.configuredZoneId,
+        source: "effective-season",
+        overrideActive: false,
+        applicationSeasonId: season.seasonId ?? undefined,
+        activeSeasonId: season.seasonSlug ?? undefined,
+        blizzardSeasonId: season.blizzardSeasonId ?? undefined,
+      };
+    }
     const classSpec = await resolveCanaryCharacterIdentity({
       prisma: deps.container.prisma,
       characterId: deps.characterResolution.characterId,

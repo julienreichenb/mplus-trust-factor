@@ -246,7 +246,15 @@ function summarizeEncounterRanks(raw, selectedIds = null) {
   };
 }
 
-const ZONE_ID = Number(process.env.WCL_MPLUS_ZONE_ID ?? 47);
+const ZONE_ID = (() => {
+  const idx = process.argv.indexOf("--zone-id");
+  const raw = idx >= 0 ? process.argv[idx + 1] : null;
+  const n = raw != null ? Number(raw) : NaN;
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error("Usage requires explicit --zone-id <positive-integer> (not from env)");
+  }
+  return n;
+})();
 const ENCOUNTERS = {
   "algethar-academy": 112526,
   "magisters-terrace": 12811,

@@ -112,6 +112,31 @@ describe("getApplicableAbilityCategories", () => {
     );
   });
 
+  it("mistweaver has no INTERRUPT category rules", () => {
+    const results = getApplicableAbilityCategories({
+      classSlug: "monk",
+      specSlug: "mistweaver",
+      role: "HEALER",
+    });
+    const interrupt = categoryState(results, "INTERRUPT");
+    expect(interrupt?.state).toBe("not_applicable");
+    expect(interrupt?.reason).toBe("no_rules_for_category");
+  });
+
+  it("observed spell promotes talent-only capability to AVAILABLE", () => {
+    const results = getApplicableAbilityCategories({
+      classSlug: "warlock",
+      specSlug: "affliction",
+      role: "DPS",
+      knownTalentSpellIds: [],
+      observedSpellIds: [1271802],
+    });
+    // Soft CC still has baseline Curse of Tongues → applicable; blight observed is in rules.
+    const soft = categoryState(results, "SOFT_CC");
+    expect(soft?.state).toBe("applicable");
+    expect(soft?.rules.some((r) => r.canonicalKey.includes("blight-of-tongues"))).toBe(true);
+  });
+
   it("shared consumable category is always applicable", () => {
     const results = getApplicableAbilityCategories({
       classSlug: "mage",

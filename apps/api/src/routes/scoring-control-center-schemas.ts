@@ -313,8 +313,20 @@ export const scoringSeasonSummarySchema = {
     name: { type: "string" },
     isCurrent: { type: "boolean" },
     blizzardSeasonId: { type: ["integer", "null"] },
+    wclZoneId: { type: ["integer", "null"] },
+    catalogReady: { type: "boolean" },
   },
   required: ["id", "slug", "name", "isCurrent", "blizzardSeasonId"],
+  additionalProperties: false,
+} as const;
+
+export const scoringSeasonSelectionOverviewSchema = {
+  type: "object",
+  properties: {
+    mode: { type: "string", enum: ["AUTO", "PINNED"] },
+    pinnedBlizzardSeasonId: { type: ["integer", "null"] },
+  },
+  required: ["mode", "pinnedBlizzardSeasonId"],
   additionalProperties: false,
 } as const;
 
@@ -364,6 +376,11 @@ export const overviewSchema = {
     flags: ScoringFlagOverviewSchema,
     activeModel: { anyOf: [scoringModelSummarySchema, { type: "null" }] },
     currentSeason: { anyOf: [scoringSeasonSummarySchema, { type: "null" }] },
+    detectedCurrentSeason: { anyOf: [scoringSeasonSummarySchema, { type: "null" }] },
+    effectiveScoringSeason: { anyOf: [scoringSeasonSummarySchema, { type: "null" }] },
+    scoringSeasonSelection: {
+      anyOf: [scoringSeasonSelectionOverviewSchema, { type: "null" }],
+    },
     queueCounts: { type: "array", items: scoringQueueCountsSchema },
     recentEvidenceExport: { anyOf: [evidenceExportSummaryDtoSchema, { type: "null" }] },
     recentFrozenBundle: { anyOf: [recentFrozenBundleOverviewSchema, { type: "null" }] },
@@ -378,6 +395,9 @@ export const overviewSchema = {
     "flags",
     "activeModel",
     "currentSeason",
+    "detectedCurrentSeason",
+    "effectiveScoringSeason",
+    "scoringSeasonSelection",
     "queueCounts",
     "recentEvidenceExport",
     "recentFrozenBundle",

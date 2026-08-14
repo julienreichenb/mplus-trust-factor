@@ -1,3 +1,5 @@
+> **Superseded:** `WCL_MPLUS_ZONE_MODE` / `WCL_MPLUS_ZONE_ID` env authority was removed. Scoring season is AUTO | PINNED via DB `RuntimeSetting` (`scoring_season_selection`). See `doc/scoring/v2/` and `effective-scoring-season.ts`.
+
 # Active Mythic+ Season Authority
 
 Versioned contract: `ActiveMythicPlusSeasonAuthority` (`active-mplus-season-authority-v1`).

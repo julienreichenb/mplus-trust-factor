@@ -14,6 +14,11 @@ import { runRefreshPipeline } from "./refresh-pipeline.js";
 import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
 import type { WorkerContainer } from "../container.js";
 import type { VerifiedSeasonAuthority } from "./season-authority.js";
+import { stubEffectiveFromAuthority } from "./refresh-contract-preflight.test-helpers.js";
+import { computeDungeonPoolHash } from "./active-mplus-season/types.js";
+
+const PIPELINE_TEST_SLUGS = ["stub-a", "stub-b"] as const;
+const PIPELINE_TEST_POOL_HASH = computeDungeonPoolHash(PIPELINE_TEST_SLUGS);
 
 const authority: VerifiedSeasonAuthority = {
   regionCode: "EU",
@@ -30,8 +35,6 @@ function liveEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     PROVIDER_MODE: "live",
-    WCL_MPLUS_ZONE_ID: "39",
-    WCL_MPLUS_ZONE_EXPIRES_AT: "2099-01-01T00:00:00.000Z",
   };
 }
 
@@ -41,7 +44,6 @@ function matchingHash(providerMode: "fixture" | "live" = "live"): string {
     scoringModelVersion: 6,
     activeSeasonId: authority.slug,
     providerMode,
-    env: providerMode === "live" ? liveEnv() : { ...process.env, PROVIDER_MODE: "fixture" },
     zoneId: providerMode === "live" ? 39 : undefined,
     partition: null,
   }).hash;
@@ -72,25 +74,17 @@ describe("refresh contract preflight barrier", () => {
     debug: vi.fn(),
   };
 
-  const requireAuthority = vi.fn(async () => authority);
-  const previousZone = process.env.WCL_MPLUS_ZONE_ID;
-  const previousExpires = process.env.WCL_MPLUS_ZONE_EXPIRES_AT;
+  const resolveEffective = vi.fn(async () => stubEffectiveFromAuthority(authority, 39));
   const previousMode = process.env.PROVIDER_MODE;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    requireAuthority.mockResolvedValue(authority);
+    resolveEffective.mockResolvedValue(stubEffectiveFromAuthority(authority, 39));
     clearSeasonAuthorityCacheForTests();
-    process.env.WCL_MPLUS_ZONE_ID = "39";
-    process.env.WCL_MPLUS_ZONE_EXPIRES_AT = "2099-01-01T00:00:00.000Z";
     process.env.PROVIDER_MODE = "live";
   });
 
   afterEach(() => {
-    if (previousZone === undefined) delete process.env.WCL_MPLUS_ZONE_ID;
-    else process.env.WCL_MPLUS_ZONE_ID = previousZone;
-    if (previousExpires === undefined) delete process.env.WCL_MPLUS_ZONE_EXPIRES_AT;
-    else process.env.WCL_MPLUS_ZONE_EXPIRES_AT = previousExpires;
     if (previousMode === undefined) delete process.env.PROVIDER_MODE;
     else process.env.PROVIDER_MODE = previousMode;
   });
@@ -118,7 +112,7 @@ describe("refresh contract preflight barrier", () => {
         ACTIVE_SCORE_MODEL_VERSION: 6,
       },
       getActiveModel: vi.fn(async () => ({ key: "default", version: 6 })),
-      requireAuthority,
+      resolveEffective,
       processEnv:
         providerMode === "live"
           ? liveEnv()
@@ -134,7 +128,6 @@ describe("refresh contract preflight barrier", () => {
       scoringModelVersion: 6,
       activeSeasonId: authority.slug,
       providerMode: "live",
-      env: liveEnv(),
       zoneId: 39,
       partition: null,
     });
@@ -145,18 +138,18 @@ describe("refresh contract preflight barrier", () => {
     );
 
     expect(result.hash).toBe(expected.hash);
-    expect(result.authority.slug).toBe("blizzard-season-13");
-    expect(requireAuthority).toHaveBeenCalled();
+    expect(result.effective.activeSeasonId).toBe("blizzard-season-13");
+    expect(resolveEffective).toHaveBeenCalled();
     expect(result.missingHashAllowed).toBe(false);
   });
 
   it("uses verified authority rather than stale Season.isCurrent data", async () => {
     const staleIsCurrentSlug = "blizzard-season-3";
-    requireAuthority.mockResolvedValue({
+    resolveEffective.mockResolvedValue(stubEffectiveFromAuthority({
       ...authority,
       blizzardSeasonId: 17,
       slug: "blizzard-season-17",
-    });
+    }));
     const computed = resolveActiveRefreshContract({
       scoringModelKey: "default",
       scoringModelVersion: 6,
@@ -371,19 +364,85 @@ describe("refresh pipeline — preflight stops before providers", () => {
           findUnique: vi.fn(async () => ({ id: "reg-eu", code: "EU" })),
           create: vi.fn(async () => ({ id: "reg-eu", code: "EU" })),
         },
+        runtimeSetting: {
+          findUnique: vi.fn(async () => null),
+        },
         season: {
-          findFirst: vi.fn(async () => ({
-            id: "season-1",
-            slug: "blizzard-season-13",
-            regionId: "reg-eu",
-            blizzardSeasonId: 13,
-            isCurrent: true,
-            metadata: {
+          findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+            const season = {
+              id: "season-1",
+              slug: "blizzard-season-13",
+              name: "Season 13",
+              regionId: "reg-eu",
               blizzardSeasonId: 13,
-              authoritySource: "season_index.current_season",
-              authorityVerifiedAt: verifiedAt,
+              isCurrent: true,
+              dungeonCount: 2,
+              metadata: {
+                blizzardSeasonId: 13,
+                authoritySource: "season_index.current_season",
+                authorityVerifiedAt: verifiedAt,
+                activeMplusCatalog: {
+                  schemaVersion: "active-mplus-catalog-v1",
+                  wclZoneId: 39,
+                  blizzardSeasonId: 13,
+                  expansionIdentity: "Fixture",
+                  dungeonPoolHash: PIPELINE_TEST_POOL_HASH,
+                  sourceMetadataHash: "abc",
+                  catalogVersion: `active-mplus-season-authority-v1:zone-39:pool-${PIPELINE_TEST_POOL_HASH.slice(0, 12)}`,
+                  dungeonSlugs: [...PIPELINE_TEST_SLUGS],
+                  synchronizedAt: verifiedAt,
+                  validatedAt: verifiedAt,
+                  lastKnownGood: true,
+                  authorityVersion: "active-mplus-season-authority-v1",
+                },
+              },
+            };
+            if (args?.where?.slug && args.where.slug !== season.slug) return null;
+            return season;
+          }),
+          findMany: vi.fn(async () => [
+            {
+              id: "season-1",
+              slug: "blizzard-season-13",
+              name: "Season 13",
+              regionId: "reg-eu",
+              blizzardSeasonId: 13,
+              isCurrent: true,
+              dungeonCount: 2,
+              metadata: {
+                blizzardSeasonId: 13,
+                authoritySource: "season_index.current_season",
+                authorityVerifiedAt: verifiedAt,
+                activeMplusCatalog: {
+                  schemaVersion: "active-mplus-catalog-v1",
+                  wclZoneId: 39,
+                  blizzardSeasonId: 13,
+                  expansionIdentity: "Fixture",
+                  dungeonPoolHash: PIPELINE_TEST_POOL_HASH,
+                  sourceMetadataHash: "abc",
+                  catalogVersion: `active-mplus-season-authority-v1:zone-39:pool-${PIPELINE_TEST_POOL_HASH.slice(0, 12)}`,
+                  dungeonSlugs: [...PIPELINE_TEST_SLUGS],
+                  synchronizedAt: verifiedAt,
+                  validatedAt: verifiedAt,
+                  lastKnownGood: true,
+                  authorityVersion: "active-mplus-season-authority-v1",
+                },
+              },
             },
-          })),
+          ]),
+          findUnique: vi.fn(async () => null),
+        },
+        seasonDungeon: {
+          findMany: vi.fn(async () => [
+            {
+              sortOrder: 0,
+              dungeon: { id: "d1", slug: "stub-a", wclZoneOrEncounterId: 1001n },
+            },
+            {
+              sortOrder: 1,
+              dungeon: { id: "d2", slug: "stub-b", wclZoneOrEncounterId: 1002n },
+            },
+          ]),
         },
         refreshCostLedgerEntry: {
           create: vi.fn(async () => {

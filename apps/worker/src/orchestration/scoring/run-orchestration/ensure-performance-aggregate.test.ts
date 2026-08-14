@@ -328,4 +328,50 @@ describe("ensureCharacterPerformanceAggregate role/spec cache gate", () => {
     expect(result.cache).toBe("HIT");
     expect(provider.fetchCharacterPerformanceAggregate).not.toHaveBeenCalled();
   });
+
+  it("7. cached elemental/DPS must not be reused as restoration/HEALER", async () => {
+    findCompatibleLive.mockResolvedValue(
+      dtoFromCompact(compact({ role: "DPS", targetSpecSlug: "elemental" })),
+    );
+    const fetchedCompact = compact({
+      role: "HEALER",
+      targetSpecSlug: "restoration",
+    });
+    upsert.mockResolvedValue({
+      row: dtoFromCompact(fetchedCompact),
+      created: false,
+      updated: true,
+      rejectedStale: false,
+    });
+    const ensure = createEnsureCharacterPerformanceAggregate({
+      prisma: {} as never,
+    });
+    const provider = {
+      fetchCharacterPerformanceAggregate: vi.fn(async () => ({
+        record: {
+          state: "OK" as const,
+          adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: fetchedCompact,
+          raw: {},
+        },
+        rawPayload: {},
+        sourceRequestFingerprint: "fp-aspha",
+        providerCalls: 1,
+      })),
+    };
+    const result = await ensure({
+      ...baseInput,
+      role: "HEALER",
+      specSlug: "restoration",
+      liveProviderPermission: "ALLOWED",
+      provider,
+    });
+    expect(result.cache).toBe("MISS");
+    expect(provider.fetchCharacterPerformanceAggregate).toHaveBeenCalledTimes(1);
+    expect(result.state === "AVAILABLE" && result.data.compact.role).toBe("HEALER");
+    expect(result.state === "AVAILABLE" && result.data.compact.targetSpecSlug).toBe(
+      "restoration",
+    );
+  });
 });

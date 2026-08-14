@@ -11,6 +11,7 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   UTILITY_V2_EXTRACTOR_VERSION,
   buildUtilityV2RunFactSet,
+  resolveUtilityToolkitFromCatalog,
   type UtilityV2CcAction,
   type UtilityV2ConfirmedInterruptEvent,
   type UtilityV2HostileCastWindow,
@@ -18,8 +19,9 @@ import {
   type UtilityV2RunFactSet,
   type UtilityV2SupportAction,
   type UtilityV2SupportSemantic,
-  type UtilityV2ToolkitApplicability,
+  type UtilityV2FamilyKey,
 } from "@mplus/scoring";
+import { extractParticipantLoadoutsFromCombatantEvents } from "../../evidence/capability/combatant-loadout.js";
 import {
   buildUtilityShadowInputsFromBundles,
   utilityEvidencePresentInBundle,
@@ -175,29 +177,36 @@ function mapCcActions(run: UtilityNormalizedRun): UtilityV2CcAction[] {
   }));
 }
 
-function mapSupportActions(run: UtilityNormalizedRun): UtilityV2SupportAction[] {
-  const out: UtilityV2SupportAction[] = [];
-  for (const [idx, ev] of run.dispelPurgeEvents.entries()) {
-    out.push({
-      id: `support-dp-${idx}-${ev.timestamp}`,
-      timestampMs: ev.timestamp,
-      abilityGameId: ev.abilityGameID,
-      abilityName: null,
-      sourceActorId: ev.sourceID,
-      sourceKind: sourceKind(ev.sourceKind),
-      targetActorId: ev.targetID,
-      semantic: "REACTIVE_SUPPORT" satisfies UtilityV2SupportSemantic,
-      tier: "CONFIRMED_IMPACT",
-    });
-  }
+/**
+ * Digest-aligned family split:
+ * - DISPEL/PURGE → dispelPurgeSuccessCount only (never groupSupport)
+ * - BLOODLUST → bloodlustSuccessCount only (never groupSupport)
+ * - groupSupport / combatRes / movement stay in supportActions
+ */
+function mapSupportAndSpecialistFamilies(run: UtilityNormalizedRun): {
+  supportActions: UtilityV2SupportAction[];
+  bloodlustSuccessCount: number;
+  dispelPurgeSuccessCount: number;
+} {
+  const supportActions: UtilityV2SupportAction[] = [];
+  let bloodlustSuccessCount = 0;
+
   for (const [idx, ev] of run.externalGroupUtilityEvents.entries()) {
+    if (ev.category === "BLOODLUST") {
+      bloodlustSuccessCount += 1;
+      continue;
+    }
     const semantic: UtilityV2SupportSemantic =
-      ev.category === "EXTERNAL_DEFENSIVE" || ev.category === "BATTLE_REZ"
+      ev.category === "BATTLE_REZ"
         ? "EMERGENCY_SUPPORT"
         : ev.category === "MOVEMENT_UTILITY"
           ? "PERSONAL_MOBILITY"
-          : "STRATEGIC_SUPPORT";
-    out.push({
+          : ev.category === "EXTERNAL_DEFENSIVE"
+            ? "REACTIVE_SUPPORT"
+            : ev.category === "GROUP_UTILITY"
+              ? "PROVIDED_GROUP_UTILITY"
+              : "STRATEGIC_SUPPORT";
+    supportActions.push({
       id: `support-ext-${idx}-${ev.timestamp}`,
       timestampMs: ev.timestamp,
       abilityGameId: ev.abilityGameID,
@@ -209,47 +218,56 @@ function mapSupportActions(run: UtilityNormalizedRun): UtilityV2SupportAction[] 
       tier: ev.successfulApplication === true ? "CONFIRMED_IMPACT" : "INFERRED",
     });
   }
-  return out;
+
+  return {
+    supportActions,
+    bloodlustSuccessCount,
+    dispelPurgeSuccessCount: run.dispelPurgeEvents.length,
+  };
 }
 
-function resolveToolkit(
-  classSlug: string | null,
-  specSlug: string | null,
-): { toolkit: UtilityV2ToolkitApplicability; catalogSupported: boolean; unsupportedReason: string | null } {
-  const catalog = getAbilityCatalog({
-    classSlug,
-    specSlug,
-    includeRacials: true,
-  });
-  if (!catalog.supported) {
-    // Unknown / unsupported identity must not look like a confirmed empty toolkit.
-    return {
-      toolkit: {
-        hasInterrupt: false,
-        hasSupport: false,
-        hasStrategicCc: false,
-      },
-      catalogSupported: false,
-      unsupportedReason: catalog.unsupportedReason ?? "ABILITY_CATALOG_UNSUPPORTED",
-    };
-  }
+function observedFamiliesFromFacts(input: {
+  interruptCount: number;
+  ccCount: number;
+  dispelPurgeSuccessCount: number;
+  supportActions: UtilityV2SupportAction[];
+  bloodlustSuccessCount: number;
+}): Partial<Record<UtilityV2FamilyKey, boolean>> {
   return {
-    toolkit: {
-      hasInterrupt:
-        spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size > 0,
-      hasSupport:
-        spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
-          classSlug,
-          specSlug,
-        }).size > 0,
-      hasStrategicCc:
-        spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size > 0,
-    },
-    catalogSupported: true,
-    unsupportedReason: null,
+    interrupt: input.interruptCount > 0,
+    crowdControl: input.ccCount > 0,
+    dispelPurge: input.dispelPurgeSuccessCount > 0,
+    groupSupport: input.supportActions.some(
+      (a) =>
+        a.semantic === "REACTIVE_SUPPORT" ||
+        a.semantic === "STRATEGIC_SUPPORT" ||
+        a.semantic === "PROVIDED_GROUP_UTILITY",
+    ),
+    movement: input.supportActions.some((a) => a.semantic === "PERSONAL_MOBILITY"),
+    combatRes: input.supportActions.some((a) => a.semantic === "EMERGENCY_SUPPORT"),
+    bloodlust: input.bloodlustSuccessCount > 0,
   };
+}
+
+function resolveToolkit(input: {
+  classSlug: string | null;
+  specSlug: string | null;
+  knownTalentSpellIds?: number[];
+  talentDataAvailable?: boolean;
+  observedSpellIds?: number[];
+  raceSlug?: string | null;
+  observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
+}): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
+  return resolveUtilityToolkitFromCatalog({
+    classSlug: input.classSlug,
+    specSlug: input.specSlug,
+    includeRacials: true,
+    raceSlug: input.raceSlug,
+    knownTalentSpellIds: input.knownTalentSpellIds,
+    talentDataAvailable: input.talentDataAvailable,
+    observedSpellIds: input.observedSpellIds,
+    observedFamilies: input.observedFamilies,
+  });
 }
 
 /**
@@ -263,6 +281,8 @@ export function mapUtilityNormalizedRunToFactSet(input: {
   castEvents?: Array<Record<string, unknown>>;
   classSlug: string | null;
   specSlug: string | null;
+  knownTalentSpellIds?: number[];
+  talentDataAvailable?: boolean;
   limitations?: string[];
 }): UtilityV2RunFactSet {
   const catalog = getAbilityCatalog({
@@ -294,7 +314,30 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     }));
 
   const hostileWindows = buildHostileWindows(input.hostileCastEvents);
-  const resolvedToolkit = resolveToolkit(input.classSlug, input.specSlug);
+  const ccActions = mapCcActions(input.run);
+  const specialist = mapSupportAndSpecialistFamilies(input.run);
+  const observedFamilies = observedFamiliesFromFacts({
+    interruptCount: attemptSeeds.length + confirmedInterrupts.length,
+    ccCount: ccActions.length,
+    dispelPurgeSuccessCount: specialist.dispelPurgeSuccessCount,
+    supportActions: specialist.supportActions,
+    bloodlustSuccessCount: specialist.bloodlustSuccessCount,
+  });
+  const observedSpellIds = [
+    ...attemptSeeds.map((a) => a.abilityGameId),
+    ...confirmedInterrupts.map((e) => e.abilityGameId),
+    ...ccActions.map((a) => a.abilityGameId),
+    ...specialist.supportActions.map((a) => a.abilityGameId),
+    ...input.run.dispelPurgeEvents.map((e) => e.abilityGameID),
+  ].filter((id): id is number => typeof id === "number" && Number.isFinite(id));
+  const resolvedToolkit = resolveToolkit({
+    classSlug: input.classSlug,
+    specSlug: input.specSlug,
+    knownTalentSpellIds: input.knownTalentSpellIds,
+    talentDataAvailable: input.talentDataAvailable,
+    observedSpellIds,
+    observedFamilies,
+  });
   const toolkit = resolvedToolkit.toolkit;
   const incomplete = input.run.incompleteDatasets.length > 0;
   const truncated = input.run.truncatedDatasets.length > 0;
@@ -302,6 +345,7 @@ export function mapUtilityNormalizedRunToFactSet(input: {
 
   const limitations = clampLimitations([
     ...(input.limitations ?? []),
+    ...resolvedToolkit.limitations,
     ...(incomplete
       ? input.run.incompleteDatasets.map((d) => `incomplete_dataset:${d}`)
       : []),
@@ -321,8 +365,10 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     !incomplete &&
     attemptSeeds.length === 0 &&
     confirmedInterrupts.length === 0 &&
-    mapCcActions(input.run).length === 0 &&
-    mapSupportActions(input.run).length === 0
+    ccActions.length === 0 &&
+    specialist.supportActions.length === 0 &&
+    specialist.dispelPurgeSuccessCount === 0 &&
+    specialist.bloodlustSuccessCount === 0
       ? ["zero_observation_bound"]
       : []),
   ]);
@@ -343,9 +389,10 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     hostileEventTimestampsMs: input.hostileCastEvents
       .map((e) => (typeof e.timestamp === "number" ? e.timestamp : null))
       .filter((t): t is number => t != null),
-    ccActions: mapCcActions(input.run),
-    supportActions: mapSupportActions(input.run),
-    dispelPurgeSuccessCount: input.run.dispelPurgeEvents.length,
+    ccActions,
+    supportActions: specialist.supportActions,
+    dispelPurgeSuccessCount: specialist.dispelPurgeSuccessCount,
+    bloodlustSuccessCount: specialist.bloodlustSuccessCount,
     toolkit,
     abilityCatalogCoverage: identityUnknown ? 0 : incomplete ? 0.5 : 0.85,
     mechanicCatalogCoverage: identityUnknown ? 0 : incomplete ? 0.4 : 0.7,
@@ -436,6 +483,18 @@ export function extractUtilityV2RunFactSetFromSharedEvidence(input: {
     const hostile = built.hostileCastEventsByRun.get(runId) ?? [];
     const castEvents = raw?.casts ?? [];
 
+    const playerActorId = bundle.playerActorId ?? run.playerActorId;
+    const combatantEvents = bundle.eventDatasets.CombatantInfo?.events ?? [];
+    const loadouts =
+      playerActorId != null
+        ? extractParticipantLoadoutsFromCombatantEvents(
+            combatantEvents,
+            new Set([playerActorId]),
+          )
+        : [];
+    const loadout = loadouts[0];
+    const talentPresent = loadout?.evidenceState === "PRESENT";
+
     const fact = mapUtilityNormalizedRunToFactSet({
       slot,
       run,
@@ -443,6 +502,8 @@ export function extractUtilityV2RunFactSetFromSharedEvidence(input: {
       castEvents,
       classSlug: input.classSlug,
       specSlug: input.specSlug,
+      knownTalentSpellIds: talentPresent ? loadout.talentSpellIds : undefined,
+      talentDataAvailable: talentPresent,
       limitations: built.notes,
     });
 

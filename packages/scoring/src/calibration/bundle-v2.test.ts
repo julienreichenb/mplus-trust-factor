@@ -349,7 +349,7 @@ describe("Calibration Bundle V2", () => {
     const util = report.members[0]!.dimensions.find((d) => d.dimension === "UTILITY")!;
     expect(util.activeScore).toBe(UTILITY_V2_SCORE_FLOOR);
     expect(util.draftScore).toBe(55);
-    expect(util.scoreDelta).toBe(5);
+    expect(util.scoreDelta).toBe(55);
     expect(util.identicalEvidence).toBe(true);
   });
 

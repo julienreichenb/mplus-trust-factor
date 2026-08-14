@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
+import {
+  fixtureReadySeasonRow,
+  scoringSeasonPrismaStubs,
+} from "./character-service.test-season.js";
+
 import type { ApiContainer } from "../container.js";
 
 describe("CharacterService.resolveCharacter — new-row bootstrap safety", () => {
@@ -23,8 +28,6 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   const mockCharacterFindUnique = vi.fn();
   const mockSnapshotFindMany = vi.fn();
 
-  const verifiedAt = new Date().toISOString();
-
   const createdShell = {
     id: "char-new",
     regionId: "reg-1",
@@ -43,19 +46,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   function buildContainer(opts: { authorityFail?: boolean } = {}): ApiContainer {
     const seasonFindFirst = opts.authorityFail
       ? vi.fn().mockResolvedValue(null)
-      : vi.fn().mockResolvedValue({
-          id: "season-1",
-          slug: "blizzard-season-13",
-          regionId: "reg-1",
-          blizzardSeasonId: 13,
-          isCurrent: true,
-          metadata: {
-            blizzardSeasonId: 13,
-            source: "blizzard",
-            authoritySource: "season_index.current_season",
-            authorityVerifiedAt: verifiedAt,
-          },
-        });
+      : vi.fn().mockResolvedValue(fixtureReadySeasonRow());
 
     return {
       env: {
@@ -78,7 +69,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => {
               if (opts.authorityFail) {
                 const { SeasonAuthorityUnavailableError } = await import("@mplus/worker");
@@ -99,8 +90,10 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
             findFirst: seasonFindFirst,
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -154,7 +147,12 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
   beforeEach(() => {
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockFindByIdentity.mockResolvedValue(null);
     mockFindByBlizzardCharacterId.mockResolvedValue(null);
     mockGetPublishedSnapshot.mockResolvedValue(null);
@@ -187,7 +185,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
         blizzardCharacterId: "9999",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     mockEnqueue.mockResolvedValue({ jobId: "job-new-1", reused: false, enqueued: true });
   });
 
@@ -218,7 +216,7 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("compensate-deletes a fresh shell when season authority fails after create", async () => {
+  it("fails closed before create when season authority is unavailable", async () => {
     const service = new CharacterService(buildContainer({ authorityFail: true }));
     const result = await service.resolveCharacter({
       region: "EU",
@@ -227,8 +225,10 @@ describe("CharacterService.resolveCharacter — new-row bootstrap safety", () =>
     });
     expect(result.statusCode).toBe(503);
     expect(result.body).toMatchObject({ status: "PROVIDER_UNAVAILABLE", retryable: true });
-    expect(mockUpsert).toHaveBeenCalledTimes(1);
-    expect(mockDeleteShell).toHaveBeenCalledWith("char-new");
+    // Authority is resolved before Blizzard/create so no orphan shell is left behind.
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockDeleteShell).not.toHaveBeenCalled();
+    expect(mockGetProfile).not.toHaveBeenCalled();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
@@ -294,7 +294,6 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
   const mockUpsert = vi.fn();
   const mockDeleteShell = vi.fn();
 
-  const verifiedAt = new Date().toISOString();
   const incompleteFixture = {
     id: "char-incomplete",
     regionId: "reg-1",
@@ -381,7 +380,7 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
         providers: {
           blizzard: {
             getCharacterProfile: mockGetProfile,
-            getMythicKeystoneProfile: mockGetKeystone,
+            getMythicKeystoneSeasonProfile: mockGetKeystone,
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
                 seasonId: 13,
@@ -396,20 +395,10 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -468,7 +457,12 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     repaired = false;
-    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockFindBySlug.mockResolvedValue({
+      id: "realm-1",
+      slug: "archimonde",
+      name: "Archimonde",
+      region: { id: "reg-1", code: "EU" },
+    });
     mockGetPublishedSnapshot.mockResolvedValue(null);
     mockFindLatestJob.mockResolvedValue(failedJob);
     mockListProviderState.mockResolvedValue([]);
@@ -484,7 +478,7 @@ describe("CharacterService.resolveCharacter — concurrent repair dedupe", () =>
         blizzardCharacterId: "4242",
       },
     });
-    mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
+    mockGetKeystone.mockResolvedValue({ data: { profile: { currentMythicRating: 2500 }, runs: [] } });
     mockEnqueue.mockResolvedValue({ jobId: "job-repair-1", reused: false, enqueued: true });
   });
 
@@ -547,7 +541,6 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
     admissionReleased: string[];
   };
 
-  const verifiedAt = new Date().toISOString();
   const failedHistorical: JobRow = {
     id: "job-failed-historical",
     characterId: "char-incomplete",
@@ -673,8 +666,8 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
                 },
               };
             }),
-            getMythicKeystoneProfile: vi.fn(async () => ({
-              data: { currentMythicRating: 2500 },
+            getMythicKeystoneSeasonProfile: vi.fn(async () => ({
+              data: { profile: { currentMythicRating: 2500 }, runs: [] },
             })),
             resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
               data: {
@@ -690,20 +683,10 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
             findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
             findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
           },
+          ...scoringSeasonPrismaStubs(),
           season: {
-            findFirst: vi.fn().mockResolvedValue({
-              id: "season-1",
-              slug: "blizzard-season-13",
-              regionId: "reg-1",
-              blizzardSeasonId: 13,
-              isCurrent: true,
-              metadata: {
-                blizzardSeasonId: 13,
-                source: "blizzard",
-                authoritySource: "season_index.current_season",
-                authorityVerifiedAt: verifiedAt,
-              },
-            }),
+            findFirst: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
+            findUnique: vi.fn().mockResolvedValue(fixtureReadySeasonRow()),
           },
           scoreModel: { findFirst: vi.fn().mockResolvedValue({ key: "default", version: 4 }) },
           character: {
@@ -768,6 +751,7 @@ describe("CharacterService.resolveCharacter — cross-instance lock bypass", () 
               id: "realm-1",
               slug: "archimonde",
               name: "Archimonde",
+              region: { id: "reg-1", code: "EU" },
             }),
           },
           score: {

@@ -621,15 +621,22 @@ describe("production-style class/spec identity propagation", () => {
     expect(util.limitations).toContain("toolkit_coverage_unconfirmed");
     const facts = util.facts as {
       catalogCoverage: { abilityCatalogCoverage: number };
-      toolkit: { hasInterrupt: boolean; hasSupport: boolean; hasStrategicCc: boolean };
+      toolkit: {
+        hasInterrupt: boolean;
+        hasSupport: boolean;
+        hasStrategicCc: boolean;
+        families?: Record<string, { state: string }>;
+      };
     };
     expect(facts.catalogCoverage.abilityCatalogCoverage).toBe(0);
-    // Empty booleans are unconfirmed coverage, not a confirmed "no toolkit" score penalty.
-    expect(facts.toolkit).toEqual({
-      hasInterrupt: false,
-      hasSupport: false,
-      hasStrategicCc: false,
-    });
+    // Uncertain families must not claim confirmed toolkit availability.
+    expect(facts.toolkit.hasInterrupt).toBe(false);
+    expect(facts.toolkit.hasSupport).toBe(false);
+    expect(facts.toolkit.hasStrategicCc).toBe(false);
+    expect(facts.toolkit.families).toBeDefined();
+    for (const row of Object.values(facts.toolkit.families ?? {})) {
+      expect(row.state).toBe("uncertain");
+    }
   });
 
   it("unknown identity degrades availability/confidence without score penalty", () => {

@@ -3,6 +3,7 @@
  *
  * Provider failure must NEVER collapse into null/"no score".
  * Successful response with null rating remains a genuine no-score.
+ * Keystone uses the authoritative (effective/PINNED) Blizzard season id.
  */
 import { describe, expect, it, vi } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
@@ -27,6 +28,8 @@ const profile = {
   blizzardCharacterId: "42",
 };
 
+const BLIZZARD_SEASON_ID = 17;
+
 describe("scoring-stabilization: public bootstrap current-season Mythic lookup", () => {
   it("propagates keystone provider failure (does not collapse to mythicRating=null)", async () => {
     const blizzard = {
@@ -35,7 +38,7 @@ describe("scoring-stabilization: public bootstrap current-season Mythic lookup",
         fetchedAt: new Date().toISOString(),
         cacheHit: false,
       })),
-      getMythicKeystoneProfile: vi.fn(async () => {
+      getMythicKeystoneSeasonProfile: vi.fn(async () => {
         throw new ExternalApiError({
           message: "Blizzard keystone unavailable",
           code: "UPSTREAM_5XX",
@@ -45,7 +48,9 @@ describe("scoring-stabilization: public bootstrap current-season Mythic lookup",
       }),
     };
 
-    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
+    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity, {
+      blizzardSeasonId: BLIZZARD_SEASON_ID,
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -53,7 +58,11 @@ describe("scoring-stabilization: public bootstrap current-season Mythic lookup",
     expect(result.error.retryable).toBe(true);
     expect(result.providerCalls).toBe(2);
     expect(blizzard.getCharacterProfile).toHaveBeenCalledTimes(1);
-    expect(blizzard.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(
+      identity,
+      BLIZZARD_SEASON_ID,
+      expect.any(Object),
+    );
   });
 
   it("keeps successful currentMythicRating when keystone succeeds", async () => {
@@ -63,14 +72,16 @@ describe("scoring-stabilization: public bootstrap current-season Mythic lookup",
         fetchedAt: new Date().toISOString(),
         cacheHit: false,
       })),
-      getMythicKeystoneProfile: vi.fn(async () => ({
-        data: { currentMythicRating: 1842 },
+      getMythicKeystoneSeasonProfile: vi.fn(async () => ({
+        data: { profile: { currentMythicRating: 1842 }, runs: [] },
         fetchedAt: new Date().toISOString(),
         cacheHit: false,
       })),
     };
 
-    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
+    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity, {
+      blizzardSeasonId: BLIZZARD_SEASON_ID,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.mythicRating).toBe(1842);
@@ -83,14 +94,16 @@ describe("scoring-stabilization: public bootstrap current-season Mythic lookup",
         fetchedAt: new Date().toISOString(),
         cacheHit: false,
       })),
-      getMythicKeystoneProfile: vi.fn(async () => ({
-        data: { currentMythicRating: null },
+      getMythicKeystoneSeasonProfile: vi.fn(async () => ({
+        data: { profile: { currentMythicRating: null }, runs: [] },
         fetchedAt: new Date().toISOString(),
         cacheHit: false,
       })),
     };
 
-    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity);
+    const result = await fetchBlizzardPublicBootstrap(blizzard as never, identity, {
+      blizzardSeasonId: BLIZZARD_SEASON_ID,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.mythicRating).toBeNull();

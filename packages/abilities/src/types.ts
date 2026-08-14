@@ -61,6 +61,16 @@ export type AbilityAvailability =
   | "CHOICE_NODE"
   | "SHARED";
 
+/**
+ * Interrupt capability profile for Utility opportunity normalization.
+ * Derived from catalog metadata — never a per-spec score bonus.
+ */
+export type InterruptCapabilityProfile =
+  | "STANDARD"
+  | "CONSTRAINED_CONTROL"
+  | "LONG_COOLDOWN"
+  | "PET_DEPENDENT";
+
 export type CatalogSupportState = "SUPPORTED" | "PARTIAL" | "UNSUPPORTED" | "UNCERTAIN";
 
 export type ProvenanceSource =
@@ -137,6 +147,15 @@ export interface AbilityRule {
   cooldownSeconds?: number;
   /** Charge count when the ability has charges. */
   charges?: number;
+  /**
+   * When set, this SHARED/racial rule is only AVAILABLE for matching run-scoped race.
+   * Observed use still promotes AVAILABLE even when race evidence is missing.
+   */
+  raceSlugs?: string[];
+  /**
+   * Interrupt opportunity profile. When omitted, derived from cooldown / ownership.
+   */
+  interruptProfile?: InterruptCapabilityProfile;
   requiresSuccessfulTarget?: boolean;
   /** canonicalKey of the ability this replaces. */
   replacementFor?: string;

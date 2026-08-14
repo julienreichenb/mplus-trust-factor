@@ -195,17 +195,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       transactionReadOnly = evidenceRo;
       console.log(`transaction_read_only=${transactionReadOnly}`);
 
-      const season = await tx.season.findFirst({
-        where: { isCurrent: true },
-        orderBy: { updatedAt: "desc" },
-        select: {
-          id: true,
-          slug: true,
-          isCurrent: true,
-          blizzardSeasonId: true,
-          name: true,
-        },
-      });
+      const { peekEffectiveScoringSeasonRowGlobal } = await import("@mplus/worker");
+      const peek = await peekEffectiveScoringSeasonRowGlobal(prisma);
+      const season = peek
+        ? await tx.season.findUnique({
+            where: { id: peek.id },
+            select: {
+              id: true,
+              slug: true,
+              isCurrent: true,
+              blizzardSeasonId: true,
+              name: true,
+            },
+          })
+        : null;
       const binding = validateAuthoritativeSeasonBinding(policy.policy!, season);
       const activeModel = await tx.scoreModel.findFirst({
         where: { status: "ACTIVE" },

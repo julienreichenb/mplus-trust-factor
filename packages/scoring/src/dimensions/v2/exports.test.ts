@@ -36,7 +36,7 @@ describe("@mplus/scoring Scoring V2 exports", () => {
     expect(typeof scoring.toUtilityV2ShadowDimensionPayload).toBe("function");
     expect(typeof scoring.exportUtilityV2Calibration).toBe("function");
     expect(scoring.UTILITY_V2_ALGORITHM_VERSION).toBeTruthy();
-    expect(scoring.UTILITY_V2_SCORE_FLOOR).toBe(50);
+    expect(scoring.UTILITY_V2_SCORE_FLOOR).toBe(0);
   });
 
   it("exports shared shadow normalization helpers", () => {

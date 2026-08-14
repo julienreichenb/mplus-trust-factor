@@ -5,7 +5,8 @@ import {
   cancelRefreshJob,
   killAllRefreshJobs,
   prioritizeRefreshJob,
-  requireVerifiedSeasonAuthority,
+  resolveEffectiveScoringSeason,
+  resolveScoringCatalogDiscoverer,
   resolveActiveRefreshContract,
   runRefreshEligibilityGate,
   RefreshEligibilityError,
@@ -528,16 +529,30 @@ export class AdminRefreshJobsService {
       include: { region: true },
     });
 
-    const authority = await requireVerifiedSeasonAuthority(
-      {
-        prisma: this.prisma(),
-        blizzard: this.container.worker.providers.blizzard,
-        logger: this.container.logger,
-      },
-      character.region.code,
-      character.regionId,
-      { allowProviderSync: true, correlationId: null },
-    );
+    const discoverActiveMplusCatalog = resolveScoringCatalogDiscoverer({
+      warcraftlogs: this.container.worker.providers.warcraftlogs,
+      providerMode: this.container.env.PROVIDER_MODE,
+    });
+    const effective = await resolveEffectiveScoringSeason({
+      prisma: this.prisma(),
+      blizzard: this.container.worker.providers.blizzard,
+      logger: this.container.logger,
+      regionCode: character.region.code,
+      regionId: character.regionId,
+      allowProviderSync: true,
+      correlationId: null,
+      discoverActiveMplusCatalog,
+    });
+    const authority = {
+      regionCode: effective.detected.regionCode,
+      regionId: effective.detected.regionId,
+      seasonRowId: effective.applicationSeasonId,
+      blizzardSeasonId: effective.blizzardSeasonId,
+      slug: effective.seasonSlug,
+      authoritySource: effective.detected.authoritySource,
+      authorityVerifiedAt: effective.detected.authorityVerifiedAt,
+      resolution: effective.detected.resolution,
+    };
 
     // Re-evaluate eligibility from persisted evidence only (no Blizzard level/rating fetch).
     // Incomplete / UNKNOWN shells cannot be fixed here — route through exact resolve repair.
@@ -639,7 +654,7 @@ export class AdminRefreshJobsService {
       scoringModelVersion: activeModel.version,
       activeSeasonId: authority.slug,
       providerMode: this.container.env.PROVIDER_MODE,
-      env: process.env,
+      zoneId: effective.wclZoneId,
     });
 
     const result = await this.container.producers.enqueueRefreshCharacter({

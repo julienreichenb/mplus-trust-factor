@@ -1,15 +1,17 @@
 /**
- * Canary season resolution via ActiveMythicPlusSeasonAuthority.
- * No hard-coded blizzard season prefer; no static dungeon-array fallback.
+ * Canary season resolution via effective scoring season (RuntimeSetting).
+ * Uses persisted Season catalog only — no env WCL zone mode.
  */
 import type { PrismaClient } from "@mplus/database";
+import { peekEffectiveScoringSeasonRow } from "../../active-mplus-season/effective-season-peek.js";
 import {
-  parseOptionalPositiveIntEnv,
-  resolveActiveMythicPlusSeason,
-  resolveWclMplusZoneMode,
+  buildAuthorityFromSeason,
+  loadSeasonDungeonIdentities,
+} from "../../active-mplus-season/resolve.js";
+import {
   SeasonDungeonBindingsMissingError,
   type ActiveMythicPlusSeasonAuthority,
-} from "../../active-mplus-season/index.js";
+} from "../../active-mplus-season/types.js";
 
 export type SeasonValidationStatus =
   | "OK"
@@ -74,25 +76,45 @@ export async function resolveCanarySeasonCatalog(input: {
   regionId: string;
   regionCode: string;
   env?: NodeJS.ProcessEnv;
+  wcl?: unknown;
 }): Promise<CanarySeasonResolution> {
-  const env = input.env ?? process.env;
-  const mode = resolveWclMplusZoneMode(env);
-  const zoneFromEnv = (() => {
-    try {
-      return parseOptionalPositiveIntEnv(env.WCL_MPLUS_ZONE_ID);
-    } catch {
-      return null;
-    }
-  })();
+  void input.env;
+  void input.wcl;
 
   try {
-    const authority = await resolveActiveMythicPlusSeason({
-      prisma: input.prisma,
+    const peek = await peekEffectiveScoringSeasonRow(input.prisma, {
+      regionId: input.regionId,
+    });
+    if (!peek) {
+      throw new SeasonDungeonBindingsMissingError(
+        `SEASON_DUNGEON_BINDINGS_MISSING: no effective scoring season for ${input.regionCode}`,
+      );
+    }
+
+    const season = await input.prisma.season.findUnique({ where: { id: peek.id } });
+    if (!season) {
+      throw new SeasonDungeonBindingsMissingError(
+        `SEASON_NOT_FOUND: effective scoring season row ${peek.id} missing`,
+      );
+    }
+
+    const dungeons = await loadSeasonDungeonIdentities(input.prisma, season.id);
+    if (dungeons.length === 0) {
+      throw new SeasonDungeonBindingsMissingError(
+        `SEASON_DUNGEON_BINDINGS_MISSING: ${season.slug} has empty SeasonDungeon bindings`,
+      );
+    }
+
+    const authority = buildAuthorityFromSeason({
+      season,
+      dungeons,
       regionCode: input.regionCode,
       regionId: input.regionId,
-      resolutionMode: mode === "pinned" ? "PINNED" : "AUTO",
-      pinnedWclZoneId: mode === "pinned" ? zoneFromEnv : null,
-      diagnosticExpectedZoneId: mode === "auto" ? zoneFromEnv : null,
+      resolutionMode: peek.selectionMode,
+      diagnosticExpectedZoneId: null,
+      autoDetectedZoneId: null,
+      now: new Date(),
+      metadataTtlSeconds: 86_400,
     });
 
     return {
@@ -136,8 +158,8 @@ export async function resolveCanarySeasonCatalog(input: {
         ? "SEASON_DUNGEON_BINDINGS_MISSING"
         : "SEASON_CATALOG_MISMATCH";
     return {
-      configuredZoneId: zoneFromEnv,
-      resolutionMode: mode === "pinned" ? "PINNED" : "AUTO",
+      configuredZoneId: null,
+      resolutionMode: "AUTO",
       seasonId: null,
       seasonSlug: null,
       seasonName: null,

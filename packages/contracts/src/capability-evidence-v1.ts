@@ -120,6 +120,8 @@ export const participantLoadoutEvidenceV1Schema = z.object({
   talentSpellIds: z.array(z.number().int()),
   talentTreeNodeIds: z.array(z.number().int()).default([]),
   evidenceState: z.enum(["PRESENT", "ABSENT", "UNPARSEABLE"]),
+  raceSlug: z.string().nullable().optional().default(null),
+  raceEvidenceState: z.enum(["KNOWN", "UNKNOWN"]).default("UNKNOWN"),
 });
 export type ParticipantLoadoutEvidenceV1 = z.infer<
   typeof participantLoadoutEvidenceV1Schema
@@ -330,4 +332,93 @@ export function packageCompleteFromCoverage(
   coverage: readonly CapabilityCoverageV1[],
 ): boolean {
   return coverage.length > 0 && coverage.every(isCapabilityCoverageComplete);
+}
+
+/** Shared fight/roster prerequisites — required when present on the package. */
+export const CAPABILITY_PACKAGE_SHARED_PREREQUISITES: readonly EvidenceCapability[] = [
+  "PARTICIPANT_METADATA",
+  "ACTOR_OWNERSHIP",
+];
+
+export const CAPABILITY_PACKAGE_UTILITY_CAPABILITIES: readonly EvidenceCapability[] = [
+  "UTILITY_INTERRUPTS",
+  "UTILITY_DISPELS",
+  "UTILITY_CROWD_CONTROL",
+  "UTILITY_EXTERNAL_CASTS",
+  "UTILITY_EXTERNAL_TARGET_CONTEXT",
+  "UTILITY_HOSTILE_CASTS",
+];
+
+export const CAPABILITY_PACKAGE_SURVIVAL_CAPABILITIES: readonly EvidenceCapability[] = [
+  "SURVIVAL_DEFENSIVE_ACTIVATIONS",
+  "SURVIVAL_RECOVERY_ACTIVATIONS",
+  "SURVIVAL_DAMAGE_TAKEN",
+  "SURVIVAL_DEATHS",
+];
+
+export const CAPABILITY_PACKAGE_PERFORMANCE_CAPABILITIES: readonly EvidenceCapability[] = [
+  "PERFORMANCE_OFFENSIVE_ACTIVATIONS",
+];
+
+export type CapabilityPackageScoredDimension =
+  | "UTILITY"
+  | "SURVIVAL"
+  | "PERFORMANCE";
+
+function coverageByCapability(
+  coverage: readonly CapabilityCoverageV1[],
+): Map<EvidenceCapability, CapabilityCoverageV1> {
+  return new Map(coverage.map((row) => [row.capability, row]));
+}
+
+/**
+ * Shared prerequisites (roster / ownership) must be complete when present.
+ * Missing rows are tolerated for older packages that omit them.
+ */
+export function capabilityPackageSharedPrerequisitesOk(
+  coverage: readonly CapabilityCoverageV1[],
+): boolean {
+  const byCap = coverageByCapability(coverage);
+  for (const capability of CAPABILITY_PACKAGE_SHARED_PREREQUISITES) {
+    const row = byCap.get(capability);
+    if (row && !isCapabilityCoverageComplete(row)) return false;
+  }
+  return true;
+}
+
+export function capabilityPackageDimensionComplete(
+  coverage: readonly CapabilityCoverageV1[],
+  dimension: CapabilityPackageScoredDimension,
+): boolean {
+  const caps =
+    dimension === "UTILITY"
+      ? CAPABILITY_PACKAGE_UTILITY_CAPABILITIES
+      : dimension === "SURVIVAL"
+        ? CAPABILITY_PACKAGE_SURVIVAL_CAPABILITIES
+        : CAPABILITY_PACKAGE_PERFORMANCE_CAPABILITIES;
+  const byCap = coverageByCapability(coverage);
+  const present = caps
+    .map((capability) => byCap.get(capability))
+    .filter((row): row is CapabilityCoverageV1 => row != null);
+  if (present.length === 0) return false;
+  return present.every(isCapabilityCoverageComplete);
+}
+
+/**
+ * Accept a package for digest build when fully complete, OR when shared
+ * prerequisites hold and at least one scored dimension's capabilities are
+ * independently complete. Survival-only dataset failure must not reject a
+ * package that still has valid Utility (or Performance) datasets.
+ */
+export function isCapabilityPackageAcceptableForScoring(input: {
+  complete: boolean;
+  coverage: readonly CapabilityCoverageV1[];
+}): boolean {
+  if (input.complete) return true;
+  if (!capabilityPackageSharedPrerequisitesOk(input.coverage)) return false;
+  return (
+    capabilityPackageDimensionComplete(input.coverage, "UTILITY") ||
+    capabilityPackageDimensionComplete(input.coverage, "SURVIVAL") ||
+    capabilityPackageDimensionComplete(input.coverage, "PERFORMANCE")
+  );
 }

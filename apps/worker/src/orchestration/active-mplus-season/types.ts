@@ -63,7 +63,7 @@ export interface ActiveMythicPlusSeasonAuthority {
   synchronizedAt: string | null;
   validatedAt: string;
   lastKnownGood: boolean;
-  /** Present when WCL_MPLUS_ZONE_ID is set in AUTO mode for diagnostics. */
+  /** Present when a diagnostic expected zone is supplied in AUTO mode. */
   diagnosticExpectedZoneId: number | null;
   diagnosticZoneMatch: boolean | null;
   /** PINNED mode: auto-detected zone when available for comparison. */

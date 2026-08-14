@@ -4,7 +4,7 @@ import type { CharacterIdentityInput } from "@mplus/contracts";
 import type { WclGraphQlClient } from "../client/graphql-client.js";
 import { parseRateLimitSnapshot } from "../rate/rate-budget.js";
 import { mapRegionToWcl } from "../discovery/run-discovery.js";
-import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
+import { type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import { OPERATIONS } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
@@ -296,10 +296,11 @@ export async function runPerformanceProbe(
   const probedAt = (options.now ?? new Date()).toISOString();
   const zoneConfig =
     options.zoneConfig ??
-    resolveMplusZoneConfig({
-      env: process.env,
-      allowFixtureDefault: false,
-    });
+    (() => {
+      throw new Error(
+        "Performance probe requires zoneConfig (explicit --zone-id / constructor zoneId from catalog).",
+      );
+    })();
 
   const graphqlErrors: GraphQlErrorRecord[] = [];
   const perOperation: ProbeRateLimitRecord[] = [];

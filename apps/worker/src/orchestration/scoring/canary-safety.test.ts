@@ -28,10 +28,7 @@ import {
   parseCanaryCliArgs,
   resolveZoneForCanaryCommand,
 } from "./canary/cli.js";
-import {
-  requireConfiguredMplusZoneId,
-  resolveCanaryZoneId,
-} from "./canary/canary-zone.js";
+import { resolveCanaryZoneId } from "./canary/canary-zone.js";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
 const EIGHT = [
@@ -640,7 +637,7 @@ describe("canary CLI guards", () => {
     expect(gate.allowed).toBe(true);
   });
 
-  it("parses without --zone-id (env is authoritative)", () => {
+  it("parses without --zone-id (env is not authoritative)", () => {
     const args = parseCanaryCliArgs([
       "preflight",
       "--region",
@@ -655,52 +652,23 @@ describe("canary CLI guards", () => {
   });
 });
 
-describe("canary zone resolution from WCL_MPLUS_ZONE_ID", () => {
-  it("env-only configuration works", () => {
-    const resolved = resolveCanaryZoneId({
-      env: { WCL_MPLUS_ZONE_ID: "47" },
-    });
+describe("canary zone resolution (effective season / explicit --zone-id)", () => {
+  it("env Mythic+ zone variables are not authoritative (sync path requires --zone-id)", () => {
+    expect(() =>
+      resolveCanaryZoneId({
+        env: { WCL_MPLUS_ZONE_ID: "47" } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/effective-season|explicit --zone-id/i);
+  });
+
+  it("explicit --zone-id works as diagnostic override", async () => {
+    const resolved = resolveCanaryZoneId({ cliZoneId: 47 });
     expect(resolved).toEqual({
       zoneId: 47,
       envZoneId: 47,
-      source: "env",
-      overrideActive: false,
+      source: "cli-override",
+      overrideActive: true,
     });
-    expect(requireConfiguredMplusZoneId({ WCL_MPLUS_ZONE_ID: "47" })).toBe(47);
-  });
-
-  it("missing env fails closed", () => {
-    expect(() =>
-      resolveCanaryZoneId({ env: {} }),
-    ).toThrow(/Missing WCL_MPLUS_ZONE_ID/);
-    expect(() =>
-      requireConfiguredMplusZoneId({ WCL_MPLUS_ZONE_ID: "   " }),
-    ).toThrow(/Missing WCL_MPLUS_ZONE_ID/);
-  });
-
-  it("invalid env fails closed", () => {
-    expect(() =>
-      resolveCanaryZoneId({ env: { WCL_MPLUS_ZONE_ID: "abc" } }),
-    ).toThrow(/Invalid WCL_MPLUS_ZONE_ID/);
-    expect(() =>
-      resolveCanaryZoneId({ env: { WCL_MPLUS_ZONE_ID: "0" } }),
-    ).toThrow(/Invalid WCL_MPLUS_ZONE_ID/);
-    expect(() =>
-      resolveCanaryZoneId({ env: { WCL_MPLUS_ZONE_ID: "-3" } }),
-    ).toThrow(/Invalid WCL_MPLUS_ZONE_ID/);
-  });
-
-  it("optional matching CLI value works and marks override active", () => {
-    const logs: string[] = [];
-    const resolved = resolveCanaryZoneId({
-      cliZoneId: 47,
-      env: { WCL_MPLUS_ZONE_ID: "47" },
-      log: (m) => logs.push(m),
-    });
-    expect(resolved.zoneId).toBe(47);
-    expect(resolved.source).toBe("cli-matching");
-    expect(resolved.overrideActive).toBe(true);
-    expect(logs.some((m) => /override present/i.test(m))).toBe(true);
 
     const args = parseCanaryCliArgs([
       "preflight",
@@ -714,60 +682,15 @@ describe("canary zone resolution from WCL_MPLUS_ZONE_ID", () => {
       "47",
     ]);
     expect(args.zoneIdOverride).toBe(47);
-    const viaCli = resolveZoneForCanaryCommand(args, {
-      env: { WCL_MPLUS_ZONE_ID: "47" },
+    const viaCli = await resolveZoneForCanaryCommand(args, {
+      env: { WCL_MPLUS_ZONE_ID: "9999" },
     });
     expect(viaCli.zoneId).toBe(47);
+    expect(viaCli.source).toBe("cli-override");
   });
 
-  it("conflicting CLI/env values fail explicitly", () => {
-    expect(() =>
-      resolveCanaryZoneId({
-        cliZoneId: 39,
-        env: { WCL_MPLUS_ZONE_ID: "47" },
-      }),
-    ).toThrow(/conflicts with WCL_MPLUS_ZONE_ID/);
-
-    const args = parseCanaryCliArgs([
-      "live",
-      "--region",
-      "EU",
-      "--realm",
-      "archimonde",
-      "--character",
-      "Wallidrixe",
-      "--zone-id",
-      "39",
-      "--confirm-live",
-    ]);
-    expect(() =>
-      resolveZoneForCanaryCommand(args, {
-        env: { WCL_MPLUS_ZONE_ID: "47" },
-      }),
-    ).toThrow(/CANARY_ZONE_ID_CONFLICT|conflicts/);
-  });
-
-  it("test-only --allow-zone-id-override permits conflict", () => {
-    const logs: string[] = [];
-    const args = parseCanaryCliArgs([
-      "preflight",
-      "--region",
-      "EU",
-      "--realm",
-      "archimonde",
-      "--character",
-      "Wallidrixe",
-      "--zone-id",
-      "39",
-      "--allow-zone-id-override",
-    ]);
-    const resolved = resolveZoneForCanaryCommand(args, {
-      env: { WCL_MPLUS_ZONE_ID: "47" },
-      log: (m) => logs.push(m),
-    });
-    expect(resolved.zoneId).toBe(39);
-    expect(resolved.source).toBe("cli-override");
-    expect(logs.some((m) => /TEST OVERRIDE/i.test(m))).toBe(true);
+  it("without --zone-id sync resolve fails closed (async effective-season required)", () => {
+    expect(() => resolveCanaryZoneId({})).toThrow(/effective-season|explicit --zone-id/i);
   });
 
   it("rejects non-integer --zone-id at parse time", () => {

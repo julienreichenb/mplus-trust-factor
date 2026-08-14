@@ -9,6 +9,7 @@ import {
   buildCapabilityPackageCompatibilityKey,
   buildParticipantDigestCompatibilityKey,
   hashCapabilityEvidencePayload,
+  isCapabilityPackageAcceptableForScoring,
   type CapabilityEvidencePackageV1,
   type EvidenceCapability,
   type ParticipantScoringDigestV1,
@@ -65,8 +66,11 @@ export function buildMinimalCapabilityPackage(input: {
   sourceFight: SourceFightIdentity;
   participants: OrchestrationParticipant[];
   catalogVersion?: string;
+  /** When set, mark these capabilities incomplete while keeping others complete. */
+  incompleteCapabilities?: readonly EvidenceCapability[];
 }): CapabilityEvidencePackageV1 {
   const catalogVersion = input.catalogVersion ?? "catalog-test-v1";
+  const incomplete = new Set(input.incompleteCapabilities ?? []);
   const actorIds = input.participants.map((p) => p.playerActorId);
   const actorSetHash = createHash("sha256")
     .update(actorIds.slice().sort((a, b) => a - b).join(","))
@@ -83,6 +87,35 @@ export function buildMinimalCapabilityPackage(input: {
     catalogVersion,
     mode: "PRODUCTION_CAPABILITY_ACQUISITION",
   });
+
+  const row = (capability: EvidenceCapability, datasets: string[]) => {
+    const base = coverageRow(capability, datasets);
+    if (!incomplete.has(capability)) return base;
+    return {
+      ...base,
+      complete: false,
+      stopReason: "MISSING_REQUIRED_BATCH" as const,
+      eventCount: 0,
+      limitations: [`DATASET_MISSING:${datasets[0] ?? "unknown"}`],
+    };
+  };
+
+  const coverage = [
+    row("PERFORMANCE_OFFENSIVE_ACTIVATIONS", ["Casts", "Buffs"]),
+    row("SURVIVAL_DEFENSIVE_ACTIVATIONS", ["Casts", "Buffs"]),
+    row("SURVIVAL_RECOVERY_ACTIVATIONS", ["Casts", "Buffs"]),
+    row("SURVIVAL_DAMAGE_TAKEN", ["DamageTaken"]),
+    row("SURVIVAL_DEATHS", ["Deaths"]),
+    row("UTILITY_INTERRUPTS", ["Interrupts"]),
+    row("UTILITY_DISPELS", ["Dispels"]),
+    row("UTILITY_CROWD_CONTROL", ["Casts", "Debuffs"]),
+    row("UTILITY_EXTERNAL_CASTS", ["Casts", "Buffs"]),
+    row("UTILITY_EXTERNAL_TARGET_CONTEXT", ["Buffs"]),
+    row("UTILITY_HOSTILE_CASTS", ["HostileCasts"]),
+    row("PARTICIPANT_METADATA", ["masterData", "CombatantInfo"]),
+    row("ACTOR_OWNERSHIP", ["masterData"]),
+  ];
+  const complete = incomplete.size === 0;
 
   const withoutHash = {
     schemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
@@ -111,21 +144,7 @@ export function buildMinimalCapabilityPackage(input: {
     actorSetHash,
     abilityFilterHash,
     capabilitySet: [...DEFAULT_CAPABILITIES].sort() as EvidenceCapability[],
-    coverage: [
-      coverageRow("PERFORMANCE_OFFENSIVE_ACTIVATIONS", ["Casts", "Buffs"]),
-      coverageRow("SURVIVAL_DEFENSIVE_ACTIVATIONS", ["Casts", "Buffs"]),
-      coverageRow("SURVIVAL_RECOVERY_ACTIVATIONS", ["Casts", "Buffs"]),
-      coverageRow("SURVIVAL_DAMAGE_TAKEN", ["DamageTaken"]),
-      coverageRow("SURVIVAL_DEATHS", ["Deaths"]),
-      coverageRow("UTILITY_INTERRUPTS", ["Interrupts"]),
-      coverageRow("UTILITY_DISPELS", ["Dispels"]),
-      coverageRow("UTILITY_CROWD_CONTROL", ["Casts", "Debuffs"]),
-      coverageRow("UTILITY_EXTERNAL_CASTS", ["Casts", "Buffs"]),
-      coverageRow("UTILITY_EXTERNAL_TARGET_CONTEXT", ["Buffs"]),
-      coverageRow("UTILITY_HOSTILE_CASTS", ["HostileCasts"]),
-      coverageRow("PARTICIPANT_METADATA", ["masterData", "CombatantInfo"]),
-      coverageRow("ACTOR_OWNERSHIP", ["masterData"]),
-    ],
+    coverage,
     compactEvents: [] as CapabilityEvidencePackageV1["compactEvents"],
     participantLoadouts: [],
     unknownAbilitySummaries: [],
@@ -144,14 +163,21 @@ export function buildMinimalCapabilityPackage(input: {
     },
     verifiedFilters: [],
     sourceArtifactIds: [],
-    complete: true,
-    limitations: [],
+    complete,
+    limitations: complete
+      ? []
+      : [...incomplete].map((c) => `CAPABILITY_INCOMPLETE:${c}`),
   };
   const contentHash = hashCapabilityEvidencePayload(withoutHash);
   return { ...withoutHash, contentHash };
 }
 
 export interface MemoryOrchestrationPorts extends RunOrchestrationPorts {
+  /**
+   * When set, newly acquired packages mark these capabilities incomplete
+   * (Survival-only failure isolation tests).
+   */
+  acquireIncompleteCapabilities?: EvidenceCapability[];
   /** Mutable accounting for assertions. */
   stats: {
     acquireCalls: number;
@@ -224,6 +250,7 @@ export function createMemoryOrchestrationPorts(options?: {
   const ports: MemoryOrchestrationPorts = {
     stats,
     digestCatalogVersion: "catalog-test-v1",
+    acquireIncompleteCapabilities: undefined,
     seedPackage(hit) {
       packages.set(sourceFightKey(hit.package.sourceKey), hit);
       const sourceFight = {
@@ -288,14 +315,28 @@ export function createMemoryOrchestrationPorts(options?: {
 
     async findCompatibleCapabilityPackage({ sourceFight }) {
       const hit = packages.get(sourceFightKey(sourceFight)) ?? null;
-      if (hit && hit.package.complete !== true) return null;
+      if (
+        hit &&
+        !isCapabilityPackageAcceptableForScoring({
+          complete: hit.package.complete,
+          coverage: hit.package.coverage,
+        })
+      ) {
+        return null;
+      }
       return hit;
     },
 
     async acquireAndPersistCapabilityPackage({ sourceFight, participants }) {
       stats.acquireCalls += 1;
       const existing = packages.get(sourceFightKey(sourceFight));
-      if (existing && existing.package.complete === true) {
+      if (
+        existing &&
+        isCapabilityPackageAcceptableForScoring({
+          complete: existing.package.complete,
+          coverage: existing.package.coverage,
+        })
+      ) {
         return {
           package: existing.package,
           packageArtifactId: existing.packageArtifactId,
@@ -311,6 +352,7 @@ export function createMemoryOrchestrationPorts(options?: {
         sourceFight,
         participants,
         catalogVersion: ports.digestCatalogVersion,
+        incompleteCapabilities: ports.acquireIncompleteCapabilities,
       });
       const artifactId = randomUUID();
       const hit: CompatiblePackageHit = {

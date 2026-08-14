@@ -12,7 +12,7 @@ import { deriveWclContributionTypes } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { buildRefreshContractHash } from "./orchestration/build-refresh-contract.js";
-import { ensureCurrentSeason } from "./persistence/run-repository.js";
+import { requireEffectiveScoringSeasonRow } from "./orchestration/active-mplus-season/effective-season-peek.js";
 
 function loadDotEnvFile(path: string): void {
   if (!existsSync(path)) return;
@@ -54,12 +54,18 @@ const refreshStartedAt = new Date().toISOString();
 
 const character = await worker.repositories.character.findByIdentity(identity);
 const season = character
-  ? await ensureCurrentSeason(prisma, character.regionId)
-  : { slug: "unknown" };
+  ? await requireEffectiveScoringSeasonRow(prisma, { regionId: character.regionId })
+  : { slug: "unknown", wclZoneId: null as number | null };
+if (season.wclZoneId == null) {
+  throw new Error(
+    `Effective scoring season ${season.slug} has no persisted wclZoneId — catalog not ready`,
+  );
+}
 const refreshContractHash = buildRefreshContractHash({
   scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
   scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
   activeSeasonId: season.slug,
+  zoneId: season.wclZoneId,
   env: process.env,
   allowFixtureZoneDefault: false,
 });

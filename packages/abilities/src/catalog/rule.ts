@@ -7,6 +7,7 @@ import type {
   AbilityRule,
   ActivationEventType,
   ActivationSource,
+  InterruptCapabilityProfile,
   SourceOwnership,
 } from "../types.js";
 import { CATALOG_GAME_VERSION, CATALOG_VERIFIED_AT } from "../version.js";
@@ -27,6 +28,8 @@ export interface RuleInput {
   availability?: AbilityAvailability;
   cooldownSeconds?: number;
   charges?: number;
+  raceSlugs?: string[];
+  interruptProfile?: InterruptCapabilityProfile;
   requiresSuccessfulTarget?: boolean;
   replacementFor?: string;
   aliases?: number[];
@@ -174,6 +177,8 @@ export function rule(input: RuleInput): AbilityRule {
     availability: input.availability ?? "BASELINE",
     cooldownSeconds: input.cooldownSeconds,
     charges: input.charges,
+    raceSlugs: input.raceSlugs ? [...input.raceSlugs] : undefined,
+    interruptProfile: input.interruptProfile,
     requiresSuccessfulTarget: input.requiresSuccessfulTarget,
     replacementFor: input.replacementFor,
     aliases: input.aliases ? [...input.aliases] : undefined,

@@ -10,7 +10,7 @@ import {
   classifyReportVisibility,
     countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
-import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus-zone.js";
+import { type MplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
   buildActorMap,
   resolveActorSourceIdStrict,
@@ -574,7 +574,11 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
   const focusDungeons = options.focusDungeons?.length ? new Set(options.focusDungeons) : null;
   const zoneConfig =
     options.zoneConfig ??
-    resolveMplusZoneConfig({ env: process.env, allowFixtureDefault: false });
+    (() => {
+      throw new Error(
+        "Utility probe requires zoneConfig (explicit --zone-id / constructor zoneId from catalog).",
+      );
+    })();
 
   const graphqlErrors: GraphQlErrorRecord[] = [];
   const perOperation: ProbeRateLimitRecord[] = [];

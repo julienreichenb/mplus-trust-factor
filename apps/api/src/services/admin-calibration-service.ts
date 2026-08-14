@@ -403,16 +403,12 @@ export class AdminCalibrationService {
     const input = createCalibrationCohortBodySchema.parse(body);
     let seasonId = input.seasonId;
     if (!seasonId) {
-      const latest = await this.prisma().season.findFirst({
-        where: { isCurrent: true },
-        orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      }) ?? await this.prisma().season.findFirst({
-        orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      });
-      if (!latest) {
+      const { peekEffectiveScoringSeasonRowGlobal } = await import("@mplus/worker");
+      const peek = await peekEffectiveScoringSeasonRowGlobal(this.prisma());
+      if (!peek) {
         throw HttpError.badRequest("SEASON_NOT_FOUND", "No season is available to bind the cohort");
       }
-      seasonId = latest.id;
+      seasonId = peek.id;
     } else {
       const season = await this.prisma().season.findUnique({ where: { id: seasonId } });
       if (!season) {

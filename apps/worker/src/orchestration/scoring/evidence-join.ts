@@ -276,29 +276,31 @@ export async function runEvidenceJoin(
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
 
+  const seasonSelect = {
+    id: true,
+    slug: true,
+    isCurrent: true,
+    blizzardSeasonId: true,
+    name: true,
+  } as const;
+
   const season =
     input.seasonId != null
       ? await prisma.season.findUnique({
           where: { id: input.seasonId },
-          select: {
-            id: true,
-            slug: true,
-            isCurrent: true,
-            blizzardSeasonId: true,
-            name: true,
-          },
+          select: seasonSelect,
         })
-      : await prisma.season.findFirst({
-          where: { isCurrent: true },
-          orderBy: { updatedAt: "desc" },
-          select: {
-            id: true,
-            slug: true,
-            isCurrent: true,
-            blizzardSeasonId: true,
-            name: true,
-          },
-        });
+      : await (async () => {
+          const { peekEffectiveScoringSeasonRowGlobal } = await import(
+            "../active-mplus-season/effective-season-peek.js"
+          );
+          const peek = await peekEffectiveScoringSeasonRowGlobal(prisma);
+          if (!peek) return null;
+          return prisma.season.findUnique({
+            where: { id: peek.id },
+            select: seasonSelect,
+          });
+        })();
 
   const activeModel = await prisma.scoreModel.findFirst({
     where: { status: "ACTIVE" },

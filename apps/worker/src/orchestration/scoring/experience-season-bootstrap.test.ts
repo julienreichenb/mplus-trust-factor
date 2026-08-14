@@ -356,6 +356,9 @@ function createPrismaFake(initial: SeasonRow[]) {
         return next;
       }),
     },
+    runtimeSetting: {
+      findUnique: vi.fn(async () => null),
+    },
   };
 }
 
@@ -932,6 +935,9 @@ describe("bootstrapExperienceSeasonMetadata", () => {
           findFirst: vi.fn(async () => {
             throw new Error("db down");
           }),
+        },
+        runtimeSetting: {
+          findUnique: vi.fn(async () => null),
         },
       } as never,
       regions: [{ code: "EU", id: "region-eu" }],

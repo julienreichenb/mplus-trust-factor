@@ -410,15 +410,13 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
   const authService = new IamAuthService(worker.prisma, env, oauthClient, {
     enqueueOwnedCharacterDiscovery: async (input) => {
       // seasonKey is a soft hint only; discovery resolves authoritative season per region.
-      const season = await worker.prisma.season.findFirst({
-        where: { isCurrent: true },
-        orderBy: { updatedAt: "desc" },
-      });
+      const { peekEffectiveScoringSeasonRowGlobal } = await import("@mplus/worker");
+      const peek = await peekEffectiveScoringSeasonRowGlobal(worker.prisma);
       const discovery = await producers.enqueueDiscoverOwnedCharacters({
         battleNetAccountId: input.battleNetAccountId,
         userId: input.userId,
         ownershipSyncAt: input.ownershipSyncAt,
-        seasonKey: season?.slug ?? "current",
+        seasonKey: peek?.slug ?? "current",
         correlationId: null,
       });
       worker.logger.info(

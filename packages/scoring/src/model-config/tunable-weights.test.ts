@@ -8,7 +8,7 @@ import {
   SURVIVAL_V2_WEIGHTS_SHADOW_OR_OFF,
 } from "../survival/v2/constants.js";
 import {
-  UTILITY_V2_DOMAIN_WEIGHTS,
+  UTILITY_V2_FAMILY_WEIGHTS,
   UTILITY_V2_MODEL_CONFIG,
 } from "../utility/v2/constants.js";
 import {
@@ -178,9 +178,15 @@ describe("tunable weights", () => {
     expect(surv.weightsShadowOrOff.relativeDamage).toBe(0);
 
     const util = applyTunableWeightsToUtilityConfig(tunable);
-    expect(util.domainWeights.castStops).toBeCloseTo(UTILITY_V2_DOMAIN_WEIGHTS.castStops, 10);
-    expect(util.domainWeights.support).toBeCloseTo(UTILITY_V2_DOMAIN_WEIGHTS.support, 10);
-    expect(util.domainWeights.strategicCc).toBeCloseTo(UTILITY_V2_DOMAIN_WEIGHTS.strategicCc, 10);
+    expect(util.familyWeights.interrupt).toBeCloseTo(UTILITY_V2_FAMILY_WEIGHTS.interrupt, 10);
+    expect(util.familyWeights.crowdControl).toBeCloseTo(
+      UTILITY_V2_FAMILY_WEIGHTS.crowdControl,
+      10,
+    );
+    expect(util.familyWeights.groupSupport).toBeCloseTo(
+      UTILITY_V2_FAMILY_WEIGHTS.groupSupport,
+      10,
+    );
 
     expect(surv.algorithmVersion).toBe(SURVIVAL_V2_MODEL_CONFIG.algorithmVersion);
     expect(util.algorithmVersion).toBe(UTILITY_V2_MODEL_CONFIG.algorithmVersion);

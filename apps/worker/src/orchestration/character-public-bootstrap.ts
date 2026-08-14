@@ -42,13 +42,21 @@ export type BlizzardPublicBootstrapFetch =
   | { ok: false; error: ExternalApiError; providerCalls: number };
 
 /**
- * Bounded Blizzard profile + keystone reads (exact resolve / smoke bootstrap).
+ * Bounded Blizzard profile + authoritative-season keystone reads (exact resolve / smoke).
  * Does not invent eligibility evidence on NOT_FOUND.
+ *
+ * Keystone MUST use the eligibility season (`blizzardSeasonId`), not Blizzard's live
+ * "current" index — PINNED/effective seasons can diverge from the live current season.
  */
 export async function fetchBlizzardPublicBootstrap(
   blizzard: BlizzardProvider,
   identity: CharacterIdentityInput,
-  opts: { correlationId?: string | null; forceRefresh?: boolean } = {},
+  opts: {
+    correlationId?: string | null;
+    forceRefresh?: boolean;
+    /** Effective / PINNED Blizzard season id used by eligibility. */
+    blizzardSeasonId: number;
+  },
 ): Promise<BlizzardPublicBootstrapFetch> {
   const ctx: ProviderFetchContext = {
     region: identity.region,
@@ -62,12 +70,16 @@ export async function fetchBlizzardPublicBootstrap(
     const profileResult = await blizzard.getCharacterProfile(identity, ctx);
     providerCalls += 1;
     try {
-      const keystone = await blizzard.getMythicKeystoneProfile(identity, ctx);
+      const keystone = await blizzard.getMythicKeystoneSeasonProfile(
+        identity,
+        opts.blizzardSeasonId,
+        ctx,
+      );
       providerCalls += 1;
       return {
         ok: true,
         profile: profileResult.data,
-        mythicRating: keystone.data.currentMythicRating ?? null,
+        mythicRating: keystone.data.profile.currentMythicRating ?? null,
         providerCalls,
       };
     } catch (error) {
@@ -143,8 +155,8 @@ export type ResolveOrDiscoverPublicCharacterResult = {
 
 /**
  * Canonical production operation:
- * lookup Character → reuse when complete + current-season score present →
- * Blizzard discover/fetch when absent/incomplete/score null.
+ * lookup Character → reuse when complete + current-season evidence known →
+ * Blizzard discover/fetch when absent/incomplete/evidence UNKNOWN.
  *
  * Never creates an empty shell before Blizzard succeeds. On failure after a fresh
  * create, compensates by deleting an unreferenced shell when possible.
@@ -164,8 +176,8 @@ export async function resolveOrDiscoverPublicCharacter(input: {
       characterId: existing.id,
       authority: input.authority,
     });
-    // Persisted finite score → reuse (zero Blizzard Mythic+ calls).
-    if (signals.currentSeasonMythicScore != null) {
+    // HAS_SCORE or CONFIRMED_NO_SCORE → reuse (zero Blizzard Mythic+ calls).
+    if (signals.currentSeasonMythicScore !== undefined) {
       await backfillCharacterRunDigestLinks({
         prisma: input.prisma,
         characterId: existing.id,
@@ -177,12 +189,13 @@ export async function resolveOrDiscoverPublicCharacter(input: {
         reason: "already_complete",
       };
     }
-    // Score null/missing → fall through and fetch Blizzard once.
+    // Evidence UNKNOWN → fall through and fetch Blizzard once.
   }
 
   const fetched = await fetchBlizzardPublicBootstrap(input.blizzard, input.identity, {
     correlationId: input.correlationId,
     forceRefresh: true,
+    blizzardSeasonId: input.authority.blizzardSeasonId,
   });
   if (!fetched.ok) {
     throw fetched.error;

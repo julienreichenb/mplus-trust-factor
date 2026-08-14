@@ -18,7 +18,10 @@ import type { RegionCode, ScoreSnapshotDTO } from "@mplus/contracts";
 import { createWorkerContainer } from "../../container.js";
 import { runRefreshPipeline } from "../refresh-pipeline.js";
 import { runRecalculateScore } from "../recalculate-score.js";
-import { requireVerifiedSeasonAuthority } from "../season-authority.js";
+import {
+  resolveEffectiveScoringSeason,
+  resolveScoringCatalogDiscoverer,
+} from "../active-mplus-season/effective-scoring-season.js";
 import { ensureRegion } from "../../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "../build-refresh-contract.js";
 import { SCORING_VERSION } from "./score-character.js";
@@ -135,12 +138,19 @@ async function main(): Promise<void> {
 
   try {
     const regionRow = await ensureRegion(prisma, identity.region);
-    const authority = await requireVerifiedSeasonAuthority(
-      { prisma, blizzard: providers.blizzard, logger },
-      regionRow.code,
-      regionRow.id,
-      { allowProviderSync: true, correlationId: null },
-    );
+    const effective = await resolveEffectiveScoringSeason({
+      prisma,
+      blizzard: providers.blizzard,
+      logger,
+      regionCode: regionRow.code,
+      regionId: regionRow.id,
+      allowProviderSync: true,
+      correlationId: null,
+      discoverActiveMplusCatalog: resolveScoringCatalogDiscoverer({
+        warcraftlogs: providers.warcraftlogs,
+        providerMode: env.PROVIDER_MODE,
+      }),
+    });
 
     const activeModel =
       (await repositories.score.getActiveModel()) ?? {
@@ -151,9 +161,9 @@ async function main(): Promise<void> {
     const { contract, hash } = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
-      activeSeasonId: authority.slug,
+      activeSeasonId: effective.activeSeasonId,
       providerMode: env.PROVIDER_MODE,
-      env: process.env,
+      zoneId: effective.wclZoneId,
     });
 
     const existing = await repositories.character.findByIdentity({
@@ -174,11 +184,11 @@ async function main(): Promise<void> {
         throw new Error(`Character must exist in DB for --${mode}`);
       }
       const season = await prisma.season.findFirst({
-        where: { regionId: existing.regionId, slug: authority.slug },
+        where: { regionId: existing.regionId, slug: effective.seasonSlug },
         orderBy: { updatedAt: "desc" },
       });
       if (!season) {
-        throw new Error(`Season ${authority.slug} not found for character region`);
+        throw new Error(`Season ${effective.seasonSlug} not found for character region`);
       }
 
       if (parsed.replay) {
@@ -252,7 +262,7 @@ async function main(): Promise<void> {
           realmSlug: identity.realmSlug,
           name: identity.name,
         },
-        authority,
+        authority: effective.detected,
       });
       bootstrapProviderCalls = prepared.providerCalls;
       bootstrapReason = prepared.reason;
@@ -268,9 +278,9 @@ async function main(): Promise<void> {
         refreshContractHash: hash,
         scoringModelKey: activeModel.key,
         scoringModelVersion: activeModel.version,
-        authoritativeSeasonId: authority.blizzardSeasonId,
-        authoritativeSeasonSlug: authority.slug,
-        authoritySource: authority.authoritySource,
+        authoritativeSeasonId: effective.blizzardSeasonId,
+        authoritativeSeasonSlug: effective.seasonSlug,
+        authoritySource: effective.detected.authoritySource,
         triggerSource: "SYSTEM",
       });
       scoreDto = result.score;
@@ -337,8 +347,8 @@ async function main(): Promise<void> {
       mode,
       character: `${identity.region}/${identity.realmSlug}/${identity.name}`,
       characterId: resolved.id,
-      season: authority.slug,
-      blizzardSeasonId: authority.blizzardSeasonId,
+      season: effective.seasonSlug,
+      blizzardSeasonId: effective.blizzardSeasonId,
       zoneId: contract.zoneId,
       partition: contract.partition ?? null,
       scoringVersion: persisted?.scoringVersion ?? null,

@@ -81,6 +81,23 @@ export const OPERATIONS = {
 }`,
   },
 
+  /** Discover all zones to select the active Mythic+ / Keystone catalog. */
+  WorldDataZones: {
+    operationName: "WorldDataZones",
+    query: `query WorldDataZones {
+  worldData {
+    zones {
+      id
+      name
+      frozen
+      expansion { id name }
+      brackets { type }
+      encounters { id name }
+    }
+  }
+}`,
+  },
+
   /**
    * Character M+ "Points & Damage (By Level)" page dataset (Performance probe).
    * Literal metric: points_and_damage — CharacterPageRankingMetricType.

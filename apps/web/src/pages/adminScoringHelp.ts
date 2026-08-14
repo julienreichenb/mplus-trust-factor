@@ -12,7 +12,7 @@ export const DIMENSION_HELP = {
   },
   utility: {
     title: "Utility",
-    summary: "Interrupts, crowd control, and group-support actions that help the dungeon succeed.",
+    summary: "Interrupts, crowd control, dispels, and group-support actions that help the dungeon succeed.",
     whatItMeans:
       "Controls how much Utility contributes to the overall Trust Score relative to the other dimensions.",
   },
@@ -67,17 +67,33 @@ export const COMPONENT_HELP = {
     },
   },
   utility: {
-    castStops: {
-      label: "Cast stops / interrupts",
-      whatItMeans: "Successful and attempted interrupts that stop dangerous enemy casts.",
+    interrupt: {
+      label: "Interrupts",
+      whatItMeans: "Using the specialization's interrupt toolkit during combat.",
     },
-    support: {
-      label: "Group support",
-      whatItMeans: "Externals, utility buffs, and other confirmed support for teammates.",
+    crowdControl: {
+      label: "Crowd control",
+      whatItMeans: "Hard and soft crowd-control usage from the available toolkit.",
     },
-    strategicCc: {
-      label: "Strategic crowd control",
-      whatItMeans: "Meaningful crowd-control usage that helps control packs and bosses.",
+    dispelPurge: {
+      label: "Dispel / purge",
+      whatItMeans: "Defensive dispels and offensive purges when the spec can use them.",
+    },
+    groupSupport: {
+      label: "External / group support",
+      whatItMeans: "Externals, group utility, and other confirmed support for teammates.",
+    },
+    movement: {
+      label: "Movement utility",
+      whatItMeans: "Movement tools the catalog marks as Utility, not personal defensives.",
+    },
+    combatRes: {
+      label: "Combat resurrection",
+      whatItMeans: "Battle-rez usage. Unused optional group tools do not lower the score.",
+    },
+    bloodlust: {
+      label: "Bloodlust / heroism",
+      whatItMeans: "Bloodlust-equivalent group haste. Unused optional group tools do not lower the score.",
     },
   },
   survival: {

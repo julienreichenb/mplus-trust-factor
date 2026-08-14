@@ -470,7 +470,7 @@ describe("scoreCharacter three-dimension product boundary", () => {
 
     expect(performance?.calculatorVersion).toBe(PERFORMANCE_PHASE2_ALGORITHM_VERSION);
     expect(utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
-    expect(utility?.phase).toBe(2);
+    expect(utility?.phase).toBe(3);
     expect(survival?.algorithmVersion).toBe(SURVIVAL_V2_ALGORITHM_VERSION);
 
     expect(performance?.score).not.toBeNull();
@@ -512,7 +512,7 @@ describe("scoreCharacter three-dimension product boundary", () => {
       PERFORMANCE_PHASE2_ALGORITHM_VERSION,
     );
     expect(details.utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
-    expect(details.utility?.phase).toBe(2);
+    expect(details.utility?.phase).toBe(3);
     expect(details.survival?.algorithmVersion).toBe(SURVIVAL_V2_ALGORITHM_VERSION);
 
     const coldFp = fingerprintDimensionResults(cold.orchestration);

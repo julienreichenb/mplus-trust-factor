@@ -88,18 +88,25 @@ export async function buildAccountCharactersView(input: {
     orderBy: [{ key: "asc" }, { version: "desc" }],
   });
 
-  /** Region-scoped current seasons only — never invent via provider calls. */
-  const currentSeasonByRegionId = new Map<string, { id: string; slug: string }>();
-  const resolveCurrentSeasonForRegion = async (regionId: string) => {
-    const cached = currentSeasonByRegionId.get(regionId);
-    if (cached) return cached;
-    const season = await prisma.season.findFirst({
-      where: { regionId, isCurrent: true },
-      select: { id: true, slug: true },
-    });
-    if (season) currentSeasonByRegionId.set(regionId, season);
-    return season;
-  };
+  /** Effective scoring season when pinned; else Blizzard current. */
+  const { mapEffectiveScoringSeasonIdsByRegion } = await import("@mplus/worker");
+  const regionIds = [...new Set(ownerships.map((o) => o.regionId))];
+  const seasonIdByRegion = await mapEffectiveScoringSeasonIdsByRegion(prisma, regionIds);
+  const seasonRows =
+    seasonIdByRegion.size === 0
+      ? []
+      : await prisma.season.findMany({
+          where: { id: { in: [...seasonIdByRegion.values()] } },
+          select: { id: true, slug: true },
+        });
+  const currentSeasonByRegionId = new Map(
+    [...seasonIdByRegion.entries()].flatMap(([regionId, seasonId]) => {
+      const row = seasonRows.find((s) => s.id === seasonId);
+      return row ? [[regionId, row] as const] : [];
+    }),
+  );
+  const resolveCurrentSeasonForRegion = async (regionId: string) =>
+    currentSeasonByRegionId.get(regionId) ?? null;
 
   const characters: AccountOwnedCharacterDTO[] = [];
 

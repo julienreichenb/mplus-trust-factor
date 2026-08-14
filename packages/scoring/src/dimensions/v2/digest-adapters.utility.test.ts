@@ -264,7 +264,9 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(facts.interruptAttempts[0]!.classification).toBe("CONFIRMED_SUCCESS");
     expect(facts.interruptAttempts[0]!.credit).toBe(1);
     expect(facts.interruptAttempts[1]!.classification).toBe("UNMATCHED_ATTEMPT");
-    expect(facts.interruptAttempts[1]!.credit).toBe(0.05);
+    expect(facts.interruptAttempts[1]!.credit).toBe(
+      UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT,
+    );
     expect(facts.interruptAttempts[2]!.sourceKind).toBe("OWNED_PET");
     expect(facts.hostileObservability).toBe("ABSENT");
     expect(facts.limitations).toContain(
@@ -311,7 +313,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(classes.has("MATCHED_FAILED")).toBe(false);
   });
 
-  it("excludes personal mobility and unverified externals from full support credit path", () => {
+  it("keeps movement utility as PERSONAL_MOBILITY and unverified externals off the full support path", () => {
     const digest = baseDigest({
       utility: {
         hostileCastEvents: [],
@@ -360,13 +362,66 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
       slotId: "slot-0",
       slotIndex: 0,
     });
-    expect(facts.supportActions.every((a) => a.id !== "self-mobility")).toBe(true);
+    const mobility = facts.supportActions.find((a) => a.id === "self-mobility");
+    expect(mobility?.semantic).toBe("PERSONAL_MOBILITY");
     const unverified = facts.supportActions.find((a) => a.id === "ext-unverified")!;
     const applied = facts.supportActions.find((a) => a.id === "ext-applied")!;
     expect(unverified.tier).toBe("UNVERIFIED");
     expect(unverified.semantic).toBe("UNVERIFIED_EXTERNAL");
     expect(applied.tier).toBe("CONFIRMED_APPLICATION");
     expect(applied.semantic).toBe("REACTIVE_SUPPORT");
+  });
+
+  it("counts dispel/purge and bloodlust once and keeps them out of groupSupport", () => {
+    const digest = baseDigest({
+      utility: {
+        hostileCastEvents: [],
+        actions: [
+          baseAction({
+            canonicalActionId: "dispel",
+            utilityCategory: "DEFENSIVE_DISPEL",
+            outcome: "SUCCESS",
+            abilityKey: "remove-curse",
+            canonicalName: "Remove Curse",
+            primarySpellId: 475,
+            sourceDataset: "Dispels",
+            evidenceEventTypes: ["dispel"],
+          }),
+          baseAction({
+            canonicalActionId: "lust",
+            utilityCategory: "OTHER_UTILITY",
+            outcome: "SUCCESS",
+            abilityKey: "time-warp",
+            canonicalName: "Time Warp",
+            primarySpellId: 80353,
+            sourceDataset: "Casts",
+            evidenceEventTypes: ["cast"],
+          }),
+          baseAction({
+            canonicalActionId: "bop",
+            utilityCategory: "EXTERNAL_SUPPORT",
+            outcome: "SUCCESS",
+            abilityKey: "blessing-of-protection",
+            canonicalName: "Blessing of Protection",
+            primarySpellId: 1022,
+            sourceDataset: "Buffs",
+            evidenceEventTypes: ["applybuff"],
+          }),
+        ],
+        capabilityCompleteness: [],
+        completeness: "COMPLETE",
+        limitations: [],
+      },
+    });
+    const facts = utilityRunFactSetFromDigest(digest, {
+      slotId: "slot-0",
+      slotIndex: 0,
+    });
+    expect(facts.dispelPurgeSuccessCount).toBe(1);
+    expect(facts.bloodlustSuccessCount).toBe(1);
+    expect(facts.supportActions.map((a) => a.abilityGameId).sort()).toEqual([1022]);
+    expect(facts.supportActions.every((a) => a.abilityGameId !== 475)).toBe(true);
+    expect(facts.supportActions.every((a) => a.abilityGameId !== 80353)).toBe(true);
   });
 
   it("uses catalog toolkit so zero observed actions stay applicable (not N/A)", () => {

@@ -88,22 +88,16 @@ async function main(): Promise<void> {
       },
     });
 
-    // Prefer authoritative Blizzard-tagged current season over placeholder isCurrent rows.
-    const currentSeason =
-      (ownership?.currentSeasonMythicSeasonId
-        ? await prisma.season.findUnique({ where: { id: ownership.currentSeasonMythicSeasonId } })
-        : null) ??
-      (await prisma.season.findFirst({
-        where: {
-          regionId: character.regionId,
-          isCurrent: true,
-          blizzardSeasonId: { not: null },
-        },
-        orderBy: { startsAt: "desc" },
-      })) ??
-      (await prisma.season.findFirst({
-        where: { regionId: character.regionId, isCurrent: true },
-      }));
+    // Prefer effective scoring season over Blizzard isCurrent (PINNED vs detected).
+    const { peekEffectiveScoringSeasonRow } = await import(
+      "../active-mplus-season/effective-season-peek.js"
+    );
+    const peek = await peekEffectiveScoringSeasonRow(prisma, {
+      regionId: character.regionId,
+    });
+    const currentSeason = peek
+      ? await prisma.season.findUnique({ where: { id: peek.id } })
+      : null;
 
     const previousSeason =
       currentSeason?.startsAt != null

@@ -98,3 +98,40 @@ export function lookupZoneCatalogByBlizzardSeasonId(
 ): MplusZoneCatalogEntry[] {
   return [...registry.values()].filter((e) => e.blizzardSeasonId === blizzardSeasonId);
 }
+
+/**
+ * Fixture-mode AUTO bootstrap only. Never used as live WorldData fallback.
+ * Maps Blizzard season 13 → persisted zone-45 catalog for isolated tests.
+ */
+export function createFixtureRegistryCatalogDiscoverer(): (input: {
+  blizzardSeasonId: number;
+}) => Promise<{
+  wclZoneId: number;
+  blizzardSeasonId: number;
+  expansionIdentity: string | null;
+  displayName: string;
+  dungeonSlugs: string[];
+  encounterIds: number[];
+}> {
+  const registry = createDefaultMplusZoneCatalogRegistry();
+  return async ({ blizzardSeasonId }) => {
+    const matches = lookupZoneCatalogByBlizzardSeasonId(registry, blizzardSeasonId);
+    if (matches.length !== 1) {
+      throw Object.assign(
+        new Error(
+          `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: no fixture catalog for blizzard season ${blizzardSeasonId}`,
+        ),
+        { code: "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE" },
+      );
+    }
+    const entry = matches[0]!;
+    return {
+      wclZoneId: entry.wclZoneId,
+      blizzardSeasonId: entry.blizzardSeasonId ?? blizzardSeasonId,
+      expansionIdentity: entry.expansionIdentity,
+      displayName: entry.displayName,
+      dungeonSlugs: [...entry.dungeonSlugs],
+      encounterIds: [...entry.encounterIds],
+    };
+  };
+}

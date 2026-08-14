@@ -29,6 +29,27 @@ describe("CombatantInfo loadout extraction", () => {
     expect(result.talentSpellIds).toEqual([]);
   });
 
+  it("extracts run-scoped race when raceID present", () => {
+    const result = extractLoadoutIdsFromCombatantInfo({
+      sourceID: 10,
+      specID: 63,
+      raceID: 3,
+      talentTree: [{ id: 1, spellId: 382440, rank: 1 }],
+    });
+    expect(result.raceSlug).toBe("dwarf");
+    expect(result.raceEvidenceState).toBe("KNOWN");
+  });
+
+  it("keeps race UNKNOWN when CombatantInfo has no race field", () => {
+    const result = extractLoadoutIdsFromCombatantInfo({
+      sourceID: 10,
+      specID: 63,
+      talentTree: [{ id: 1, spellId: 382440, rank: 1 }],
+    });
+    expect(result.raceSlug).toBeNull();
+    expect(result.raceEvidenceState).toBe("UNKNOWN");
+  });
+
   it("scopes loadouts to friendly players only", () => {
     const rows = extractParticipantLoadoutsFromCombatantEvents(
       [

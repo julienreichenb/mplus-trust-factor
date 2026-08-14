@@ -84,6 +84,8 @@ export interface ProbeCliArgs {
   region: "EU" | "US" | "KR" | "TW";
   realm: string;
   name: string;
+  /** Explicit diagnostic WCL zone; required (never from env). */
+  zoneId: number;
   outputRoot?: string;
 }
 
@@ -106,16 +108,24 @@ export function parseProbeArgs(argv: string[]): ProbeCliArgs {
   const region = String(flags.region ?? "eu").trim().toUpperCase();
   const realm = String(flags.realm ?? "archimonde").trim().toLowerCase();
   const name = String(flags.name ?? "Wallidrixe").trim();
+  const zoneIdRaw = String(flags["zone-id"] ?? "").trim();
+  const zoneId = Number(zoneIdRaw);
   if (!["EU", "US", "KR", "TW"].includes(region)) {
     throw new Error(`Unsupported region "${region}"`);
   }
-  if (!realm || !name) {
-    throw new Error("Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name>");
+  if (!realm || !name || !zoneIdRaw) {
+    throw new Error(
+      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> --zone-id <id>",
+    );
+  }
+  if (!Number.isInteger(zoneId) || zoneId <= 0) {
+    throw new Error(`Invalid --zone-id: expected positive integer, got "${zoneIdRaw}"`);
   }
   return {
     region: region as ProbeCliArgs["region"],
     realm,
     name,
+    zoneId,
     outputRoot: flags["output-root"]?.trim() || undefined,
   };
 }
@@ -311,7 +321,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
     throw new Error("WCL_CLIENT_ID and WCL_CLIENT_SECRET are required");
   }
 
-  const zoneConfig = resolveMplusZoneConfig({ env: process.env });
+  const zoneConfig = resolveMplusZoneConfig({ zoneId: args.zoneId });
   const identity: CharacterIdentityInput = {
     region: args.region,
     realmSlug: args.realm,
@@ -325,6 +335,7 @@ export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<
     forceRefresh: false,
     now,
     targetCharacter: identity,
+    wclZoneId: zoneConfig.zoneId,
   };
 
   const timestamp = now.replace(/[:.]/g, "-");

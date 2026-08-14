@@ -18,6 +18,7 @@ export const WARLOCK_RULES: AbilityRule[] = [
     sourceOwnership: "PET",
     availability: "PET_DEPENDENT",
     cooldownSeconds: 24,
+    interruptProfile: "PET_DEPENDENT",
     requiresSuccessfulTarget: true,
     provenance: {
       source: "REPOSITORY_FIXTURE",
@@ -40,6 +41,7 @@ export const WARLOCK_RULES: AbilityRule[] = [
     sharedAcrossSpecs: false,
     availability: "PET_DEPENDENT",
     cooldownSeconds: 30,
+    interruptProfile: "CONSTRAINED_CONTROL",
     requiresSuccessfulTarget: true,
     provenance: {
       source: "REPOSITORY_FIXTURE",
@@ -47,7 +49,7 @@ export const WARLOCK_RULES: AbilityRule[] = [
       verifiedAt: "2026-08-05",
       gameVersion: "12.0.0",
       notes:
-        "347008 = Felguard interrupt stream; 119914 = player Command Demon cast observed on Casts (1WKcCz2BnAQmbhfq:1).",
+        "347008 = Felguard interrupt stream; 119914 = player Command Demon cast observed on Casts (1WKcCz2BnAQmbhfq:1). Stun/control side-effect constrains practical interrupt frequency.",
     },
   }),
   rule({
@@ -61,6 +63,7 @@ export const WARLOCK_RULES: AbilityRule[] = [
     sourceOwnership: "PET",
     availability: "PET_DEPENDENT",
     cooldownSeconds: 24,
+    interruptProfile: "PET_DEPENDENT",
     requiresSuccessfulTarget: true,
     supportCertainty: "uncertain",
     notes: "Observer / Command Demon interrupt variant; alias retained for WCL cast ID drift.",
@@ -116,7 +119,22 @@ export const WARLOCK_RULES: AbilityRule[] = [
     category: "GROUP_UTILITY",
     availability: "BASELINE",
     cooldownSeconds: 10,
-    notes: "113942 is the gateway traversal debuff observed on WCL Buffs/Debuffs streams.",
+    notes:
+      "111771 = Gateway placement cast (credit). 113942 = gateway traversal debuff — evidence-only alias, not a second placement.",
+  }),
+  rule({
+    canonicalKey: "warlock.movement.demonic-circle",
+    name: "Demonic Circle",
+    spellIds: [48018],
+    aliases: [48020],
+    classSlug: "warlock",
+    specSlugs: [...WARLOCK_SPECS],
+    roles: DPS,
+    category: "MOVEMENT_UTILITY",
+    availability: "TALENT",
+    cooldownSeconds: 30,
+    notes:
+      "48018 = Summon/placement; 48020 = Teleport. Personal movement Utility for Warlock — not Demonic Gateway.",
   }),
   rule({
     canonicalKey: "warlock.caster-control.curse-of-tongues",

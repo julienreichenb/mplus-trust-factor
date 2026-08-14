@@ -21,7 +21,9 @@ export type ScoringEvidenceExportStatus = (typeof SCORING_EVIDENCE_EXPORT_STATUS
 
 export const ScoringEvidenceExportStatusSchema = z.enum(SCORING_EVIDENCE_EXPORT_STATUSES);
 
-/** Typed runtime setting keys for refresh lane concurrency. */
+import { SCORING_SEASON_SELECTION_KEY } from "./scoring-season-selection.js";
+
+/** Typed runtime setting keys for refresh lane concurrency + scoring season. */
 export const RUNTIME_SETTING_KEYS = {
   concurrencyCalibration: "concurrency_calibration",
   concurrencyOperation: "concurrency_operation",
@@ -31,6 +33,8 @@ export const RUNTIME_SETTING_KEYS = {
   wclPerCharacterRunConcurrency: "wcl_per_character_run_concurrency",
   /** Fraction of hourly WCL point budget to reserve (0.2 = 20%). */
   wclBudgetReserveRatio: "wcl_budget_reserve_ratio",
+  /** Platform-wide AUTO | PINNED scoring season selection. */
+  scoringSeasonSelection: SCORING_SEASON_SELECTION_KEY,
 } as const;
 
 export const CONCURRENCY_MIN = 1;
@@ -139,6 +143,8 @@ export interface ScoringSeasonSummaryDTO {
   name: string;
   isCurrent: boolean;
   blizzardSeasonId: number | null;
+  wclZoneId?: number | null;
+  catalogReady?: boolean;
 }
 
 export interface ScoringQueueCountsDTO {
@@ -213,7 +219,19 @@ export interface ScoringConcurrencyDTO {
 export interface ScoringOverviewDTO {
   flags: ScoringFlagOverviewDTO;
   activeModel: ScoringModelSummaryDTO | null;
+  /**
+   * @deprecated Prefer detectedCurrentSeason / effectiveScoringSeason.
+   * Kept as Blizzard-detected current for older clients.
+   */
   currentSeason: ScoringSeasonSummaryDTO | null;
+  /** Blizzard-detected current season (Season.isCurrent). */
+  detectedCurrentSeason: ScoringSeasonSummaryDTO | null;
+  /** Season the platform scores against (AUTO or PINNED). */
+  effectiveScoringSeason: ScoringSeasonSummaryDTO | null;
+  scoringSeasonSelection: {
+    mode: "AUTO" | "PINNED";
+    pinnedBlizzardSeasonId: number | null;
+  } | null;
   queueCounts: ScoringQueueCountsDTO[];
   recentEvidenceExport: ScoringEvidenceExportSummaryDTO | null;
   recentFrozenBundle: {

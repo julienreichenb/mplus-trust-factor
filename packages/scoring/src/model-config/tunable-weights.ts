@@ -24,7 +24,7 @@ import {
   type SurvivalV2ModelConfig,
 } from "../survival/v2/constants.js";
 import {
-  UTILITY_V2_DOMAIN_WEIGHTS,
+  UTILITY_V2_FAMILY_WEIGHTS,
   UTILITY_V2_MODEL_CONFIG,
   type UtilityV2ModelConfig,
 } from "../utility/v2/constants.js";
@@ -89,9 +89,13 @@ export interface TunableSurvivalComponents {
 }
 
 export interface TunableUtilityComponents {
-  castStops: number;
-  support: number;
-  strategicCc: number;
+  interrupt: number;
+  crowdControl: number;
+  dispelPurge: number;
+  groupSupport: number;
+  movement: number;
+  combatRes: number;
+  bloodlust: number;
 }
 
 /** Experience Phase 1 product components (calculator wiring deferred). */
@@ -168,9 +172,13 @@ export const DEFAULT_TUNABLE_WEIGHTS: TunableWeights = Object.freeze({
       recovery: SURVIVAL_V2_WEIGHTS_SHADOW_OR_OFF.recovery * 100,
     }),
     utility: Object.freeze({
-      castStops: UTILITY_V2_DOMAIN_WEIGHTS.castStops * 100,
-      support: UTILITY_V2_DOMAIN_WEIGHTS.support * 100,
-      strategicCc: UTILITY_V2_DOMAIN_WEIGHTS.strategicCc * 100,
+      interrupt: UTILITY_V2_FAMILY_WEIGHTS.interrupt * 100,
+      crowdControl: UTILITY_V2_FAMILY_WEIGHTS.crowdControl * 100,
+      dispelPurge: UTILITY_V2_FAMILY_WEIGHTS.dispelPurge * 100,
+      groupSupport: UTILITY_V2_FAMILY_WEIGHTS.groupSupport * 100,
+      movement: UTILITY_V2_FAMILY_WEIGHTS.movement * 100,
+      combatRes: UTILITY_V2_FAMILY_WEIGHTS.combatRes * 100,
+      bloodlust: UTILITY_V2_FAMILY_WEIGHTS.bloodlust * 100,
     }),
     experience: Object.freeze({
       previousSeasonScore: EXPERIENCE_V3_COMPONENT_WEIGHTS.previousSeasonStrength * 100,
@@ -254,6 +262,64 @@ function requireGroup(
     }
   }
   return ok ? out : null;
+}
+
+const UTILITY_FAMILY_TUNABLE_KEYS = [
+  "interrupt",
+  "crowdControl",
+  "dispelPurge",
+  "groupSupport",
+  "movement",
+  "combatRes",
+  "bloodlust",
+] as const;
+
+function expandLegacyUtilityTunable(u: {
+  castStops: number;
+  support: number;
+  strategicCc: number;
+}): TunableUtilityComponents {
+  return {
+    interrupt: u.castStops,
+    crowdControl: u.strategicCc,
+    dispelPurge: u.support * 0.4,
+    groupSupport: u.support * 0.4,
+    movement: u.support * 0.12,
+    combatRes: u.support * 0.04,
+    bloodlust: u.support * 0.04,
+  };
+}
+
+function parseUtilityTunableGroup(
+  comps: Record<string, unknown>,
+  errors: string[],
+): TunableUtilityComponents | null {
+  const obj = comps.utility;
+  if (!isRecord(obj)) {
+    errors.push("utility must be an object");
+    return null;
+  }
+  if ("interrupt" in obj) {
+    const parsed = requireGroup(comps, "utility", UTILITY_FAMILY_TUNABLE_KEYS, errors);
+    if (!parsed) return null;
+    return parsed as unknown as TunableUtilityComponents;
+  }
+  if ("castStops" in obj) {
+    const parsed = requireGroup(
+      comps,
+      "utility",
+      ["castStops", "support", "strategicCc"],
+      errors,
+    );
+    if (!parsed) return null;
+    return expandLegacyUtilityTunable({
+      castStops: parsed.castStops!,
+      support: parsed.support!,
+      strategicCc: parsed.strategicCc!,
+    });
+  }
+  errors.push("utility must include family weights or legacy castStops/support/strategicCc");
+  return null;
 }
 
 function groupTotal(group: Record<string, number>): number {
@@ -438,8 +504,8 @@ export function validateTunableWeights(raw: unknown): string[] {
     if (surv && !(groupTotal(surv) > 0)) {
       errors.push("survival relative weights must be positive in total");
     }
-    const util = requireGroup(comps, "utility", ["castStops", "support", "strategicCc"], errors);
-    if (util && !(groupTotal(util) > 0)) {
+    const util = parseUtilityTunableGroup(comps, errors);
+    if (util && !(groupTotal({ ...util }) > 0)) {
       errors.push("utility relative weights must be positive in total");
     }
     const exp = requireGroup(
@@ -476,7 +542,9 @@ function normalizeToCanonicalTunable(raw: Record<string, unknown>): TunableWeigh
         },
       },
       survival: { ...(components.survival as TunableSurvivalComponents) },
-      utility: { ...(components.utility as TunableUtilityComponents) },
+      utility: parseUtilityTunableGroup(components, []) ?? {
+        ...(components.utility as TunableUtilityComponents),
+      },
       experience: { ...(components.experience as TunableExperienceComponents) },
     },
   };
@@ -596,23 +664,38 @@ export function applyTunableWeightsToSurvivalConfig(
   };
 }
 
+/**
+ * Live/admin Utility tunables overlay family weights only.
+ * Curves, interrupt credits, scoreFloor, and remaining model fields are
+ * consumed by DRAFT/calibration replay via scoringDimensionConfigs.utility.
+ */
 export function applyTunableWeightsToUtilityConfig(
   tunable: TunableWeights,
   base: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,
 ): UtilityV2ModelConfig {
   const u = tunable.components.utility;
-  const domains = normalizeRelativeWeights({
-    castStops: u.castStops,
-    support: u.support,
-    strategicCc: u.strategicCc,
+  const families = normalizeRelativeWeights({
+    interrupt: u.interrupt,
+    crowdControl: u.crowdControl,
+    dispelPurge: u.dispelPurge,
+    groupSupport: u.groupSupport,
+    movement: u.movement,
+    combatRes: u.combatRes,
+    bloodlust: u.bloodlust,
   });
+  const familyWeights = {
+    interrupt: families.interrupt!,
+    crowdControl: families.crowdControl!,
+    dispelPurge: families.dispelPurge!,
+    groupSupport: families.groupSupport!,
+    movement: families.movement!,
+    combatRes: families.combatRes!,
+    bloodlust: families.bloodlust!,
+  };
   return {
     ...structuredClone(base),
-    domainWeights: {
-      castStops: domains.castStops!,
-      support: domains.support!,
-      strategicCc: domains.strategicCc!,
-    },
+    familyWeights,
+    domainWeights: familyWeights,
   };
 }
 

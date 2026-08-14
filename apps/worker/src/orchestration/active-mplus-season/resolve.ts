@@ -94,7 +94,7 @@ async function findPinnedSeason(
   return null;
 }
 
-function buildAuthorityFromSeason(input: {
+export function buildAuthorityFromSeason(input: {
   season: Season;
   dungeons: ActiveMplusDungeonIdentity[];
   regionCode: string;
@@ -137,7 +137,7 @@ function buildAuthorityFromSeason(input: {
     diagnosticZoneMatch = input.diagnosticExpectedZoneId === meta.wclZoneId;
     if (!diagnosticZoneMatch) {
       warnings.push(
-        `DIAGNOSTIC_ZONE_MISMATCH: env WCL_MPLUS_ZONE_ID=${input.diagnosticExpectedZoneId} active=${meta.wclZoneId}`,
+        `DIAGNOSTIC_ZONE_MISMATCH: diagnosticExpectedZoneId=${input.diagnosticExpectedZoneId} active=${meta.wclZoneId}`,
       );
     }
   }
@@ -217,7 +217,7 @@ export async function resolveActiveMythicPlusSeason(
     const pinned = input.pinnedWclZoneId;
     if (pinned == null || !Number.isInteger(pinned) || pinned <= 0) {
       throw new SeasonDungeonBindingsMissingError(
-        "PINNED mode requires a positive WCL_MPLUS_ZONE_ID",
+        "PINNED mode requires a positive pinnedWclZoneId",
       );
     }
     const season = await findPinnedSeason(input.prisma, input.regionId, pinned);

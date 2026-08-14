@@ -25,7 +25,6 @@ import { MAX_EVENT_PAGES, TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON } from "./disco
 import {
   resolveMplusZoneConfig,
   shouldQueryZoneRankings,
-  MPLUS_ZONE_ENV,
 } from "./discovery/mplus-zone.js";
 import { ReportRevisionCache } from "./analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot, shouldDeferExpensiveWork } from "./rate/rate-budget.js";
@@ -447,10 +446,22 @@ describe("Deep smoke sanitization + worker path", () => {
 });
 
 describe("M+ zone configuration", () => {
-  it("requires explicit zone ID outside fixture mode", () => {
+  it("requires explicit zone ID outside fixture mode (never reads env)", () => {
     expect(() =>
-      resolveMplusZoneConfig({ env: {}, allowFixtureDefault: false }),
-    ).toThrow(/WCL_MPLUS_ZONE_ID/);
+      resolveMplusZoneConfig({
+        env: { WCL_MPLUS_ZONE_ID: "47" },
+        allowFixtureDefault: false,
+      }),
+    ).toThrow(/effective scoring season|Missing current M\+ zone ID/);
+  });
+
+  it("accepts explicit zoneId and ignores env", () => {
+    const config = resolveMplusZoneConfig({
+      zoneId: 47,
+      env: { WCL_MPLUS_ZONE_ID: "9999" },
+    });
+    expect(config.zoneId).toBe(47);
+    expect(config.source).toBe("explicit");
   });
 
   it("warns when zone is past expiry and skips rankings", () => {
@@ -464,14 +475,12 @@ describe("M+ zone configuration", () => {
     expect(shouldQueryZoneRankings(config)).toBe(false);
   });
 
-  it("warns when expiry env is unset", () => {
+  it("allows fixture default when explicitly enabled", () => {
     const config = resolveMplusZoneConfig({
-      env: { [MPLUS_ZONE_ENV.zoneId]: "45" },
-      now: new Date("2026-07-27T00:00:00.000Z"),
+      allowFixtureDefault: true,
     });
     expect(config.zoneId).toBe(45);
-    expect(config.expired).toBe(false);
-    expect(config.warning).toMatch(/expires/i);
+    expect(config.source).toBe("fixture-default");
   });
 });
 

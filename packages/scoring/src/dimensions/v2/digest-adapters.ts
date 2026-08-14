@@ -3,8 +3,7 @@
  * No formula changes. Calculators never see raw WCL pages or providers.
  */
 import {
-  getAbilityCatalog,
-  spellIdsForCategory,
+  resolveAbilityRuleBySpellId,
 } from "@mplus/abilities";
 import type {
   ParticipantScoringDigestV1,
@@ -34,13 +33,18 @@ import {
   UTILITY_V2_SCHEMA_VERSION,
   type UtilityV2SupportSemantic,
 } from "../../utility/v2/constants.js";
+import {
+  utilityFamilyFromCatalogRule,
+  utilityFamilyFromDigestCategory,
+  type UtilityV2FamilyKey,
+} from "../../utility/v2/families.js";
+import { resolveUtilityToolkitFromCatalog } from "../../utility/v2/toolkit.js";
 import type {
   ClassifiedInterruptAttempt,
   InterruptAttemptClass,
   UtilityV2CcAction,
   UtilityV2RunFactSet,
   UtilityV2SupportAction,
-  UtilityV2ToolkitApplicability,
 } from "../../utility/v2/types.js";
 
 export class DigestDimensionIncompleteError extends Error {
@@ -338,10 +342,23 @@ export function survivalFactDocumentFromDigest(
 
 function supportSemanticFromAction(
   action: UtilityCanonicalAction,
+  family: UtilityV2FamilyKey | null,
 ): UtilityV2SupportSemantic {
+  if (family === "combatRes" || action.utilityCategory === "COMBAT_RES") {
+    return "EMERGENCY_SUPPORT";
+  }
+  if (family === "movement") {
+    return "PERSONAL_MOBILITY";
+  }
+  if (family === "bloodlust") {
+    return "STRATEGIC_SUPPORT";
+  }
+  // Catalog GROUP_UTILITY persists as OTHER_UTILITY but resolves to groupSupport.
+  // Placement by the provider is strategic group utility — not UNVERIFIED_EXTERNAL.
+  if (family === "groupSupport" && action.utilityCategory === "OTHER_UTILITY") {
+    return "PROVIDED_GROUP_UTILITY";
+  }
   switch (action.utilityCategory) {
-    case "COMBAT_RES":
-      return "EMERGENCY_SUPPORT";
     case "EXTERNAL_SUPPORT":
       if (
         action.limitations.includes("EXTERNAL_TARGET_CONTEXT_INCOMPLETE") ||
@@ -445,56 +462,60 @@ export function supportEvidenceTierFromDigestAction(
   return "UNVERIFIED";
 }
 
+function resolveFamilyFromDigestAction(
+  action: UtilityCanonicalAction,
+  classSlug: string | null,
+  specSlug: string | null,
+): UtilityV2FamilyKey | null {
+  const resolved = resolveAbilityRuleBySpellId({
+    spellId: action.primarySpellId,
+    classSlug,
+    specSlug,
+  });
+  if (resolved.status === "matched") {
+    return utilityFamilyFromCatalogRule(resolved.rule);
+  }
+  if (resolved.status === "ambiguous" && resolved.rules[0]) {
+    return utilityFamilyFromCatalogRule(resolved.rules[0]);
+  }
+  return utilityFamilyFromDigestCategory(action.utilityCategory);
+}
+
 function resolveToolkitFromDigest(
   digest: ParticipantScoringDigestV1,
-  observed: {
-    hasInterrupt: boolean;
-    hasSupport: boolean;
-    hasStrategicCc: boolean;
-  },
-): { toolkit: UtilityV2ToolkitApplicability; limitations: string[] } {
-  const catalog = getAbilityCatalog({
+  observedFamilies: Partial<Record<UtilityV2FamilyKey, boolean>>,
+): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
+  const talentPresent = digest.loadoutEvidence.evidenceState === "PRESENT";
+  if (!talentPresent) {
+    // Distinct from current Blizzard profile talents — Utility gating uses
+    // run-scoped WCL CombatantInfo / digest loadout evidence only.
+    console.info(
+      JSON.stringify({
+        event: "utility.talent_source_missing",
+        source: "run_scoped_combatant_info",
+        loadoutEvidenceState: digest.loadoutEvidence.evidenceState,
+        reportCode: digest.reportCode,
+        fightId: digest.fightId,
+        participantActorId: digest.participantActorId,
+      }),
+    );
+  }
+  return resolveUtilityToolkitFromCatalog({
     classSlug: digest.classSlug,
     specSlug: digest.specSlug,
+    role: digest.role === "UNKNOWN" ? null : digest.role,
+    knownTalentSpellIds: talentPresent
+      ? digest.loadoutEvidence.talentSpellIds
+      : undefined,
+    talentDataAvailable: talentPresent,
     includeRacials: true,
+    raceSlug:
+      digest.loadoutEvidence.raceEvidenceState === "KNOWN"
+        ? digest.loadoutEvidence.raceSlug
+        : null,
+    observedSpellIds: digest.utility.actions.map((a) => a.primarySpellId),
+    observedFamilies,
   });
-  if (!catalog.supported) {
-    return {
-      toolkit: {
-        hasInterrupt: observed.hasInterrupt,
-        hasSupport: observed.hasSupport,
-        hasStrategicCc: observed.hasStrategicCc,
-      },
-      limitations: [
-        "class_spec_identity_unknown",
-        `ability_catalog:${catalog.unsupportedReason ?? "UNSUPPORTED"}`,
-        "toolkit_coverage_unconfirmed",
-      ],
-    };
-  }
-  const classSlug = digest.classSlug;
-  const specSlug = digest.specSlug;
-  return {
-    toolkit: {
-      hasInterrupt:
-        spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size >
-          0 || observed.hasInterrupt,
-      hasSupport:
-        spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
-        spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
-          classSlug,
-          specSlug,
-        }).size > 0 ||
-        spellIdsForCategory(catalog, "BATTLE_REZ", { classSlug, specSlug })
-          .size > 0 ||
-        observed.hasSupport,
-      hasStrategicCc:
-        spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size >
-          0 || observed.hasStrategicCc,
-    },
-    limitations: [],
-  };
 }
 
 export function utilityRunFactSetFromDigest(
@@ -515,8 +536,13 @@ export function utilityRunFactSetFromDigest(
     "UTILITY_INTERRUPTS",
   );
 
+  const classSlug = digest.classSlug;
+  const specSlug = digest.specSlug;
+  const familyOf = (action: UtilityCanonicalAction) =>
+    resolveFamilyFromDigestAction(action, classSlug, specSlug);
+
   const interruptAttempts: ClassifiedInterruptAttempt[] = actions
-    .filter((a) => a.utilityCategory === "INTERRUPT")
+    .filter((a) => familyOf(a) === "interrupt" || a.utilityCategory === "INTERRUPT")
     .map((a) => {
       const mapped = classifyDigestInterruptOutcome({
         outcome: a.outcome,
@@ -536,10 +562,7 @@ export function utilityRunFactSetFromDigest(
     });
 
   const ccActions: UtilityV2CcAction[] = actions
-    .filter(
-      (a) =>
-        a.utilityCategory === "CROWD_CONTROL" || a.utilityCategory === "STOP",
-    )
+    .filter((a) => familyOf(a) === "crowdControl")
     .map((a) => ({
       id: a.canonicalActionId,
       timestampMs: a.rawTimestampMs,
@@ -551,28 +574,35 @@ export function utilityRunFactSetFromDigest(
     }));
 
   const supportActions: UtilityV2SupportAction[] = actions
-    .filter(
-      (a) =>
-        a.utilityCategory === "EXTERNAL_SUPPORT" ||
-        a.utilityCategory === "COMBAT_RES",
-    )
-    .map((a) => ({
-      id: a.canonicalActionId,
-      timestampMs: a.rawTimestampMs,
-      abilityGameId: a.primarySpellId,
-      abilityName: a.canonicalName,
-      sourceActorId: a.sourceActorId,
-      sourceKind: sourceKindFromAction(a),
-      targetActorId: a.targetActorId,
-      semantic: supportSemanticFromAction(a),
-      tier: supportEvidenceTierFromDigestAction(a),
-    }));
+    .filter((a) => {
+      const family = familyOf(a);
+      return (
+        family === "groupSupport" ||
+        family === "combatRes" ||
+        family === "movement"
+      );
+    })
+    .map((a) => {
+      const family = familyOf(a);
+      return {
+        id: a.canonicalActionId,
+        timestampMs: a.rawTimestampMs,
+        abilityGameId: a.primarySpellId,
+        abilityName: a.canonicalName,
+        sourceActorId: a.sourceActorId,
+        sourceKind: sourceKindFromAction(a),
+        targetActorId: a.targetActorId,
+        semantic: supportSemanticFromAction(a, family),
+        tier: supportEvidenceTierFromDigestAction(a),
+      };
+    });
 
   const dispelPurgeSuccessCount = actions.filter(
-    (a) =>
-      (a.utilityCategory === "OFFENSIVE_DISPEL" ||
-        a.utilityCategory === "DEFENSIVE_DISPEL") &&
-      a.outcome === "SUCCESS",
+    (a) => familyOf(a) === "dispelPurge" && a.outcome === "SUCCESS",
+  ).length;
+
+  const bloodlustSuccessCount = actions.filter(
+    (a) => familyOf(a) === "bloodlust",
   ).length;
 
   const fightDurationMs = digest.survival.fightDurationMs ?? 1_800_000;
@@ -596,12 +626,21 @@ export function utilityRunFactSetFromDigest(
       e.eventType === "cast",
   ).length;
 
-  const observedToolkit = {
-    hasInterrupt: interruptAttempts.length > 0,
-    hasSupport: supportActions.length > 0 || dispelPurgeSuccessCount > 0,
-    hasStrategicCc: ccActions.length > 0,
+  const observedFamilies: Partial<Record<UtilityV2FamilyKey, boolean>> = {
+    interrupt: interruptAttempts.length > 0,
+    crowdControl: ccActions.length > 0,
+    dispelPurge: dispelPurgeSuccessCount > 0,
+    groupSupport: supportActions.some(
+      (a) =>
+        a.semantic === "REACTIVE_SUPPORT" ||
+        a.semantic === "STRATEGIC_SUPPORT" ||
+        a.semantic === "PROVIDED_GROUP_UTILITY",
+    ),
+    movement: supportActions.some((a) => a.semantic === "PERSONAL_MOBILITY"),
+    combatRes: supportActions.some((a) => a.semantic === "EMERGENCY_SUPPORT"),
+    bloodlust: bloodlustSuccessCount > 0,
   };
-  const resolvedToolkit = resolveToolkitFromDigest(digest, observedToolkit);
+  const resolvedToolkit = resolveToolkitFromDigest(digest, observedFamilies);
 
   const limitations = [
     ...digest.utility.limitations,
@@ -649,6 +688,7 @@ export function utilityRunFactSetFromDigest(
     ccActions,
     supportActions,
     dispelPurgeSuccessCount,
+    bloodlustSuccessCount,
     catalogCoverage: {
       // Unmeasured on digest path — fail-closed zeros (confidence skips mechanic gates).
       abilityCatalogCoverage: 0,

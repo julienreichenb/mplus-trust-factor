@@ -36,6 +36,7 @@ export interface BuildUtilityV2FactSetInput {
   ccActions?: UtilityV2CcAction[];
   supportActions?: UtilityV2SupportAction[];
   dispelPurgeSuccessCount?: number;
+  bloodlustSuccessCount?: number;
   toolkit: UtilityV2ToolkitApplicability;
   abilityCatalogCoverage?: number;
   mechanicCatalogCoverage?: number;
@@ -91,6 +92,7 @@ export function buildUtilityV2RunFactSet(
     ccActions: input.ccActions ?? [],
     supportActions: input.supportActions ?? [],
     dispelPurgeSuccessCount: input.dispelPurgeSuccessCount ?? 0,
+    bloodlustSuccessCount: input.bloodlustSuccessCount ?? 0,
     catalogCoverage: {
       abilityCatalogCoverage: input.abilityCatalogCoverage ?? 0,
       mechanicCatalogCoverage: input.mechanicCatalogCoverage ?? 0,

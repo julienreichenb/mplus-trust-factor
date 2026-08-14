@@ -47,7 +47,21 @@ describe("buildAccountCharactersView read-only semantics", () => {
           },
         ]),
       },
-      season: { findFirst: seasonFindFirst, update: vi.fn(), updateMany: vi.fn(), create: vi.fn() },
+      season: {
+        findFirst: seasonFindFirst,
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
+          where.id === "season-17"
+            ? { id: "season-17", slug: "blizzard-season-17" }
+            : null,
+        ),
+        findMany: vi.fn(async () => [{ id: "season-17", slug: "blizzard-season-17" }]),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+        create: vi.fn(),
+      },
+      runtimeSetting: {
+        findUnique: vi.fn(async () => null),
+      },
       scoreModel: {
         findFirst: vi.fn(async () => ({ id: "model-1", version: 6 })),
       },
@@ -109,7 +123,7 @@ describe("buildAccountCharactersView read-only semantics", () => {
     expect(prisma.season.updateMany).not.toHaveBeenCalled();
   });
 
-  it("resolves current season per ownership region (read-only)", async () => {
+  it("resolves effective scoring season per ownership region (read-only)", async () => {
     const { prisma, seasonFindFirst } = buildPrisma();
     await buildAccountCharactersView({
       prisma: prisma as never,
@@ -119,6 +133,52 @@ describe("buildAccountCharactersView read-only semantics", () => {
     expect(seasonFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ regionId: "region-eu", isCurrent: true }),
+      }),
+    );
+  });
+
+  it("PINNED 17 uses season 17 even when Blizzard isCurrent is 18", async () => {
+    const { RUNTIME_SETTING_KEYS } = await import("@mplus/contracts");
+    const seasonFindFirst = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.slug === "blizzard-season-17" || where.blizzardSeasonId === 17) {
+        return { id: "season-17", slug: "blizzard-season-17", blizzardSeasonId: 17 };
+      }
+      if (where.isCurrent === true) {
+        return { id: "season-18", slug: "blizzard-season-18", blizzardSeasonId: 18 };
+      }
+      return null;
+    });
+    const { prisma } = buildPrisma();
+    prisma.runtimeSetting.findUnique = vi.fn(async () => ({
+      key: RUNTIME_SETTING_KEYS.scoringSeasonSelection,
+      value: { mode: "PINNED", blizzardSeasonId: 17 },
+      version: 1,
+      updatedAt: new Date(),
+      updatedByUserId: null,
+    }));
+    prisma.season.findFirst = seasonFindFirst;
+    prisma.season.findUnique = vi.fn(async ({ where }: { where: { id: string } }) =>
+      where.id === "season-17"
+        ? { id: "season-17", slug: "blizzard-season-17" }
+        : where.id === "season-18"
+          ? { id: "season-18", slug: "blizzard-season-18" }
+          : null,
+    );
+    prisma.season.findMany = vi.fn(async () => [{ id: "season-17", slug: "blizzard-season-17" }]);
+
+    await buildAccountCharactersView({
+      prisma: prisma as never,
+      env: env as never,
+      userId: "user-1",
+    });
+    expect(seasonFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ slug: "blizzard-season-17" }),
+      }),
+    );
+    expect(prisma.season.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ["season-17"] } },
       }),
     );
   });

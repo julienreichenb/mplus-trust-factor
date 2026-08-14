@@ -42,6 +42,7 @@ export * from "./operations/queries.js";
 export * from "./discovery/run-discovery.js";
 export * from "./discovery/run-matching.js";
 export * from "./discovery/mplus-zone.js";
+export * from "./discovery/world-data-zones.js";
 export * from "./discovery/zone-ranking-aggregates.js";
 export * from "./discovery/points-and-damage-performance.js";
 export * from "./discovery/role-aware-performance-aggregate.js";

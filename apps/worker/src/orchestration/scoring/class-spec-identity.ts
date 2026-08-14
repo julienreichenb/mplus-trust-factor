@@ -24,6 +24,9 @@ export interface FrozenClassSpecIdentity {
 /**
  * Coherent frozen class + spec + role for Scoring V2 plan creation.
  * Role is never invented as DPS when unresolved.
+ *
+ * This freeze is the current provider/profile identity. Season M+ scoring
+ * must use resolveSeasonScoringIdentity instead of this tuple.
  */
 export interface FrozenCharacterIdentity extends FrozenClassSpecIdentity {
   role: EvidenceRole;

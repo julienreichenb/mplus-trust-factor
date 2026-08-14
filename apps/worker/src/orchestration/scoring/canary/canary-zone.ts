@@ -1,39 +1,34 @@
 /**
  * Resolve the Mythic+ WCL zone for Scoring V2 canary commands.
  *
- * Authoritative source: WCL_MPLUS_ZONE_ID (same as live rankings / discovery).
- * --zone-id is an optional operator/test override that must match unless an
- * explicit test-only conflict policy is enabled.
+ * Default: effective scoring season → persisted catalog wclZoneId.
+ * Optional: explicit --zone-id for raw WCL diagnostics only (never from .env).
  */
-import {
-  MPLUS_ZONE_ENV,
-  resolveMplusZoneConfig,
-} from "@mplus/provider-warcraftlogs";
+import type { PrismaClient } from "@mplus/database";
+import { peekEffectiveScoringSeasonRow } from "../../active-mplus-season/effective-season-peek.js";
+import { readActiveMplusCatalogMetadata } from "../../active-mplus-season/catalog-metadata.js";
 
-export type CanaryZoneSource = "env" | "cli-matching" | "cli-override";
+export type CanaryZoneSource = "effective-season" | "cli-override";
 
 export interface ResolveCanaryZoneIdInput {
   /** Parsed --zone-id when supplied; null/undefined when omitted. */
   cliZoneId?: number | null;
-  env?: NodeJS.ProcessEnv;
-  /**
-   * Test-only: allow --zone-id to diverge from WCL_MPLUS_ZONE_ID.
-   * Production/operator canaries must leave this false.
-   */
-  allowConflictingZoneOverride?: boolean;
-  /**
-   * AUTO mode: allow missing WCL_MPLUS_ZONE_ID (diagnostic only).
-   * PINNED mode must leave this false.
-   */
-  allowMissingEnvZone?: boolean;
+  prisma?: PrismaClient;
+  regionCode?: string;
+  regionId?: string;
+  wcl?: unknown;
   log?: (message: string) => void;
 }
 
 export interface ResolvedCanaryZone {
   zoneId: number;
+  /** Alias kept for call-site compatibility; equals resolved zoneId. */
   envZoneId: number;
   source: CanaryZoneSource;
   overrideActive: boolean;
+  applicationSeasonId?: string;
+  activeSeasonId?: string;
+  blizzardSeasonId?: number;
 }
 
 function assertPositiveZoneId(value: number, label: string): number {
@@ -44,48 +39,6 @@ function assertPositiveZoneId(value: number, label: string): number {
     );
   }
   return value;
-}
-
-/**
- * Fail closed when WCL_MPLUS_ZONE_ID is absent or not a positive integer.
- * Does not allow fixture-season defaults.
- */
-export function requireConfiguredMplusZoneId(
-  env: NodeJS.ProcessEnv = process.env,
-): number {
-  const raw = env[MPLUS_ZONE_ENV.zoneId];
-  if (raw == null || String(raw).trim() === "") {
-    throw Object.assign(
-      new Error(
-        `Missing ${MPLUS_ZONE_ENV.zoneId}. Canary commands require the active Mythic+ WCL zone from validated application configuration.`,
-      ),
-      { code: "CANARY_ZONE_ID_MISSING" },
-    );
-  }
-  const trimmed = String(raw).trim();
-  const n = Number(trimmed);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw Object.assign(
-      new Error(
-        `Invalid ${MPLUS_ZONE_ENV.zoneId}: expected positive integer, got "${trimmed}"`,
-      ),
-      { code: "CANARY_ZONE_ID_INVALID" },
-    );
-  }
-  // Cross-check the shared resolver (same path as discovery / rankings).
-  const resolved = resolveMplusZoneConfig({
-    env,
-    allowFixtureDefault: false,
-  });
-  if (resolved.zoneId !== n) {
-    throw Object.assign(
-      new Error(
-        `${MPLUS_ZONE_ENV.zoneId} resolver mismatch: env=${n} resolved=${resolved.zoneId}`,
-      ),
-      { code: "CANARY_ZONE_ID_INVALID" },
-    );
-  }
-  return resolved.zoneId;
 }
 
 export function parseOptionalCliZoneId(raw: string): number {
@@ -101,86 +54,105 @@ export function parseOptionalCliZoneId(raw: string): number {
 }
 
 /**
- * Resolve the zoneId used by preflight, discovery, manifest, and live canary.
+ * Resolve zone from effective scoring season catalog (async).
+ */
+export async function resolveCanaryZoneIdFromEffectiveSeason(
+  input: ResolveCanaryZoneIdInput,
+): Promise<ResolvedCanaryZone> {
+  const log = input.log ?? (() => undefined);
+
+  if (input.cliZoneId != null) {
+    const cliZoneId = assertPositiveZoneId(input.cliZoneId, "--zone-id");
+    log(
+      `Canary --zone-id=${cliZoneId} explicit diagnostic override (not from env; not scoring authority).`,
+    );
+    return {
+      zoneId: cliZoneId,
+      envZoneId: cliZoneId,
+      source: "cli-override",
+      overrideActive: true,
+    };
+  }
+
+  if (!input.prisma || !input.regionId) {
+    throw Object.assign(
+      new Error(
+        "Canary zone resolution requires prisma + regionId " +
+          "(or an explicit --zone-id diagnostic override).",
+      ),
+      { code: "CANARY_ZONE_CONTEXT_MISSING" },
+    );
+  }
+
+  const peek = await peekEffectiveScoringSeasonRow(input.prisma, {
+    regionId: input.regionId,
+  });
+  if (!peek) {
+    throw Object.assign(
+      new Error(
+        `No effective scoring season for region ${input.regionCode ?? input.regionId}`,
+      ),
+      { code: "CANARY_ZONE_SEASON_MISSING" },
+    );
+  }
+
+  const season = await input.prisma.season.findUnique({ where: { id: peek.id } });
+  if (!season) {
+    throw Object.assign(
+      new Error(`Effective scoring season row ${peek.id} not found`),
+      { code: "CANARY_ZONE_SEASON_MISSING" },
+    );
+  }
+
+  const meta = readActiveMplusCatalogMetadata(season.metadata);
+  if (!meta?.wclZoneId) {
+    throw Object.assign(
+      new Error(
+        `Effective scoring season ${season.slug} lacks persisted wclZoneId catalog metadata`,
+      ),
+      { code: "CANARY_ZONE_CATALOG_INCOMPLETE" },
+    );
+  }
+
+  const zoneId = assertPositiveZoneId(meta.wclZoneId, "catalog.wclZoneId");
+  log(
+    `Canary zone from effective scoring season ${season.slug} ` +
+      `(blizzard=${peek.blizzardSeasonId}, wclZoneId=${zoneId}).`,
+  );
+
+  return {
+    zoneId,
+    envZoneId: zoneId,
+    source: "effective-season",
+    overrideActive: false,
+    applicationSeasonId: season.id,
+    activeSeasonId: season.slug,
+    blizzardSeasonId: peek.blizzardSeasonId ?? undefined,
+  };
+}
+
+/**
+ * Sync path: only explicit --zone-id (no env authority).
  */
 export function resolveCanaryZoneId(
   input: ResolveCanaryZoneIdInput = {},
 ): ResolvedCanaryZone {
-  const env = input.env ?? process.env;
-  const log = input.log ?? (() => undefined);
-
-  let envZoneId: number | null = null;
-  try {
-    envZoneId = requireConfiguredMplusZoneId(env);
-  } catch (err) {
-    if (!input.allowMissingEnvZone) throw err;
-    if (input.cliZoneId == null) {
-      return {
-        zoneId: 0,
-        envZoneId: 0,
-        source: "env",
-        overrideActive: false,
-      };
-    }
-  }
-
-  if (envZoneId == null && input.allowMissingEnvZone && input.cliZoneId == null) {
+  if (input.cliZoneId != null) {
+    const cliZoneId = assertPositiveZoneId(input.cliZoneId, "--zone-id");
     return {
-      zoneId: 0,
-      envZoneId: 0,
-      source: "env",
-      overrideActive: false,
+      zoneId: cliZoneId,
+      envZoneId: cliZoneId,
+      source: "cli-override",
+      overrideActive: true,
     };
   }
-
-  if (envZoneId == null) {
-    envZoneId = requireConfiguredMplusZoneId(env);
-  }
-
-  if (input.cliZoneId == null) {
-    return {
-      zoneId: envZoneId,
-      envZoneId,
-      source: "env",
-      overrideActive: false,
-    };
-  }
-
-  const cliZoneId = assertPositiveZoneId(input.cliZoneId, "--zone-id");
-  const overrideActive = true;
-
-  if (cliZoneId === envZoneId) {
-    log(
-      `Canary --zone-id=${cliZoneId} override present; matches ${MPLUS_ZONE_ENV.zoneId}=${envZoneId}.`,
-    );
-    return {
-      zoneId: envZoneId,
-      envZoneId,
-      source: "cli-matching",
-      overrideActive,
-    };
-  }
-
-  if (!input.allowConflictingZoneOverride) {
-    throw Object.assign(
-      new Error(
-        `Canary --zone-id=${cliZoneId} conflicts with ${MPLUS_ZONE_ENV.zoneId}=${envZoneId}. ` +
-          `Omit --zone-id to use the configured zone, or pass a matching value. ` +
-          `Conflicting overrides require the test-only --allow-zone-id-override flag.`,
-      ),
-      { code: "CANARY_ZONE_ID_CONFLICT" },
-    );
-  }
-
-  log(
-    `Canary TEST OVERRIDE active: --zone-id=${cliZoneId} overrides ${MPLUS_ZONE_ENV.zoneId}=${envZoneId}.`,
+  throw Object.assign(
+    new Error(
+      "Canary zone requires async effective-season resolution or an explicit --zone-id. " +
+        "Env Mythic+ zone variables are not authoritative.",
+    ),
+    { code: "CANARY_ZONE_REQUIRES_EFFECTIVE_SEASON" },
   );
-  return {
-    zoneId: cliZoneId,
-    envZoneId,
-    source: "cli-override",
-    overrideActive,
-  };
 }
 
 /** Season identity aligned with live WCL zone rankings / discovery. */

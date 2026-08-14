@@ -8977,6 +8977,28 @@
         }
       }
     },
+    "/api/v1/admin/misc/scoring-season": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/admin/misc/season/sync-authority": {
       "post": {
         "tags": [

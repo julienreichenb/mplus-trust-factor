@@ -50,12 +50,22 @@ export class ScoringShadowCanaryService {
       correlationId: string;
     }) => Promise<{ jobId: string }>;
   }) {
-    const season = await this.container.worker.prisma.season.findFirst({
-      where: { isCurrent: true },
-      orderBy: { createdAt: "desc" },
-    });
+    const { peekEffectiveScoringSeasonRowGlobal } = await import(
+      "@mplus/worker"
+    );
+    const peek = await peekEffectiveScoringSeasonRowGlobal(
+      this.container.worker.prisma,
+    );
+    const season = peek
+      ? await this.container.worker.prisma.season.findUnique({
+          where: { id: peek.id },
+        })
+      : null;
     if (!season) {
-      throw HttpError.badRequest("SEASON_REQUIRED", "No current season configured");
+      throw HttpError.badRequest(
+        "SEASON_REQUIRED",
+        "No effective scoring season configured",
+      );
     }
 
     const identity = await resolveShadowCanaryIdentity({

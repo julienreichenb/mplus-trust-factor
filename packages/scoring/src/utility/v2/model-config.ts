@@ -16,18 +16,36 @@ import {
 } from "../../model-config/validate.js";
 import { stableSha256 } from "../../model-config/stable-hash.js";
 import {
+  UTILITY_V2_FAMILY_CURVES,
+  UTILITY_V2_FAMILY_WEIGHTS,
   UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCHEMA_VERSION,
+  type UtilityV2FamilyCurves,
+  type UtilityV2FamilyWeights,
   type UtilityV2ModelConfig,
   type UtilityV2SupportSemantic,
 } from "./constants.js";
+
+const FAMILY_WEIGHT_KEYS = [
+  "interrupt",
+  "crowdControl",
+  "dispelPurge",
+  "groupSupport",
+  "movement",
+  "combatRes",
+  "bloodlust",
+] as const;
 
 const ROOT_KEYS = new Set([
   "algorithmVersion",
   "modelLabel",
   "schemaVersion",
   "calibrationStatus",
+  "familyWeights",
+  "familyCurves",
   "domainWeights",
+  // Legacy no-op from the floor-50 / +8 architecture. Accepted so persisted
+  // DRAFT docs still parse; never copied onto the validated config.
   "domainContributionCap",
   "scoreFloor",
   "interruptCredits",
@@ -35,6 +53,8 @@ const ROOT_KEYS = new Set([
   "unmatchedOnlyMaxDomainScore",
   "interruptMatchToleranceMs",
   "ccDedupeWindowMs",
+  "interruptReferenceCooldownSeconds",
+  "interruptProfileFactor",
   "supportSemanticCredit",
   "supportDiminishingExponent",
   "dispelPurgeEventCredit",
@@ -58,6 +78,7 @@ const INTERRUPT_CREDIT_KEYS = [
 const SUPPORT_SEMANTIC_KEYS: UtilityV2SupportSemantic[] = [
   "REACTIVE_SUPPORT",
   "STRATEGIC_SUPPORT",
+  "PROVIDED_GROUP_UTILITY",
   "EMERGENCY_SUPPORT",
   "ROUTINE_ROTATIONAL_SUPPORT",
   "PASSIVE_SUPPORT",
@@ -155,9 +176,19 @@ function parseSupportSemanticCredit(
   errors: string[],
 ): UtilityV2ModelConfig["supportSemanticCredit"] | null {
   if (!raw) return null;
-  rejectUnknownKeys(raw, new Set(SUPPORT_SEMANTIC_KEYS), "supportSemanticCredit", errors);
+  const known = new Set(SUPPORT_SEMANTIC_KEYS);
+  rejectUnknownKeys(raw, known, "supportSemanticCredit", errors);
   const out = {} as Record<UtilityV2SupportSemantic, number>;
   for (const key of SUPPORT_SEMANTIC_KEYS) {
+    if (raw[key] == null && key === "PROVIDED_GROUP_UTILITY") {
+      // Legacy configs predate PROVIDED_GROUP_UTILITY — inherit STRATEGIC_SUPPORT.
+      const legacy =
+        typeof raw.STRATEGIC_SUPPORT === "number"
+          ? raw.STRATEGIC_SUPPORT
+          : UTILITY_V2_MODEL_CONFIG.supportSemanticCredit.PROVIDED_GROUP_UTILITY;
+      out[key] = legacy;
+      continue;
+    }
     const v = requireNumber(raw, key, errors, { min: 0 });
     if (v != null) out[key] = v;
   }
@@ -314,6 +345,61 @@ function parseConfidence(
   }) as UtilityV2ModelConfig["confidence"];
 }
 
+function parseFamilyWeights(
+  raw: Record<string, unknown>,
+  errors: string[],
+): UtilityV2FamilyWeights | null {
+  const familyRaw = isRecord(raw.familyWeights) ? raw.familyWeights : null;
+  if (familyRaw) {
+    rejectUnknownKeys(familyRaw, new Set(FAMILY_WEIGHT_KEYS), "familyWeights", errors);
+    const out = {} as UtilityV2FamilyWeights;
+    for (const key of FAMILY_WEIGHT_KEYS) {
+      const v = requireNumber(familyRaw, key, errors, { min: 0, max: 1 });
+      if (v != null) out[key] = v;
+    }
+    if (Object.keys(out).length === FAMILY_WEIGHT_KEYS.length) {
+      weightsSumToOne(out, "familyWeights", errors);
+      return Object.freeze(out) as UtilityV2FamilyWeights;
+    }
+    return null;
+  }
+
+  const legacy = isRecord(raw.domainWeights) ? raw.domainWeights : null;
+  if (legacy && "castStops" in legacy) {
+    // Legacy 3-domain documents: apply Phase 3 family defaults (formula change).
+    return UTILITY_V2_FAMILY_WEIGHTS;
+  }
+
+  errors.push("familyWeights (or legacy domainWeights) is required");
+  return null;
+}
+
+function parseFamilyCurves(
+  raw: Record<string, unknown>,
+  errors: string[],
+): UtilityV2FamilyCurves | null {
+  const curvesRaw = raw.familyCurves;
+  if (isRecord(curvesRaw)) {
+    rejectUnknownKeys(curvesRaw, new Set(FAMILY_WEIGHT_KEYS), "familyCurves", errors);
+    const out = {} as UtilityV2FamilyCurves;
+    for (const key of FAMILY_WEIGHT_KEYS) {
+      const parsed = parseCurve(curvesRaw[key], `familyCurves.${key}`, errors);
+      if (parsed) out[key] = parsed;
+    }
+    if (Object.keys(out).length === FAMILY_WEIGHT_KEYS.length) {
+      return Object.freeze(out) as UtilityV2FamilyCurves;
+    }
+    return null;
+  }
+
+  if (raw.castStopsCurve != null || raw.supportCurve != null || raw.strategicCcCurve != null) {
+    return UTILITY_V2_FAMILY_CURVES;
+  }
+
+  errors.push("familyCurves (or legacy domain curves) is required");
+  return null;
+}
+
 function parseScoreSemantics(
   raw: Record<string, unknown> | null,
   errors: string[],
@@ -325,7 +411,7 @@ function parseScoreSemantics(
   if (mode != null && mode !== "OBSERVED_CONTRIBUTION") {
     errors.push(`scoreSemantics.mode must be "OBSERVED_CONTRIBUTION"`);
   }
-  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 2 });
+  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 3 });
   const opportunityMode = requireString(raw, "opportunityMode", errors);
   if (opportunityMode != null && opportunityMode !== "off") {
     errors.push(`scoreSemantics.opportunityMode must be "off"`);
@@ -348,7 +434,7 @@ function parseScoreSemantics(
 
   if (
     mode !== "OBSERVED_CONTRIBUTION" ||
-    (phase !== 1 && phase !== 2) ||
+    (phase !== 1 && phase !== 2 && phase !== 3) ||
     opportunityMode !== "off" ||
     scoreKind == null ||
     notes.length === 0
@@ -358,7 +444,7 @@ function parseScoreSemantics(
 
   return Object.freeze({
     mode: "OBSERVED_CONTRIBUTION" as const,
-    phase: phase as 1 | 2,
+    phase: phase as 1 | 2 | 3,
     opportunityMode: "off" as const,
     scoreKind,
     notes: Object.freeze(notes),
@@ -394,33 +480,9 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     errors.push(`invalid calibrationStatus "${calibrationStatus}"`);
   }
 
-  const domainWeightsRaw = requireObject(raw, "domainWeights", errors);
-  let domainWeights: UtilityV2ModelConfig["domainWeights"] | null = null;
-  if (domainWeightsRaw) {
-    rejectUnknownKeys(
-      domainWeightsRaw,
-      new Set(["castStops", "support", "strategicCc"]),
-      "domainWeights",
-      errors,
-    );
-    const castStops = requireNumber(domainWeightsRaw, "castStops", errors, {
-      min: 0,
-      max: 1,
-    });
-    const support = requireNumber(domainWeightsRaw, "support", errors, { min: 0, max: 1 });
-    const strategicCc = requireNumber(domainWeightsRaw, "strategicCc", errors, {
-      min: 0,
-      max: 1,
-    });
-    if (castStops != null && support != null && strategicCc != null) {
-      domainWeights = Object.freeze({ castStops, support, strategicCc });
-      weightsSumToOne(domainWeights, "domainWeights", errors);
-    }
-  }
+  const familyWeights = parseFamilyWeights(raw, errors);
+  const familyCurves = parseFamilyCurves(raw, errors);
 
-  const domainContributionCap = requireNumber(raw, "domainContributionCap", errors, {
-    min: 0,
-  });
   const scoreFloor = requireNumber(raw, "scoreFloor", errors, { min: 0, max: 100 });
   const unmatchedCreditShareCap = requireNumber(raw, "unmatchedCreditShareCap", errors, {
     min: 0,
@@ -436,6 +498,31 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     min: 0,
   });
   const ccDedupeWindowMs = requireNumber(raw, "ccDedupeWindowMs", errors, { min: 0 });
+  const interruptReferenceCooldownSeconds =
+    raw.interruptReferenceCooldownSeconds == null
+      ? UTILITY_V2_MODEL_CONFIG.interruptReferenceCooldownSeconds
+      : requireNumber(raw, "interruptReferenceCooldownSeconds", errors, { min: 1 });
+  let interruptProfileFactor = UTILITY_V2_MODEL_CONFIG.interruptProfileFactor;
+  if (raw.interruptProfileFactor != null && isRecord(raw.interruptProfileFactor)) {
+    const pf = raw.interruptProfileFactor;
+    const standard = requireNumber(pf, "STANDARD", errors, { min: 0 });
+    const pet = requireNumber(pf, "PET_DEPENDENT", errors, { min: 0 });
+    const longCd = requireNumber(pf, "LONG_COOLDOWN", errors, { min: 0 });
+    const constrained = requireNumber(pf, "CONSTRAINED_CONTROL", errors, { min: 0 });
+    if (
+      standard != null &&
+      pet != null &&
+      longCd != null &&
+      constrained != null
+    ) {
+      interruptProfileFactor = Object.freeze({
+        STANDARD: standard,
+        PET_DEPENDENT: pet,
+        LONG_COOLDOWN: longCd,
+        CONSTRAINED_CONTROL: constrained,
+      });
+    }
+  }
   const supportDiminishingExponent = requireNumber(
     raw,
     "supportDiminishingExponent",
@@ -466,21 +553,36 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     requireObject(raw, "scoreSemantics", errors),
     errors,
   );
-  const castStopsCurve = parseCurve(raw.castStopsCurve, "castStopsCurve", errors);
-  const supportCurve = parseCurve(raw.supportCurve, "supportCurve", errors);
-  const strategicCcCurve = parseCurve(raw.strategicCcCurve, "strategicCcCurve", errors);
+
+  const familyCurvesResolved = familyCurves;
+  const interruptCurve = familyCurvesResolved?.interrupt ?? null;
+  const supportCurve =
+    familyCurvesResolved?.groupSupport ?? parseCurve(raw.supportCurve, "supportCurve", errors);
+  const strategicCcCurve =
+    familyCurvesResolved?.crowdControl ??
+    parseCurve(raw.strategicCcCurve, "strategicCcCurve", errors);
+  const castStopsCurve =
+    interruptCurve ?? parseCurve(raw.castStopsCurve, "castStopsCurve", errors);
 
   if (errors.length > 0) {
     throw new ModelConfigValidationError("UTILITY", errors);
   }
 
+  const migratedScoreFloor =
+    familyWeights === UTILITY_V2_FAMILY_WEIGHTS &&
+    isRecord(raw.domainWeights) &&
+    "castStops" in raw.domainWeights &&
+    raw.familyWeights == null
+      ? 0
+      : scoreFloor;
+
   if (
     algorithmVersion == null ||
     modelLabel == null ||
     calibrationStatus == null ||
-    domainWeights == null ||
-    domainContributionCap == null ||
-    scoreFloor == null ||
+    familyWeights == null ||
+    familyCurvesResolved == null ||
+    migratedScoreFloor == null ||
     unmatchedCreditShareCap == null ||
     unmatchedOnlyMaxDomainScore == null ||
     interruptMatchToleranceMs == null ||
@@ -505,17 +607,22 @@ export function parseUtilityV2ModelConfig(raw: unknown): UtilityV2ModelConfig {
     modelLabel,
     schemaVersion: UTILITY_V2_SCHEMA_VERSION,
     calibrationStatus: calibrationStatus as UtilityV2ModelConfig["calibrationStatus"],
-    domainWeights,
-    domainContributionCap,
-    scoreFloor,
+    familyWeights,
+    domainWeights: familyWeights,
+    scoreFloor: migratedScoreFloor,
     interruptCredits,
     unmatchedCreditShareCap,
     unmatchedOnlyMaxDomainScore,
     interruptMatchToleranceMs,
     ccDedupeWindowMs,
+    interruptReferenceCooldownSeconds:
+      interruptReferenceCooldownSeconds ??
+      UTILITY_V2_MODEL_CONFIG.interruptReferenceCooldownSeconds,
+    interruptProfileFactor,
     supportSemanticCredit,
     supportDiminishingExponent,
     dispelPurgeEventCredit,
+    familyCurves: familyCurvesResolved,
     castStopsCurve,
     supportCurve,
     strategicCcCurve,

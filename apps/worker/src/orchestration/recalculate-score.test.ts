@@ -16,7 +16,26 @@ describe("runRecalculateScore — contract stability", () => {
   it("persists the canonical current refresh contract hash when publication is enabled", async () => {
     const { runRecalculateScore } = await import("./recalculate-score.js");
 
-    const season = { id: "season-1", slug: "blizzard-season-13" };
+    const season = {
+      id: "season-1",
+      slug: "blizzard-season-13",
+      metadata: {
+        activeMplusCatalog: {
+          schemaVersion: "active-mplus-catalog-v1",
+          wclZoneId: 45,
+          blizzardSeasonId: 13,
+          expansionIdentity: "Fixture",
+          dungeonPoolHash: "hash",
+          sourceMetadataHash: "src",
+          catalogVersion: "test",
+          dungeonSlugs: ["a"],
+          synchronizedAt: "2026-01-01T00:00:00.000Z",
+          validatedAt: "2026-01-01T00:00:00.000Z",
+          lastKnownGood: true,
+          authorityVersion: "active-mplus-season-authority-v1",
+        },
+      },
+    };
     const model = {
       id: "model-1",
       key: "default",
@@ -28,7 +47,7 @@ describe("runRecalculateScore — contract stability", () => {
       scoringModelVersion: model.version,
       activeSeasonId: season.slug,
       providerMode: "fixture",
-      env: process.env,
+      zoneId: 45,
     });
 
     const saveScoreSnapshot = vi.fn(
@@ -85,6 +104,7 @@ describe("runRecalculateScore — contract stability", () => {
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: true,
       },
+      logger: { info: vi.fn(), warn: vi.fn() },
       prisma: {
         character: {
           findUnique: vi.fn(async () => ({
@@ -101,6 +121,9 @@ describe("runRecalculateScore — contract stability", () => {
         realm: { findUnique: vi.fn(async () => ({ slug: "tarren-mill" })) },
         seasonDungeon: { findMany: vi.fn(async () => []) },
         runParticipant: { findMany: vi.fn(async () => []) },
+        characterPerformanceAggregate: {
+          findUnique: vi.fn(async () => null),
+        },
       },
       repositories: {
         character: {
@@ -128,6 +151,11 @@ describe("runRecalculateScore — contract stability", () => {
     });
 
     expect(runAuthoritativeScoring).toHaveBeenCalledTimes(1);
+    expect(runAuthoritativeScoring.mock.calls[0]?.[0]).toMatchObject({
+      role: "DPS",
+      classSlug: "mage",
+      specSlug: "fire",
+    });
     expect(saveScoreSnapshot).toHaveBeenCalledTimes(1);
     expect(
       (result.explanation as { refreshContractHash: string }).refreshContractHash,

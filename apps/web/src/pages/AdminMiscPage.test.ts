@@ -23,8 +23,38 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
+const scoringSeasonStatus = {
+  selection: { mode: "AUTO" as const },
+  version: 1,
+  updatedAt: null,
+  updatedByUserId: null,
+  regionCode: "EU",
+  detectedCurrentSeason: {
+    id: "s17",
+    slug: "blizzard-season-17",
+    name: "Season 17",
+    blizzardSeasonId: 17,
+  },
+  effectiveScoringSeason: {
+    id: "s17",
+    slug: "blizzard-season-17",
+    name: "Season 17",
+    blizzardSeasonId: 17,
+    wclZoneId: 47,
+    catalogReady: true,
+  },
+  pinnedDiffersFromDetected: false,
+  seasons: [],
+};
+
 async function mountPage() {
   vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url).includes("/api/v1/admin/misc/scoring-season")) {
+      return jsonResponse(scoringSeasonStatus);
+    }
+    return jsonResponse({ ok: true, results: [] });
+  });
   const router = createRouter({
     history: createMemoryHistory(),
     routes: routeDefs,
@@ -88,31 +118,33 @@ describe("AdminMiscPage", () => {
     expect(wrapper.get("[data-testid='realm-sync-results']").text()).toMatch(/index 10/);
     expect(wrapper.get("[data-testid='realm-sync-results']").text()).toMatch(/eligible 10/);
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/refreshed/i);
-    // Successful parse must not trigger a second sync.
     expect(syncRealmCatalog).toHaveBeenCalledTimes(1);
   });
 
   it("posts a season authority sync for the selected regions", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        ok: true,
-        results: [
-          {
-            region: "EU",
-            previous: { blizzardSeasonId: 13, slug: "blizzard-season-13" },
-            current: {
-              blizzardSeasonId: 17,
-              slug: "blizzard-season-17",
-              authoritySource: "season_index.current_season",
-              authorityVerifiedAt: "2026-07-31T12:00:00.000Z",
-            },
-            changed: true,
-          },
-        ],
-      }),
-    );
-
     const wrapper = await mountPage();
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/api/v1/admin/misc/season/sync-authority") && init?.method === "POST") {
+        return jsonResponse({
+          ok: true,
+          results: [
+            {
+              region: "EU",
+              previous: { blizzardSeasonId: 13, slug: "blizzard-season-13" },
+              current: {
+                blizzardSeasonId: 17,
+                slug: "blizzard-season-17",
+                authoritySource: "season_index.current_season",
+                authorityVerifiedAt: "2026-07-31T12:00:00.000Z",
+              },
+              changed: true,
+            },
+          ],
+        });
+      }
+      return jsonResponse(scoringSeasonStatus);
+    });
+
     await wrapper.get("[data-testid='sync-season-button']").trigger("click");
     await flushPromises();
 
@@ -122,5 +154,35 @@ describe("AdminMiscPage", () => {
     );
     expect(wrapper.get("[data-testid='season-sync-results']").text()).toMatch(/blizzard-season-17/);
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/changed/i);
+  });
+
+  it("saves scoring-season with PUT, credentials, and JSON content-type", async () => {
+    const wrapper = await mountPage();
+    fetchMock.mockClear();
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/api/v1/admin/misc/scoring-season") && init?.method === "PUT") {
+        return jsonResponse({
+          ...scoringSeasonStatus,
+          version: 2,
+        });
+      }
+      return jsonResponse(scoringSeasonStatus);
+    });
+
+    await wrapper.get("[data-testid='save-scoring-season-button']").trigger("click");
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/admin/misc/scoring-season"),
+      expect.objectContaining({
+        method: "PUT",
+        credentials: "include",
+        headers: expect.objectContaining({
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+    expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/Auto/i);
   });
 });

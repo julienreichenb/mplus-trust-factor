@@ -2,8 +2,9 @@ import type { AbilityRule } from "../../types.js";
 import { ALL_ROLES, rule, performanceCooldownRule } from "../rule.js";
 
 /**
- * Racials are optional for scoring. Included with SHARED availability so scorers
- * can opt in without treating them as universal expectations.
+ * Racials are optional Utility/Performance candidates when `includeRacials` is set.
+ * `includeRacials` expands the candidate universe only — race compatibility and/or
+ * observed use decide AVAILABLE via resolveAbilityCapability.
  */
 export const SHARED_RACIAL_RULES: AbilityRule[] = [
   rule({
@@ -14,10 +15,12 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     roles: ALL_ROLES,
     category: "DISPEL",
     availability: "SHARED",
+    raceSlugs: ["dwarf"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
-    notes: "Dwarf racial self-dispel — scoring may ignore racials unless explicitly enabled.",
+    notes:
+      "Dwarf racial self-dispel (dispelPurge family). Not movement. Not Dark Iron (Fireblood is separate).",
   }),
   rule({
     canonicalKey: "shared.racial.fireblood",
@@ -31,11 +34,12 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     activationEventTypes: ["begincast", "cast", "applybuff"],
     activationSource: "PLAYER_CAST",
     availability: "SHARED",
+    raceSlugs: ["dark-iron-dwarf"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
     notes:
-      "Dark Iron Dwarf racial — dual-use dispel + offensive secondary stat; scoring may ignore racials unless explicitly enabled.",
+      "Dark Iron Dwarf racial — dual-use dispel + offensive secondary. Not Stoneform.",
   }),
   rule({
     canonicalKey: "shared.racial.escape-artist",
@@ -45,10 +49,11 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     roles: ALL_ROLES,
     category: "MOVEMENT_UTILITY",
     availability: "SHARED",
+    raceSlugs: ["gnome", "mechagnome"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 60,
     supportCertainty: "uncertain",
-    notes: "Gnome racial root/snare break — optional scoring input.",
+    notes: "Gnome racial root/snare break — movement family; race-gated.",
   }),
   rule({
     canonicalKey: "shared.racial.shadowmeld",
@@ -58,10 +63,28 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     roles: ALL_ROLES,
     category: "DEFENSIVE_MINOR",
     availability: "SHARED",
+    raceSlugs: ["night-elf"],
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
-    notes: "Night Elf racial — Utility V2 mechanic-avoidance domain when enabled.",
+    notes:
+      "Night Elf racial only — Survival personal defensive, not a Utility V2 family / not movement. Void Elf uses Spatial Rift.",
+  }),
+  rule({
+    canonicalKey: "shared.racial.spatial-rift",
+    name: "Spatial Rift",
+    spellIds: [256948],
+    aliases: [257040],
+    classSlug: null,
+    roles: ALL_ROLES,
+    category: "MOVEMENT_UTILITY",
+    availability: "SHARED",
+    raceSlugs: ["void-elf"],
+    sharedAcrossSpecs: true,
+    cooldownSeconds: 180,
+    supportCertainty: "uncertain",
+    notes:
+      "Void Elf racial mobility (place rift 256948 / traverse 257040). Not Shadowmeld.",
   }),
 
   // Performance offensive cooldowns (canonical AbilityRule entries).
@@ -75,9 +98,10 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
       roles: ALL_ROLES,
       category: "OFFENSIVE_MINOR",
       availability: "SHARED",
+      raceSlugs: ["orc", "maghar-orc"],
       sharedAcrossSpecs: true,
       cooldownSeconds: 120,
-      notes: "Orc racial AP/SP — optional Performance input.",
+      notes: "Orc racial AP/SP — optional Performance input; race-gated.",
     }),
     performanceCooldownRule({
       canonicalKey: "shared.racial.offensive.berserking",
@@ -88,9 +112,10 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
       roles: ALL_ROLES,
       category: "OFFENSIVE_MINOR",
       availability: "SHARED",
+      raceSlugs: ["troll", "zandalari-troll"],
       sharedAcrossSpecs: true,
       cooldownSeconds: 180,
-      notes: "Troll racial haste — optional Performance input.",
+      notes: "Troll racial haste — optional Performance input; race-gated.",
     }),
     performanceCooldownRule({
       canonicalKey: "shared.racial.offensive.ancestral-call",
@@ -100,8 +125,9 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
       roles: ALL_ROLES,
       category: "OFFENSIVE_MINOR",
       availability: "SHARED",
+      raceSlugs: ["maghar-orc"],
       sharedAcrossSpecs: true,
       cooldownSeconds: 120,
-      notes: "Mag'har Orc racial — optional Performance input.",
+      notes: "Mag'har Orc racial — optional Performance input; race-gated.",
     }),
 ];

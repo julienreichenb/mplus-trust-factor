@@ -132,7 +132,9 @@ export function mapSelectedRunsFromCanonicalSelection(
       wclCoverageRatio: entry.coverageRatio ?? coverage,
       selectionReason: entry.selectionReason,
       parsePercentile,
-      hasDetailedAnalysis: coverage != null && coverage > 0,
+      hasDetailedAnalysis:
+        (coverage != null && coverage > 0) ||
+        (typeof entry.coverageRatio === "number" && entry.coverageRatio > 0),
       wclUrl,
     };
   });
