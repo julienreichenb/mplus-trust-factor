@@ -106,6 +106,10 @@ export function buildAdminScoreContextRoutes(container: ApiContainer): FastifyPl
       },
     );
 
+    /**
+     * Developer-only immutable snapshot ingest. Not part of the normal admin UX.
+     * Do not treat Raider.IO Mythic+ *score* cutoffs as median-key thresholds.
+     */
     app.post(
       "/api/v1/admin/seasons/:seasonId/score-context/distributions",
       {

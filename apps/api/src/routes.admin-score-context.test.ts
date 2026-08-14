@@ -126,7 +126,96 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     expect(body.published).toBeNull();
     expect(body.draft).toBeNull();
     expect(body.distributionMissing).toBe(true);
+    expect(body.latestDistribution).toBeNull();
     expect(body.canonicalSpecializations.classes.length).toBeGreaterThan(10);
+  });
+
+  it("draft percentile rows come from imported key thresholds, not CharacterScore or rating cutoffs", async () => {
+    const region = await prisma.region.findFirst();
+    const realm = await prisma.realm.findFirst();
+    if (!region || !realm) throw new Error("Need region/realm");
+    const isolated = await prisma.season.create({
+      data: {
+        id: randomUUID(),
+        slug: uniqueName("ctx-key-dist"),
+        name: "Key Dist Season",
+        regionId: region.id,
+      },
+    });
+    const character = await prisma.character.create({
+      data: {
+        id: randomUUID(),
+        regionId: realm.regionId,
+        realmId: realm.id,
+        normalizedName: uniqueName("scorechar").toLowerCase(),
+        displayName: uniqueName("ScoreChar"),
+      },
+    });
+    await prisma.characterScore.create({
+      data: {
+        id: randomUUID(),
+        characterId: character.id,
+        seasonId: isolated.id,
+        scoringVersion: "test",
+        selectedRuns: [],
+        calculatedAt: new Date(),
+        composite: 3400,
+      },
+    });
+
+    const imported = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/seasons/${isolated.id}/score-context/distributions`,
+      headers,
+      payload: {
+        source: "RAIDER_IO",
+        sourceVersion: "median-key-v1",
+        collectedAt: "2026-08-14T00:00:00.000Z",
+        points: [
+          { percentileBps: 5000, medianKeyThreshold: 12 },
+          { percentileBps: 7500, medianKeyThreshold: 15 },
+          { percentileBps: 9000, medianKeyThreshold: 18 },
+          { percentileBps: 9500, medianKeyThreshold: 20 },
+          { percentileBps: 9900, medianKeyThreshold: 22 },
+          { percentileBps: 9990, medianKeyThreshold: 24 },
+        ],
+      },
+    });
+    expect(imported.statusCode).toBe(200);
+
+    const loaded = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${isolated.id}/score-context`,
+      headers,
+    });
+    expect(loaded.json().latestDistribution.points).toEqual([
+      { percentileBps: 5000, medianKeyThreshold: 12 },
+      { percentileBps: 7500, medianKeyThreshold: 15 },
+      { percentileBps: 9000, medianKeyThreshold: 18 },
+      { percentileBps: 9500, medianKeyThreshold: 20 },
+      { percentileBps: 9900, medianKeyThreshold: 22 },
+      { percentileBps: 9990, medianKeyThreshold: 24 },
+    ]);
+
+    const draft = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/seasons/${isolated.id}/score-context/draft`,
+      headers,
+    });
+    expect(draft.statusCode).toBe(200);
+    expect(
+      draft.json().resolvedAnchors.map((a: { percentileLabel: string; medianKeyThreshold: number }) => [
+        a.percentileLabel,
+        a.medianKeyThreshold,
+      ]),
+    ).toEqual([
+      ["P50", 12],
+      ["P75", 15],
+      ["P90", 18],
+      ["P95", 20],
+      ["P99", 22],
+      ["P99.9", 24],
+    ]);
   });
 
   it("imports a valid distribution and rejects malformed points", async () => {

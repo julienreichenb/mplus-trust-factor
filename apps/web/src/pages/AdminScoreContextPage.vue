@@ -5,6 +5,10 @@ import type { ScoringSeasonSelectionStatusDTO } from "@mplus/contracts";
 import { formatPercentileBpsLabel } from "@mplus/contracts";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import ScoreContextKeyTable from "../components/admin/ScoreContextKeyTable.vue";
+import ScoreContextMetaTierList, {
+  type MetaTier,
+} from "../components/admin/ScoreContextMetaTierList.vue";
 import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
 import { adminScoringSeasonQuery } from "../lib/adminScoringRegion";
 
@@ -14,6 +18,7 @@ const router = useRouter();
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 type RecalcStatus = "QUEUED" | "ENQUEUE_FAILED" | "NO_SCORES" | null;
+type TabId = "key" | "meta";
 
 interface SeasonRow {
   id: string;
@@ -31,6 +36,7 @@ interface RevisionView {
   id: string;
   version: number;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  publishedAt?: string | null;
   tierFactors: Record<1 | 2 | 3 | 4 | 5, number>;
   specAssignments: Array<{ classSlug: string; specSlug: string; tier: 1 | 2 | 3 | 4 | 5 }>;
   percentileAnchors: Array<{ percentileBps: number; factor: number }>;
@@ -49,6 +55,13 @@ interface SeasonState {
   draft: RevisionView | null;
   history: Array<{ id: string; version: number; status: string; publishedAt: string | null }>;
   distributions: Array<{ id: string; source: string; sourceVersion: string | null; collectedAt: string; pointCount: number }>;
+  latestDistribution: {
+    id: string;
+    source: string;
+    sourceVersion: string | null;
+    collectedAt: string;
+    points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
+  } | null;
   distributionMissing: boolean;
   canonicalSpecializations: { classes: SpecClass[]; stepBandHelp: string; tierSemantics: Record<string, string> };
 }
@@ -56,25 +69,13 @@ interface SeasonState {
 const scoringSeason = ref<ScoringSeasonSelectionStatusDTO | null>(null);
 const seasonId = ref("");
 const state = ref<SeasonState | null>(null);
+const working = ref<RevisionView | null>(null);
 const error = ref<string | null>(null);
 const busy = ref(false);
+const dirty = ref(false);
+const activeTab = ref<TabId>("key");
 const recalc = ref<{ status: RecalcStatus; bulkOperationId: string | null; error: string | null; retryAvailable?: boolean } | null>(
   null,
-);
-const importJson = ref(
-  JSON.stringify(
-    {
-      source: "FIXTURE_LOCAL",
-      sourceVersion: "local-dev",
-      collectedAt: new Date().toISOString(),
-      points: [
-        { percentileBps: 9000, medianKeyThreshold: 18 },
-        { percentileBps: 9900, medianKeyThreshold: 22 },
-      ],
-    },
-    null,
-    2,
-  ),
 );
 
 async function fetchJson<T>(path: string, init?: { method?: string; body?: string }): Promise<T> {
@@ -93,17 +94,9 @@ async function fetchJson<T>(path: string, init?: { method?: string; body?: strin
   return payload;
 }
 
-const editing = computed(() => state.value?.draft ?? null);
-const readonlyRevision = computed(() => (state.value?.draft ? null : state.value?.published ?? null));
-const displayed = computed(() => editing.value ?? readonlyRevision.value);
-const readOnly = computed(() => !editing.value);
-
-function assignmentTier(classSlug: string, specSlug: string): string {
-  const hit = displayed.value?.specAssignments.find(
-    (a) => a.classSlug === classSlug && a.specSlug === specSlug,
-  );
-  return hit ? String(hit.tier) : "";
-}
+const displayed = computed(() => working.value);
+const isDraft = computed(() => working.value?.status === "DRAFT");
+const publishedMarked = computed(() => state.value?.published != null && !state.value.draft && !dirty.value);
 
 const scoringSeasonLabel = computed(() => {
   const effective = scoringSeason.value?.effectiveScoringSeason;
@@ -118,10 +111,55 @@ const scoringSeasonModeLabel = computed(() => {
   return "—";
 });
 
+const keyRows = computed(() => {
+  const latest = state.value?.latestDistribution;
+  const revision = working.value;
+  if (latest?.points.length) {
+    const factorByBps = new Map((revision?.percentileAnchors ?? []).map((a) => [a.percentileBps, a.factor]));
+    const resolvedByBps = new Map((revision?.resolvedAnchors ?? []).map((a) => [a.percentileBps, a]));
+    return latest.points.map((point) => {
+      const resolved = resolvedByBps.get(point.percentileBps);
+      return {
+        percentileBps: point.percentileBps,
+        percentileLabel: formatPercentileBpsLabel(point.percentileBps),
+        medianKeyThreshold: point.medianKeyThreshold,
+        factor: resolved?.factor ?? factorByBps.get(point.percentileBps) ?? 1,
+      };
+    });
+  }
+  return revision?.resolvedAnchors ?? [];
+});
+
+const distributionUnavailable = computed(() => Boolean(state.value?.distributionMissing));
+
+const provenanceLabel = computed(() => {
+  const source = working.value?.distribution?.source ?? state.value?.latestDistribution?.source;
+  if (!source) return null;
+  const normalized = source.toUpperCase();
+  if (normalized.includes("RAIDER")) return "Raider.IO";
+  return "Season snapshot";
+});
+
+const provenanceUpdated = computed(() => {
+  const iso = working.value?.distribution?.collectedAt ?? state.value?.latestDistribution?.collectedAt;
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+});
+
+function cloneRevision(revision: RevisionView): RevisionView {
+  return JSON.parse(JSON.stringify(revision)) as RevisionView;
+}
+
+function syncWorkingFromState(): void {
+  const next = state.value?.draft ?? state.value?.published ?? null;
+  working.value = next ? cloneRevision(next) : null;
+  dirty.value = false;
+}
+
 async function loadScoringSeasonAuthority(): Promise<void> {
-  const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(
-    adminScoringSeasonQuery(),
-  );
+  const status = await fetchJson<ScoringSeasonSelectionStatusDTO>(adminScoringSeasonQuery());
   scoringSeason.value = status;
   const id = status.effectiveScoringSeason?.id;
   if (!id) {
@@ -133,6 +171,7 @@ async function loadScoringSeasonAuthority(): Promise<void> {
 async function loadState(): Promise<void> {
   if (!seasonId.value) return;
   state.value = await fetchJson<SeasonState>(`/api/v1/admin/seasons/${seasonId.value}/score-context`);
+  syncWorkingFromState();
 }
 
 onMounted(async () => {
@@ -144,31 +183,37 @@ onMounted(async () => {
   }
 });
 
-async function createDraft(): Promise<void> {
-  busy.value = true;
-  error.value = null;
-  try {
-    await fetchJson(`/api/v1/admin/seasons/${seasonId.value}/score-context/draft`, { method: "POST" });
-    await loadState();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    busy.value = false;
-  }
+async function ensureDraft(): Promise<void> {
+  if (working.value?.status === "DRAFT") return;
+  if (!seasonId.value) return;
+  const created = await fetchJson<RevisionView>(`/api/v1/admin/seasons/${seasonId.value}/score-context/draft`, {
+    method: "POST",
+  });
+  const local = working.value;
+  working.value = {
+    ...created,
+    tierFactors: local?.tierFactors ?? created.tierFactors,
+    specAssignments: local?.specAssignments ?? created.specAssignments,
+    percentileAnchors: local?.percentileAnchors ?? created.percentileAnchors,
+    resolvedAnchors: local?.resolvedAnchors ?? created.resolvedAnchors,
+  };
+  if (state.value) state.value.draft = working.value;
 }
 
 async function saveDraft(): Promise<void> {
-  if (!editing.value) return;
+  await ensureDraft();
+  if (!working.value) return;
   busy.value = true;
   error.value = null;
   try {
-    await fetchJson(`/api/v1/admin/score-context/revisions/${editing.value.id}`, {
+    await fetchJson(`/api/v1/admin/score-context/revisions/${working.value.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        tierFactors: editing.value.tierFactors,
-        specAssignments: editing.value.specAssignments,
-        percentileAnchors: editing.value.percentileAnchors,
-        distributionSnapshotId: editing.value.distribution?.id ?? state.value?.distributions[0]?.id ?? null,
+        tierFactors: working.value.tierFactors,
+        specAssignments: working.value.specAssignments,
+        percentileAnchors: working.value.percentileAnchors,
+        distributionSnapshotId:
+          working.value.distribution?.id ?? state.value?.latestDistribution?.id ?? null,
       }),
     });
     await loadState();
@@ -180,13 +225,15 @@ async function saveDraft(): Promise<void> {
 }
 
 async function publish(): Promise<void> {
-  if (!editing.value) return;
+  if (dirty.value) await saveDraft();
+  await ensureDraft();
+  if (!working.value) return;
   busy.value = true;
   error.value = null;
   try {
     const result = await fetchJson<{
       recalc: { status: RecalcStatus; bulkOperationId: string | null; error: string | null; retryAvailable?: boolean };
-    }>(`/api/v1/admin/score-context/revisions/${editing.value.id}/publish`, { method: "POST" });
+    }>(`/api/v1/admin/score-context/revisions/${working.value.id}/publish`, { method: "POST" });
     recalc.value = result.recalc;
     await loadState();
   } catch (err) {
@@ -210,79 +257,40 @@ async function retryRecalc(): Promise<void> {
   }
 }
 
-async function importDistribution(): Promise<void> {
-  busy.value = true;
-  error.value = null;
-  try {
-    const parsed = JSON.parse(importJson.value) as Record<string, unknown>;
-    await fetchJson(`/api/v1/admin/seasons/${seasonId.value}/score-context/distributions`, {
-      method: "POST",
-      body: JSON.stringify(parsed),
-    });
-    await loadState();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    busy.value = false;
-  }
+async function setTierFactor(tier: MetaTier, value: number): Promise<void> {
+  await ensureDraft();
+  if (!working.value) return;
+  working.value.tierFactors[tier] = value;
+  dirty.value = true;
 }
 
-function setTierFactor(tier: 1 | 2 | 3 | 4 | 5, value: number): void {
-  if (!editing.value) return;
-  editing.value.tierFactors[tier] = value;
-}
-
-function setSpecTier(classSlug: string, specSlug: string, raw: string): void {
-  if (!editing.value) return;
-  editing.value.specAssignments = editing.value.specAssignments.filter(
+async function moveSpec(classSlug: string, specSlug: string, tier: MetaTier | null): Promise<void> {
+  await ensureDraft();
+  if (!working.value) return;
+  working.value.specAssignments = working.value.specAssignments.filter(
     (a) => !(a.classSlug === classSlug && a.specSlug === specSlug),
   );
-  if (!raw) return;
-  const tier = Number(raw) as 1 | 2 | 3 | 4 | 5;
-  editing.value.specAssignments.push({ classSlug, specSlug, tier });
+  if (tier) working.value.specAssignments.push({ classSlug, specSlug, tier });
+  dirty.value = true;
 }
 
-function setAnchorFactor(bps: number, factor: number): void {
-  if (!editing.value) return;
-  const row = editing.value.percentileAnchors.find((a) => a.percentileBps === bps);
+async function setAnchorFactor(bps: number, factor: number): Promise<void> {
+  await ensureDraft();
+  if (!working.value) return;
+  const row = working.value.percentileAnchors.find((a) => a.percentileBps === bps);
   if (row) row.factor = factor;
-  const resolved = editing.value.resolvedAnchors.find((a) => a.percentileBps === bps);
+  else working.value.percentileAnchors.push({ percentileBps: bps, factor });
+  const resolved = working.value.resolvedAnchors.find((a) => a.percentileBps === bps);
   if (resolved) resolved.factor = factor;
-}
-
-const newAnchorBps = ref(9000);
-const newAnchorFactor = ref(1);
-
-function addAnchor(): void {
-  if (!editing.value) return;
-  const percentileBps = Math.round(Number(newAnchorBps.value));
-  const factor = Number(newAnchorFactor.value);
-  if (!Number.isInteger(percentileBps) || percentileBps < 1 || percentileBps > 10000) {
-    error.value = "percentileBps must be an integer from 1 to 10000";
-    return;
+  else {
+    working.value.resolvedAnchors.push({
+      percentileBps: bps,
+      percentileLabel: formatPercentileBpsLabel(bps),
+      medianKeyThreshold: state.value?.latestDistribution?.points.find((p) => p.percentileBps === bps)?.medianKeyThreshold ?? null,
+      factor,
+    });
   }
-  if (!Number.isFinite(factor) || factor <= 0) {
-    error.value = "Anchor factor must be a finite number greater than 0";
-    return;
-  }
-  if (editing.value.percentileAnchors.some((a) => a.percentileBps === percentileBps)) {
-    error.value = "Duplicate percentileBps";
-    return;
-  }
-  error.value = null;
-  editing.value.percentileAnchors.push({ percentileBps, factor });
-  editing.value.resolvedAnchors.push({
-    percentileBps,
-    percentileLabel: formatPercentileBpsLabel(percentileBps),
-    medianKeyThreshold: null,
-    factor,
-  });
-}
-
-function removeAnchor(percentileBps: number): void {
-  if (!editing.value) return;
-  editing.value.percentileAnchors = editing.value.percentileAnchors.filter((a) => a.percentileBps !== percentileBps);
-  editing.value.resolvedAnchors = editing.value.resolvedAnchors.filter((a) => a.percentileBps !== percentileBps);
+  dirty.value = true;
 }
 </script>
 
@@ -291,7 +299,7 @@ function removeAnchor(percentileBps: number): void {
     <header>
       <h2>Key + Meta Context</h2>
       <p class="muted">
-        Key + meta context for the platform scoring season. Change the scoring season on
+        Applies to the platform scoring season. Change the scoring season on
         <RouterLink to="/admin/misc">Admin misc</RouterLink>.
       </p>
     </header>
@@ -319,24 +327,22 @@ function removeAnchor(percentileBps: number): void {
       </div>
     </dl>
 
-    <p v-if="state" class="meta" data-testid="revision-status">
-      Status: {{ displayed?.status ?? "none" }}
-      · version {{ displayed?.version ?? "—" }}
-      · distribution {{ displayed?.distribution?.source ?? "not imported" }}
-      {{ displayed?.distribution?.collectedAt ? `· collected ${displayed.distribution.collectedAt}` : "" }}
+    <p class="meta" data-testid="revision-status">
+      <span v-if="isDraft">Draft v{{ displayed?.version ?? "—" }}</span>
+      <span v-else-if="state?.published">Published v{{ state.published.version }}</span>
+      <span v-else>No published revision</span>
+      <span v-if="dirty" class="unsaved" data-testid="unsaved-changes"> · Unsaved changes</span>
     </p>
-    <p v-if="state?.distributionMissing" class="warn" data-testid="missing-distribution">
-      No median-key distribution imported for this season
+    <p v-if="provenanceLabel" class="provenance" data-testid="distribution-provenance">
+      Season data: {{ provenanceLabel }}
+      <span v-if="provenanceUpdated"> · Updated: {{ provenanceUpdated }}</span>
     </p>
 
     <div class="actions">
-      <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="create-draft" @click="createDraft">
-        Create / open draft
-      </button>
-      <button type="button" class="btn" :disabled="busy || readOnly" data-testid="save-draft" @click="saveDraft">
+      <button type="button" class="btn" :disabled="busy || !seasonId || !dirty && !isDraft" data-testid="save-draft" @click="saveDraft">
         Save draft
       </button>
-      <button type="button" class="btn" :disabled="busy || readOnly" data-testid="publish-draft" @click="publish">
+      <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="publish-draft" @click="publish">
         Publish
       </button>
       <button
@@ -349,117 +355,47 @@ function removeAnchor(percentileBps: number): void {
         Retry recalculation
       </button>
     </div>
-    <p v-if="readOnly && displayed?.status === 'PUBLISHED'" class="muted" data-testid="published-readonly">
-      Published revisions are read-only. Open a draft to edit.
+    <p v-if="publishedMarked" class="muted" data-testid="published-readonly">
+      Published revision is live. Editing a factor opens a draft.
     </p>
-    <ul v-if="state?.history?.length" data-testid="revision-history" class="muted">
-      <li v-for="row in state.history" :key="row.id">
-        v{{ row.version }} · {{ row.status }}
-        {{ row.publishedAt ? `· published ${row.publishedAt}` : "" }}
-      </li>
-    </ul>
 
-    <section v-if="displayed">
-      <h3>Meta tiers</h3>
-      <p class="muted">1 = niche / weak · 2 = below-meta · 3 = average · 4 = strong · 5 = top-tier meta</p>
-      <div class="tiers">
-        <label v-for="tier in [1, 2, 3, 4, 5] as const" :key="tier">
-          Tier {{ tier }}
-          <input
-            :value="displayed.tierFactors[tier]"
-            type="number"
-            min="0.01"
-            step="0.01"
-            :disabled="readOnly"
-            :data-testid="`tier-factor-${tier}`"
-            @change="setTierFactor(tier, Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-      </div>
-
-      <h3>Specializations</h3>
-      <div v-for="cls in state?.canonicalSpecializations.classes ?? []" :key="cls.slug" class="class-block">
-        <h4>{{ cls.name }}</h4>
-        <label v-for="spec in cls.specs" :key="`${cls.slug}-${spec.slug}`">
-          {{ spec.name }}
-          <select
-            :value="assignmentTier(cls.slug, spec.slug)"
-            :disabled="readOnly"
-            :data-testid="`spec-${cls.slug}-${spec.slug}`"
-            @change="setSpecTier(cls.slug, spec.slug, ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">Unconfigured</option>
-            <option value="1">Tier 1</option>
-            <option value="2">Tier 2</option>
-            <option value="3">Tier 3</option>
-            <option value="4">Tier 4</option>
-            <option value="5">Tier 5</option>
-          </select>
-        </label>
-      </div>
-
-      <h3>Key difficulty</h3>
-      <p class="muted">{{ state?.canonicalSpecializations.stepBandHelp }}</p>
-      <table v-if="displayed.resolvedAnchors.length" data-testid="anchor-table">
-        <thead>
-          <tr>
-            <th>Percentile</th>
-            <th>Median key</th>
-            <th>Factor</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="anchor in displayed.resolvedAnchors" :key="anchor.percentileBps">
-            <td>{{ anchor.percentileLabel }}</td>
-            <td data-testid="anchor-threshold">
-              {{ anchor.medianKeyThreshold == null ? "—" : `+${anchor.medianKeyThreshold}` }}
-            </td>
-            <td>
-              <input
-                :value="anchor.factor"
-                type="number"
-                min="0.01"
-                step="0.01"
-                :disabled="readOnly"
-                @change="setAnchorFactor(anchor.percentileBps, Number(($event.target as HTMLInputElement).value))"
-              />
-            </td>
-            <td>
-              <button
-                type="button"
-                class="btn"
-                :disabled="readOnly"
-                :data-testid="`remove-anchor-${anchor.percentileBps}`"
-                @click="removeAnchor(anchor.percentileBps)"
-              >
-                Remove
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="!readOnly" class="actions" data-testid="add-anchor-row">
-        <label>
-          percentileBps
-          <input v-model.number="newAnchorBps" type="number" min="1" max="10000" step="1" />
-        </label>
-        <label>
-          factor
-          <input v-model.number="newAnchorFactor" type="number" min="0.01" step="0.01" />
-        </label>
-        <button type="button" class="btn" data-testid="add-anchor" @click="addAnchor">Add percentile anchor</button>
-      </div>
-    </section>
-
-    <section>
-      <h3>Import distribution snapshot</h3>
-      <p class="muted">Paste JSON. Snapshots are immutable. Do not generate thresholds from live providers.</p>
-      <textarea v-model="importJson" rows="10" data-testid="distribution-json" />
-      <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="import-distribution" @click="importDistribution">
-        Import
+    <nav class="tabs" aria-label="Score context sections">
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'tab--active': activeTab === 'key' }"
+        data-testid="tab-key"
+        @click="activeTab = 'key'"
+      >
+        Key
       </button>
-    </section>
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'tab--active': activeTab === 'meta' }"
+        data-testid="tab-meta"
+        @click="activeTab = 'meta'"
+      >
+        Meta
+      </button>
+    </nav>
+
+    <ScoreContextKeyTable
+      v-if="activeTab === 'key'"
+      :rows="keyRows"
+      :unavailable="distributionUnavailable"
+      :read-only="false"
+      @update-factor="setAnchorFactor"
+    />
+    <ScoreContextMetaTierList
+      v-else
+      :classes="state?.canonicalSpecializations.classes ?? []"
+      :assignments="displayed?.specAssignments ?? []"
+      :tier-factors="displayed?.tierFactors ?? { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 }"
+      :read-only="false"
+      @move-spec="moveSpec"
+      @update-tier-factor="setTierFactor"
+    />
   </section>
 </template>
 
@@ -485,49 +421,54 @@ function removeAnchor(percentileBps: number): void {
   margin: 0.15rem 0 0;
   font-weight: 600;
 }
-.warn {
-  color: var(--color-gold-300);
+.meta,
+.provenance {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
-.field,
-.tiers label,
-.class-block label {
-  display: grid;
-  gap: 0.25rem;
+.unsaved {
+  color: #f0c674;
   font-weight: 600;
 }
-.actions,
-.tiers {
+.actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
-.class-block {
-  display: grid;
-  gap: 0.35rem;
-  margin-bottom: 0.75rem;
-}
 .btn {
-  appearance: none;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.45rem 1rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: #1f6feb;
+  color: #fff;
   font: inherit;
-  padding: 0.4rem 0.75rem;
-  border-radius: var(--radius-sm);
+  font-weight: 600;
   cursor: pointer;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
-th,
-td {
-  text-align: left;
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid var(--color-border);
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
 }
-textarea {
-  width: 100%;
-  font-family: var(--font-data);
+.tab {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  background: transparent;
+  color: inherit;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.tab--active {
+  background: rgb(255 255 255 / 10%);
+  border-color: rgb(255 255 255 / 28%);
 }
 </style>

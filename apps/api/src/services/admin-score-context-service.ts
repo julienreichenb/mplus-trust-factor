@@ -8,7 +8,10 @@ import {
   SeasonScoreContextRepository,
   type PrismaClient,
 } from "@mplus/database";
-import { resolveAnchorsAgainstDistribution } from "@mplus/scoring";
+import {
+  resolveAnchorsAgainstDistribution,
+  validateMedianKeyDistributionPoints,
+} from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent, type AuditInput } from "../iam/audit.js";
@@ -187,6 +190,18 @@ export class AdminScoreContextService {
         contentHash: d.contentHash,
         pointCount: Array.isArray(d.points) ? d.points.length : 0,
       })),
+      latestDistribution: (() => {
+        const latest = distributions[0];
+        if (!latest) return null;
+        const parsed = validateMedianKeyDistributionPoints(latest.points);
+        return {
+          id: latest.id,
+          source: latest.source,
+          sourceVersion: latest.sourceVersion,
+          collectedAt: latest.collectedAt.toISOString(),
+          points: parsed.ok ? parsed.value.points : [],
+        };
+      })(),
       distributionMissing: distributions.length === 0,
       canonicalSpecializations: this.canonicalSpecializations(),
     };
@@ -198,6 +213,20 @@ export class AdminScoreContextService {
     const existing = await repo.findDraftForSeason(seasonId);
     if (existing) return toAdminRevisionView(existing);
     const published = await repo.findPublishedForSeason(seasonId);
+    const snapshots = await repo.listDistributionsForSeason(seasonId);
+    const latestSnapshot = snapshots[0] ?? null;
+    const snapshotPoints = latestSnapshot
+      ? validateMedianKeyDistributionPoints(latestSnapshot.points)
+      : null;
+    const snapshotAnchors =
+      snapshotPoints?.ok
+        ? snapshotPoints.value.points.map((point) => {
+            const existingFactor = published?.percentileAnchors.find(
+              (a) => a.percentileBps === point.percentileBps,
+            )?.factor;
+            return { percentileBps: point.percentileBps, factor: existingFactor ?? 1 };
+          })
+        : null;
     const defaultV1Anchors = [
       { percentileBps: 9000, factor: 1 },
       { percentileBps: 9900, factor: 1 },
@@ -207,13 +236,15 @@ export class AdminScoreContextService {
       const created = await repo.createDraft({
         seasonId,
         createdByUserId,
-        distributionSnapshotId: published?.distribution?.id ?? null,
+        distributionSnapshotId: published?.distribution?.id ?? latestSnapshot?.id ?? null,
         tierFactors: published?.tierFactors,
         specAssignments: published?.specAssignments ?? [],
         percentileAnchors:
-          published?.percentileAnchors && published.percentileAnchors.length > 0
-            ? published.percentileAnchors
-            : defaultV1Anchors,
+          snapshotAnchors && snapshotAnchors.length > 0
+            ? snapshotAnchors
+            : published?.percentileAnchors && published.percentileAnchors.length > 0
+              ? published.percentileAnchors
+              : defaultV1Anchors,
       });
       const doc = await repo.findById(created.id);
       if (!doc) {
