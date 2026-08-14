@@ -60,6 +60,59 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(dto.confidence).toBe(0.72);
   });
 
+  it("uses contextual final score as overallScore and keeps raw composite in explanation", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 73.421,
+        contextualScore: 80.763,
+        dimensionDetails: {
+          scoreContext: {
+            schemaVersion: "score-context-v1",
+            seasonId: "season-1",
+            contextRevisionId: "rev-1",
+            contextRevisionKey: "rev-1",
+            contextRevisionVersion: 1,
+            distributionSnapshotId: "dist-1",
+            rawScoreBeforeContext: 73.421,
+            key: {
+              status: "AVAILABLE",
+              canonicalRuns: [],
+              medianKeyLevel: 19.5,
+              appliedAnchorPercentileBps: 9000,
+              appliedAnchorKeyThreshold: 20,
+              nextAnchorPercentileBps: null,
+              nextAnchorKeyThreshold: null,
+              factor: 1.1,
+              distributionSnapshotId: "dist-1",
+              distributionSource: "MANUAL_IMPORT",
+              distributionVersion: "v1",
+              distributionCollectedAt: "2026-01-01T00:00:00.000Z",
+              reason: null,
+            },
+            meta: {
+              status: "AVAILABLE",
+              classSlug: "mage",
+              specSlug: "fire",
+              specSource: "WCL_ACTIVE_DUNGEONS",
+              tier: 5,
+              factor: 1,
+              reason: null,
+            },
+            combinedFactor: 1.1,
+            preClampAdjustedScore: 80.7631,
+            wasClamped: false,
+            finalScore: 80.763,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.overallScore).toBe(80.763);
+    expect(dto.scoreContext?.rawScoreBeforeContext).toBe(73.421);
+    expect(dto.explanation).toMatchObject({ composite: 73.421 });
+  });
+
   it("does not keep stale tier=U when P/U/S composite is calculable", () => {
     const dto = mapCharacterScoreToSnapshotDto(
       {

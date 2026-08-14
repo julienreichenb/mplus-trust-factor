@@ -3999,6 +3999,7 @@ export async function runRefreshPipeline(
     realm: identity.realmSlug,
     characterName: identity.name,
     raiderIoProfile,
+    canonicalRunSelection: scoringRunSelection,
     beforeCharacterScorePersist: async () => {
       await assertPublicationContractMatchesJob(
         {

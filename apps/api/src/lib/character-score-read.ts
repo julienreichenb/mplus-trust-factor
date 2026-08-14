@@ -11,7 +11,10 @@ import {
   productDimensionExplainabilityFields,
   projectPerformanceSummaryFromDimensionDetails,
   tryParsePersistedScoreExplainability,
+  gradeScore,
+  toScoreContextProjection,
 } from "@mplus/scoring";
+import type { AppliedScoreContext } from "@mplus/contracts";
 
 export type CharacterScoreReadRow = {
   id: string;
@@ -23,12 +26,38 @@ export type CharacterScoreReadRow = {
   survival: number | null;
   experience: number | null;
   composite: number | null;
+  contextualScore?: number | null;
   confidence: number | null;
   tier?: string | null;
   calculatedAt: Date;
   dimensionDetails: unknown;
   season?: { slug: string } | null;
 };
+
+function readAppliedScoreContext(details: Record<string, unknown> | null): AppliedScoreContext | null {
+  const raw = details?.scoreContext;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as AppliedScoreContext;
+  if (rec.schemaVersion !== "score-context-v1") return null;
+  return rec;
+}
+
+function resolveProductOverallScore(input: {
+  row: CharacterScoreReadRow;
+  partialComposite: number | null;
+  applied: AppliedScoreContext | null;
+}): number {
+  if (input.row.contextualScore != null && Number.isFinite(input.row.contextualScore)) {
+    return input.row.contextualScore;
+  }
+  if (input.applied?.finalScore != null && Number.isFinite(input.applied.finalScore)) {
+    return input.applied.finalScore;
+  }
+  if (input.row.composite != null && Number.isFinite(input.row.composite)) {
+    return input.row.composite;
+  }
+  return input.partialComposite ?? 0;
+}
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -376,18 +405,21 @@ export function mapCharacterScoreToSnapshotDto(
     },
   ];
 
-  const overallScore =
-    row.composite != null && Number.isFinite(row.composite)
-      ? row.composite
-      : partial.composite ?? 0;
+  const applied = readAppliedScoreContext(details);
+  const overallScore = resolveProductOverallScore({
+    row,
+    partialComposite: partial.composite,
+    applied,
+  });
   const confidence =
     row.confidence != null && Number.isFinite(row.confidence)
       ? row.confidence
       : partial.confidence;
-  // Always recompute letter grade from current partial-composite rules.
-  // Persisted tier=U from the old confidence-floor path must not override a
-  // calculable P/U/S composite on the product read path.
-  const grade: Grade = partial.grade;
+  const gradeThresholds = opts?.gradeThresholds ?? { S: 90, A: 80, B: 65, C: 50 };
+  const grade: Grade =
+    applied?.finalScore != null && Number.isFinite(applied.finalScore)
+      ? gradeScore(applied.finalScore, gradeThresholds)
+      : partial.grade;
 
   const performanceSummary = projectPerformanceSummaryFromDimensionDetails(
     details,
@@ -423,11 +455,14 @@ export function mapCharacterScoreToSnapshotDto(
     calculatedAt: row.calculatedAt.toISOString(),
     inputFingerprint: `character-score:${row.id}`,
     redFlags: [],
+    ...(applied ? { scoreContext: toScoreContextProjection(applied) } : {}),
     explanation: {
       scoringVersion: row.scoringVersion,
       characterScoreId: row.id,
       source: "character_score",
       composite: row.composite,
+      contextualScore: row.contextualScore ?? applied?.finalScore ?? null,
+      scoreContext: applied,
       experience: row.experience,
       experienceDetails: details?.experience ?? null,
       performance: row.performance,

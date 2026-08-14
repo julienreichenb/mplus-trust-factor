@@ -242,6 +242,37 @@ export class BulkCharacterProcessingService {
     );
   }
 
+  /**
+   * Season-targeted RECALCULATE_ONLY after a context-policy publish.
+   * Does not rescore in-request. Provider-free child jobs reuse persisted evidence.
+   */
+  async enqueueRecalculateForSeasonScores(
+    input: {
+      seasonId: string;
+      scoreModelId: string | null;
+      characterIds: string[];
+      createdByUserId?: string | null;
+    },
+  ): Promise<BulkOperationDTO | null> {
+    if (input.characterIds.length === 0) return null;
+    const explicit = input.characterIds.length <= 500;
+    return this.create(
+      {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        scoreModelId: input.scoreModelId,
+        batchSize: 25,
+        maxCharacters: null,
+        maxWclCalls: null,
+        dryRun: false,
+        allowFullRefreshOnIncompatible: false,
+        logicalKey: `season-context:${input.seasonId}`,
+        characterIds: explicit ? input.characterIds : null,
+      },
+      { createdByUserId: input.createdByUserId ?? null },
+    );
+  }
+
   async list(limit = 50): Promise<BulkOperationDTO[]> {
     const rows = await this.repo.listRecent(limit);
     return rows.map(mapBulkOperation);

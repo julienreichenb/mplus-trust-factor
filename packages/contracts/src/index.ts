@@ -16,6 +16,7 @@ export * from "./evidence-v2.js";
 export * from "./evidence-audit-v2.js";
 export * from "./explainability-v2.js";
 export * from "./score-explainability-v1.js";
+export * from "./score-context.js";
 export * from "./scoring-control-center.js";
 export * from "./scoring-season-selection.js";
 export * from "./wcl-run-source-digest.js";
