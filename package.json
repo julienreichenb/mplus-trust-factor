@@ -99,12 +99,15 @@
     "wcl:probe:utility-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-one-fight.mjs",
     "wcl:probe:survival-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-one-fight.mjs",
     "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs",
+    "wcl:probe:report-rankings": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-report-rankings.mjs",
     "scoring:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:canary --",
     "scoring:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:replay --",
     "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --",
     "scoring:diagnose:stabilization": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:diagnose:stabilization --",
     "utility:trace-character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run utility:trace-character --",
-    "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --"
+    "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --",
+    "boost:probe": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run boost:probe --",
+    "wcl:hydrate:rankings": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run wcl:hydrate:rankings --"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

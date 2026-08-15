@@ -261,6 +261,7 @@ model Season {
   medianKeyDistributions SeasonMedianKeyDistributionSnapshot[]
   scoreContextRevisions  SeasonScoreContextRevision[]
   keyDistributionRefreshes ScoreContextKeyDistributionRefresh[]
+  boostAssessments         CharacterBoostAssessment[]
 
   @@unique([regionId, slug])
   @@unique([regionId, blizzardSeasonId], map: "seasons_region_blizzard_season_id_key")
@@ -396,6 +397,7 @@ model Character {
   characterScores          CharacterScore[]
   performanceAggregates    CharacterPerformanceAggregate[]
   experienceEvidence       CharacterExperienceEvidence[]
+  boostAssessments         CharacterBoostAssessment[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -2196,8 +2198,9 @@ model WclRunRaw {
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  digests  CharacterRunDigest[]
-  rankings RunRankingFact[]
+  digests              CharacterRunDigest[]
+  rankings             RunRankingFact[]
+  fightRankingSnapshots WclFightRankingSnapshot[]
 
   @@unique([reportCode, fightId, reportRevision, acquisitionVersion])
   @@index([reportCode, fightId])
@@ -2256,6 +2259,54 @@ model RunRankingFact {
   @@unique([rawRunId, characterId, rankingVersion])
   @@index([characterId])
   @@map("run_ranking_facts")
+}
+
+/**
+ * Immutable WCL Report.rankings snapshot for one WclRunRaw acquisition.
+ * rankingAcquisitionVersion distinguishes Parses/default (v1) from UI Key %
+ * (compare Rankings, playerMetric dps, timeframe Today).
+ * A later fetch with a different content hash inserts a new row; old snapshots are never updated.
+ */
+model WclFightRankingSnapshot {
+  id                        String   @id @default(uuid()) @db.Uuid
+  rawRunId                  String   @map("raw_run_id") @db.Uuid
+  rankingAcquisitionVersion String   @map("ranking_acquisition_version")
+  contentHash               String   @map("content_hash")
+  fetchedAt                 DateTime @map("fetched_at") @db.Timestamptz(3)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rawRun  WclRunRaw               @relation(fields: [rawRunId], references: [id], onDelete: Cascade)
+  entries WclFightRankingEntry[]
+
+  @@unique([rawRunId, contentHash], map: "wcl_fight_ranking_snapshots_raw_hash_key")
+  @@index([rawRunId, fetchedAt(sort: Desc)])
+  @@map("wcl_fight_ranking_snapshots")
+}
+
+/**
+ * Actor rows belonging to one ranking snapshot. Subject and peers for a fight
+ * must be read from the same snapshotId.
+ */
+model WclFightRankingEntry {
+  id             String  @id @default(uuid()) @db.Uuid
+  snapshotId     String  @map("snapshot_id") @db.Uuid
+  reportActorId  Int     @map("report_actor_id")
+  wclCharacterId Int?    @map("wcl_character_id")
+  name           String
+  realmName      String? @map("realm_name")
+  role           String?
+  spec           String?
+  className      String? @map("class_name")
+  /** WCL Key %. 0 is valid. Null means unavailable. */
+  bracketPercent Float?  @map("bracket_percent")
+  /** Generic Parse %. Never used as Key % by Boost Assessment. */
+  rankPercent    Float?  @map("rank_percent")
+
+  snapshot WclFightRankingSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, reportActorId], map: "wcl_fight_ranking_entries_snapshot_actor_key")
+  @@index([wclCharacterId])
+  @@map("wcl_fight_ranking_entries")
 }
 
 /**
@@ -2564,4 +2615,33 @@ model ParticipantScoringDigest {
   @@index([characterId])
   @@index([contentHash])
   @@map("participant_scoring_digests")
+}
+
+/**
+ * Append-only Boost Suspicion assessment. Independent of CharacterScore / Trust Score.
+ */
+model CharacterBoostAssessment {
+  id                   String   @id @default(uuid()) @db.Uuid
+  characterId          String   @map("character_id") @db.Uuid
+  seasonId             String   @map("season_id") @db.Uuid
+  detectorVersion      String   @map("detector_version")
+  policyVersion        String   @map("policy_version")
+  contextRevisionKey   String   @default("none") @map("context_revision_key")
+  contextRevisionId    String?  @map("context_revision_id") @db.Uuid
+  suspicionScore       Int?     @map("suspicion_score")
+  suspicionBand        String?  @map("suspicion_band")
+  confidence           Decimal  @db.Decimal(5, 4)
+  status               String
+  signals              Json
+  sample               Json
+  evidenceFingerprint  String   @map("evidence_fingerprint")
+  calculatedAt         DateTime @map("calculated_at") @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  season    Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, seasonId, detectorVersion, evidenceFingerprint], map: "character_boost_assessments_fingerprint_uidx")
+  @@index([characterId, seasonId, calculatedAt(sort: Desc)])
+  @@map("character_boost_assessments")
 }

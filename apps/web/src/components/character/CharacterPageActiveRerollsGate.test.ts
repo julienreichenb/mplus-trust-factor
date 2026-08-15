@@ -88,7 +88,7 @@ describe("CharacterPage Active Rerolls anonymous gate", () => {
           CharacterPortraitStage: true,
           ScoreHeader: true,
           DimensionCards: true,
-          AuthenticitySection: true,
+          BoostSuspicionSection: true,
           WclVisibilityBanner: true,
           KeySignalsPanel: true,
           DataProvenancePanel: true,

@@ -288,6 +288,35 @@ export {
   type PublicSkillDimensionKey,
 } from "./composite/partial-composite.js";
 
+/** Boost Suspicion V1 — independent of Trust Score; persisted assessments only. */
+export {
+  BOOST_DETECTOR_VERSION,
+  BOOST_POLICY_VERSION,
+  BOOST_ASSESSMENT_SCHEMA_VERSION,
+  BOOST_ASSESSMENT_POLICY,
+  BOOST_ASSESSMENT_ISOLATION,
+  PRIMARY_DUNGEON_RUN_WEIGHT,
+  SECONDARY_DUNGEON_RUN_WEIGHT,
+  dungeonRunSlotWeight,
+  assessBoostSuspicionV1,
+  toPublicBoostAssessment,
+  projectBoostAssessmentPublic,
+  assertPublicBoostDtoHasNoInternalPeers,
+  isExceptionalOperatingLevel,
+  classifyPeerGap,
+  assertBoostAssessmentIsolation,
+} from "./boost-assessment/index.js";
+export type {
+  BoostAssessmentResult,
+  BoostAssessmentExtractorInput,
+  BoostRunInput,
+  SeasonHighKeyContext,
+  BoostAssessmentIsolationGuarantees,
+  BoostAnalyzedRunRow,
+  BoostDungeonContext,
+} from "./boost-assessment/index.js";
+export type { BoostPeerParse } from "./boost-assessment/types.js";
+
 /** Boost shadow Phase 1 — private offline extractors only (no production scoring effect). */
 export {
   BOOST_FEATURE_SCHEMA_VERSION,

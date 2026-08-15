@@ -415,6 +415,7 @@ export const characterProfileResponseSchema = {
     explainabilityV2: {
       anyOf: [scoreExplainabilityV2PublicJsonSchema, { type: "null" }],
     },
+    boostAssessment: { anyOf: [{ type: "object", additionalProperties: true }, { type: "null" }] },
   },
   additionalProperties: true,
 } as const;

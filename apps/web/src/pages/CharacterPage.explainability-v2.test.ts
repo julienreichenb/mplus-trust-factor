@@ -215,7 +215,7 @@ describe("CharacterPage score explanation authority", () => {
         stubs: {
           CharacterPortraitStage: true,
           ScoreHeader: true,
-          AuthenticitySection: true,
+          BoostSuspicionSection: true,
           WclVisibilityBanner: true,
           DataProvenancePanel: true,
           MethodologyPanel: true,

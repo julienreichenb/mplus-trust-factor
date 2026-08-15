@@ -18,10 +18,9 @@ function job(partial: Partial<JobStatusDTO> = {}): JobStatusDTO {
 }
 
 describe("CharacterRefreshEta", () => {
-  it("shows queued phase and approximate jobs ahead", () => {
+  it("shows approximate jobs ahead without a phase label", () => {
     const wrapper = mount(CharacterRefreshEta, {
       props: {
-        refreshStatus: "QUEUED",
         job: job({
           status: "queued",
           queuePosition: 3,
@@ -34,15 +33,14 @@ describe("CharacterRefreshEta", () => {
         }),
       },
     });
-    expect(wrapper.get("[data-testid='refresh-eta-phase']").text()).toBe("Queued");
+    expect(wrapper.find("[data-testid='refresh-eta-phase']").exists()).toBe(false);
     expect(wrapper.get("[data-testid='refresh-eta-jobs-ahead']").text()).toContain("~3");
     expect(wrapper.get("[data-testid='refresh-eta-wait']").text()).toMatch(/2–5 min|2-5 min/);
   });
 
-  it("shows processing for active jobs", () => {
+  it("shows wait range for active jobs without a phase label", () => {
     const wrapper = mount(CharacterRefreshEta, {
       props: {
-        refreshStatus: "IN_PROGRESS",
         job: job({
           status: "active",
           queuePosition: 0,
@@ -54,13 +52,13 @@ describe("CharacterRefreshEta", () => {
         }),
       },
     });
-    expect(wrapper.get("[data-testid='refresh-eta-phase']").text()).toBe("Processing");
+    expect(wrapper.find("[data-testid='refresh-eta-phase']").exists()).toBe(false);
+    expect(wrapper.get("[data-testid='refresh-eta-wait']").text()).toMatch(/starting soon/i);
   });
 
   it("shows scheduling explanation when wait is unavailable", () => {
     const wrapper = mount(CharacterRefreshEta, {
       props: {
-        refreshStatus: "QUEUED",
         job: job({
           status: "queued",
           queuePosition: 2,
@@ -75,13 +73,12 @@ describe("CharacterRefreshEta", () => {
     expect(wrapper.get("[data-testid='refresh-eta-explanation']").text()).toMatch(/paused/i);
   });
 
-  it("shows failed distinctly", () => {
+  it("hides when there is no ETA to show", () => {
     const wrapper = mount(CharacterRefreshEta, {
       props: {
-        failed: true,
         job: job({ status: "failed" }),
       },
     });
-    expect(wrapper.get("[data-testid='refresh-eta-phase']").text()).toBe("Refresh failed");
+    expect(wrapper.find("[data-testid='refresh-eta']").exists()).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ import CharacterProfileToolbar from "../components/character/CharacterProfileToo
 import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
-import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
+import BoostSuspicionSection from "../components/profile/BoostSuspicionSection.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
 import DataProvenancePanel from "../components/character/DataProvenancePanel.vue";
@@ -81,22 +81,13 @@ const profile = ref<CharacterProfileView | null>(null);
 const activeRerolls = ref<ActiveRerollCharacterDTO[]>([]);
 const displayedCharacterIsMain = ref(false);
 const repairing = ref(false);
-/** Latest refresh-status poll payload (ETA / job phase). Cleared when idle. */
+/** Latest refresh-status poll payload (ETA). Cleared when idle. */
 const lastRefreshStatus = ref<RefreshStatusResponse | null>(null);
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
   return conf !== null && conf < 40;
 });
-
-const authFlags = computed(
-  () =>
-    profile.value?.redFlags.filter((f) =>
-      ["boost_suspected", "atypical_progression", "low_run_volume", "probable_reroll", "confirmed_reroll"].includes(
-        f.key,
-      ),
-    ) ?? [],
-);
 
 const entitlements = computed(
   () =>
@@ -531,10 +522,6 @@ watch(
       <CharacterRefreshEta
         v-if="polling || lastRefreshStatus"
         :job="lastRefreshStatus?.job ?? null"
-        :refresh-status="lastRefreshStatus?.refreshStatus ?? profile.refreshStatus"
-        :failed="
-          lastRefreshStatus?.refreshStatus === 'FAILED' || lastRefreshStatus?.job?.status === 'failed'
-        "
       />
 
       <StatusBanner
@@ -640,9 +627,8 @@ watch(
       />
       <DataProvenancePanel :profile="profile" />
 
-      <AuthenticitySection
-        :authenticity-score="profile.score?.authenticityScore ?? null"
-        :flags="authFlags"
+      <BoostSuspicionSection
+        :assessment="profile.boostAssessment ?? null"
         :locked="!entitlements.detailsUnlocked"
       />
 

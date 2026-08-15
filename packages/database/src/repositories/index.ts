@@ -65,6 +65,14 @@ export {
   type SaveRunRankingFactInput,
 } from "./run-ranking-fact-repository.js";
 export {
+  WclFightRankingRepository,
+  createWclFightRankingRepository,
+  WCL_FIGHT_RANKING_ACQUISITION_VERSION,
+  WCL_FIGHT_RANKING_LEGACY_ACQUISITION_VERSION,
+  rankingSnapshotContentHash,
+  type SaveWclFightRankingRow,
+} from "./wcl-fight-ranking-repository.js";
+export {
   CharacterScoreRepository,
   createCharacterScoreRepository,
   type CharacterScoreIdentity,
@@ -98,3 +106,8 @@ export {
   type CharacterExperienceEvidenceDTO,
   type UpsertCharacterExperienceEvidenceInput,
 } from "./character-experience-evidence-repository.js";
+export {
+  CharacterBoostAssessmentRepository,
+  createCharacterBoostAssessmentRepository,
+  type SaveCharacterBoostAssessmentInput,
+} from "./character-boost-assessment-repository.js";
