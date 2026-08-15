@@ -5,10 +5,10 @@ import type { ScoringSeasonSelectionStatusDTO } from "@mplus/contracts";
 import { formatPercentileBpsLabel } from "@mplus/contracts";
 import { ApiClientError, jsonFetchHeaders } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
-import ScoreContextKeyTable from "../components/admin/ScoreContextKeyTable.vue";
+import ScoreContextKeyTable from "../components/score-context/ScoreContextKeyTable.vue";
 import ScoreContextMetaTierList, {
   type MetaTier,
-} from "../components/admin/ScoreContextMetaTierList.vue";
+} from "../components/score-context/ScoreContextMetaTierList.vue";
 import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
 import { adminScoringSeasonQuery } from "../lib/adminScoringRegion";
 

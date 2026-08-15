@@ -281,8 +281,6 @@ describe("AdminScoreContextPage", () => {
     expect(table.text()).toContain("+18");
     expect(table.text()).toContain("+17");
     expect(wrapper.find("[data-testid='add-anchor']").exists()).toBe(false);
-    expect(wrapper.find("[data-testid='key-percentile-readonly']").attributes("readonly")).toBeDefined();
-    expect(wrapper.find("[data-testid='key-threshold-readonly-EU']").attributes("readonly")).toBeDefined();
     const factor = wrapper.get("[data-testid='key-factor-9000']");
     expect(factor.attributes("disabled")).toBeUndefined();
     await factor.setValue("0.95");

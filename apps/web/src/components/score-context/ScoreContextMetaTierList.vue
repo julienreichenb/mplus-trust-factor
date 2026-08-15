@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import WowIcon from "../ability-catalog/WowIcon.vue";
 import { CLASS_COLORS, contrastingTextColor } from "../../lib/wowClass";
 import { specIconName } from "../../lib/wowIcons";
+import { formatContextFactor, tierFactorValue } from "../../lib/scoreContextFormat";
 
 export type MetaTier = 1 | 2 | 3 | 4 | 5;
 
@@ -64,6 +65,8 @@ function specsIn(tier: MetaTier | null): SpecTile[] {
   return allSpecs.value.filter((spec) => assignedTier(spec.classSlug, spec.specSlug) === tier);
 }
 
+const showUnassigned = computed(() => !props.readOnly || specsIn(null).length > 0);
+
 function iconFor(spec: SpecTile): string | null {
   return specIconName(spec.classSlug, spec.specSlug);
 }
@@ -88,6 +91,11 @@ function onDrop(tier: MetaTier | null): void {
   emit("move-spec", classSlug, specSlug, tier);
 }
 
+function setHover(target: MetaTier | "unassigned" | null): void {
+  if (props.readOnly) return;
+  hoverTarget.value = target;
+}
+
 function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; borderColor: string } {
   const backgroundColor = CLASS_COLORS[spec.classSlug.toLowerCase()] ?? "#3a3a40";
   return {
@@ -104,10 +112,10 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
       v-for="tier in ([5, 4, 3, 2, 1] as const)"
       :key="tier"
       class="tier-row"
-      :class="{ 'tier-row--hover': hoverTarget === tier }"
+      :class="{ 'tier-row--hover': !readOnly && hoverTarget === tier }"
       :data-testid="`meta-tier-${tier}`"
-      @dragover.prevent="hoverTarget = tier"
-      @dragleave="hoverTarget === tier && (hoverTarget = null)"
+      @dragover.prevent="setHover(tier)"
+      @dragleave="hoverTarget === tier && setHover(null)"
       @drop.prevent="onDrop(tier)"
     >
       <div class="tier-row__label">
@@ -119,7 +127,10 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
           v-for="spec in specsIn(tier)"
           :key="specKey(spec.classSlug, spec.specSlug)"
           class="spec-tile"
-          :class="{ 'spec-tile--dragging': draggingKey === specKey(spec.classSlug, spec.specSlug) }"
+          :class="{
+            'spec-tile--dragging': draggingKey === specKey(spec.classSlug, spec.specSlug),
+            'spec-tile--readonly': readOnly,
+          }"
           :style="tileStyle(spec)"
           :draggable="!readOnly"
           :title="`${spec.specName}\n${spec.className}`"
@@ -131,26 +142,31 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
           <span class="spec-tile__name">{{ spec.specName }}</span>
         </div>
       </div>
-      <label class="tier-row__factor" :data-testid="`tier-factor-wrap-${tier}`">
-        <span class="muted">Factor ×</span>
-        <input
-          :value="tierFactors[tier]"
-          type="number"
-          min="0.01"
-          step="0.01"
-          :disabled="readOnly"
-          :data-testid="`tier-factor-${tier}`"
-          @change="emit('update-tier-factor', tier, Number(($event.target as HTMLInputElement).value))"
-        />
-      </label>
+      <div class="tier-row__factor" :data-testid="`tier-factor-wrap-${tier}`">
+        <span v-if="readOnly" class="factor-value" :data-testid="`tier-factor-${tier}`">
+          {{ formatContextFactor(tierFactorValue(tierFactors, tier)) }}
+        </span>
+        <label v-else>
+          <span class="muted">Factor ×</span>
+          <input
+            :value="tierFactorValue(tierFactors, tier)"
+            type="number"
+            min="0.01"
+            step="0.01"
+            :data-testid="`tier-factor-${tier}`"
+            @change="emit('update-tier-factor', tier, Number(($event.target as HTMLInputElement).value))"
+          />
+        </label>
+      </div>
     </div>
 
     <div
+      v-if="showUnassigned"
       class="tier-row tier-row--unassigned"
-      :class="{ 'tier-row--hover': hoverTarget === 'unassigned' }"
+      :class="{ 'tier-row--hover': !readOnly && hoverTarget === 'unassigned' }"
       data-testid="meta-unassigned"
-      @dragover.prevent="hoverTarget = 'unassigned'"
-      @dragleave="hoverTarget === 'unassigned' && (hoverTarget = null)"
+      @dragover.prevent="setHover('unassigned')"
+      @dragleave="hoverTarget === 'unassigned' && setHover(null)"
       @drop.prevent="onDrop(null)"
     >
       <div class="tier-row__label">
@@ -162,6 +178,7 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
           v-for="spec in specsIn(null)"
           :key="specKey(spec.classSlug, spec.specSlug)"
           class="spec-tile"
+          :class="{ 'spec-tile--readonly': readOnly }"
           :style="tileStyle(spec)"
           :draggable="!readOnly"
           :title="`${spec.specName}\n${spec.className}`"
@@ -225,6 +242,10 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
 .tier-row__factor input {
   width: 4.75rem;
 }
+.factor-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 .spec-tile {
   display: flex;
   align-items: center;
@@ -234,6 +255,9 @@ function tileStyle(spec: SpecTile): { backgroundColor: string; color: string; bo
   border-radius: 0.35rem;
   cursor: grab;
   max-width: 9.5rem;
+}
+.spec-tile--readonly {
+  cursor: default;
 }
 .spec-tile--dragging {
   opacity: 0.55;

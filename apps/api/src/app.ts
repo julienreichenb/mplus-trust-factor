@@ -18,9 +18,12 @@ import { buildAdminCharacterDetailRoutes } from "./routes/admin-character-detail
 import { buildAdminScoreContextRoutes } from "./routes/admin-score-context.js";
 import { buildCharacterRoutes } from "./routes/characters.js";
 import { buildComparisonRoutes } from "./routes/comparisons.js";
+import { buildFaqRoutes } from "./routes/faq.js";
+import { buildAdminFaqRoutes } from "./routes/admin-faq.js";
 import { buildJobRoutes } from "./routes/jobs.js";
 import { buildRealmRoutes } from "./routes/realms.js";
 import { buildPublicScoreModelRoutes } from "./routes/score-models.js";
+import { buildPublicScoringContextRoutes } from "./routes/public-scoring-context.js";
 import { checkRedisHealth } from "./lib/redis-health.js";
 import { buildApiReadiness } from "./lib/readiness-diagnostics.js";
 import { buildAuthRoutes } from "./iam/routes-auth.js";
@@ -389,9 +392,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(buildRealmRoutes(container));
   await app.register(buildCharacterRoutes(container));
   await app.register(buildComparisonRoutes(container));
+  await app.register(buildFaqRoutes(container));
   await app.register(buildPublicScoreModelRoutes(container));
+  await app.register(buildPublicScoringContextRoutes(container));
   await app.register(buildJobRoutes(container));
   await app.register(buildAdminRoutes(container));
+  await app.register(buildAdminFaqRoutes(container));
   await app.register(buildAdminCalibrationRoutes(container));
   await app.register(buildAdminExplainabilityV2Routes(container));
   await app.register(buildAdminRefreshJobRoutes(container));

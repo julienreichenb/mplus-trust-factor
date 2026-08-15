@@ -119,6 +119,7 @@ onBeforeUnmount(() => {
     <nav class="nav" aria-label="Primary">
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/compare">Compare</RouterLink>
+      <RouterLink to="/faq">FAQ</RouterLink>
       <NavDropdown
         v-if="showAdminNav"
         label="Admin"

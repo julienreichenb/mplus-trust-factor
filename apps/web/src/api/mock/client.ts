@@ -1,7 +1,14 @@
 import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import { normalizeRealmOptions } from "../realm-options";
+import {
+  createFaqEntryRequestSchema,
+  firstZodIssueMessage,
+  moveFaqEntryRequestSchema,
+  updateFaqEntryRequestSchema,
+} from "@mplus/contracts";
 import type {
   AdminAbilityCatalogResponse,
+  AdminFaqEntryDTO,
   AdminScoreModelDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
@@ -24,6 +31,7 @@ import {
   getModelStore,
   identityKey,
   mockSession,
+  mockFaqEntries,
   createDynamicQueuedProfile,
   finalizeDynamicProfile,
   setModelStore,
@@ -69,6 +77,13 @@ function mapAbilityCatalogParams(
     page: num("page"),
     limit: num("limit"),
   };
+}
+
+function sortFaq<T extends { position: number; createdAt?: string; id: string }>(a: T, b: T): number {
+  if (a.position !== b.position) return a.position - b.position;
+  const created = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+  if (created !== 0) return created;
+  return a.id.localeCompare(b.id);
 }
 
 export function validateModelConfig(config: unknown): ModelValidationResult {
@@ -414,6 +429,129 @@ export function createMockApiClient(): MplusApiClient {
       };
 
       return response;
+    },
+
+    async listFaq(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        entries: mockFaqEntries
+          .filter((entry) => entry.isPublished)
+          .sort(sortFaq)
+          .map(({ id, title, description, position, embedType }) => ({
+            id,
+            title,
+            description,
+            position,
+            embedType,
+          })),
+      };
+    },
+
+    async getPublishedScoringContext(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        available: false,
+        unavailableReason: "Current Meta context is temporarily unavailable.",
+        scoringSeason: null,
+        revision: null,
+        meta: null,
+        key: null,
+      };
+    },
+
+    async listPublicScoreModels(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return deepClone(getModelStore().filter((model) => model.status === "ACTIVE"));
+    },
+
+    async listAdminFaq(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { entries: [...mockFaqEntries].sort(sortFaq) };
+    },
+
+    async createFaq(input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      const parsed = createFaqEntryRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        throw Object.assign(new Error(firstZodIssueMessage(parsed.error)), { code: "VALIDATION_ERROR" });
+      }
+      const now = new Date().toISOString();
+      const maxPosition = mockFaqEntries.reduce((max, entry) => Math.max(max, entry.position), 0);
+      const created: AdminFaqEntryDTO = {
+        id: `faq-${mockFaqEntries.length + 1}-${Date.now()}`,
+        title: parsed.data.title,
+        description: parsed.data.description,
+        position: parsed.data.position ?? maxPosition + 1,
+        isPublished: parsed.data.isPublished ?? false,
+        embedType: parsed.data.embedType ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      mockFaqEntries.push(created);
+      return deepClone(created);
+    },
+
+    async updateFaq(id, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      const parsed = updateFaqEntryRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        throw Object.assign(new Error(firstZodIssueMessage(parsed.error)), { code: "VALIDATION_ERROR" });
+      }
+      const index = mockFaqEntries.findIndex((entry) => entry.id === id);
+      if (index < 0) {
+        throw Object.assign(new Error("FAQ entry was not found"), { code: "FAQ_NOT_FOUND" });
+      }
+      const current = mockFaqEntries[index]!;
+      const updated: AdminFaqEntryDTO = {
+        ...current,
+        ...parsed.data,
+        updatedAt: new Date().toISOString(),
+      };
+      mockFaqEntries[index] = updated;
+      return deepClone(updated);
+    },
+
+    async moveFaq(id, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      const parsed = moveFaqEntryRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        throw Object.assign(new Error(firstZodIssueMessage(parsed.error)), { code: "VALIDATION_ERROR" });
+      }
+      const ordered = [...mockFaqEntries].sort(sortFaq);
+      const index = ordered.findIndex((entry) => entry.id === id);
+      if (index < 0) {
+        throw Object.assign(new Error("FAQ entry was not found"), { code: "FAQ_NOT_FOUND" });
+      }
+      const swapWith = parsed.data.direction === "up" ? index - 1 : index + 1;
+      if (swapWith >= 0 && swapWith < ordered.length) {
+        const current = ordered[index]!;
+        ordered[index] = ordered[swapWith]!;
+        ordered[swapWith] = current;
+        ordered.forEach((entry, position) => {
+          entry.position = position + 1;
+          entry.updatedAt = new Date().toISOString();
+        });
+        mockFaqEntries.splice(0, mockFaqEntries.length, ...ordered);
+      }
+      return deepClone(mockFaqEntries.find((entry) => entry.id === id)!);
+    },
+
+    async deleteFaq(id, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      const index = mockFaqEntries.findIndex((entry) => entry.id === id);
+      if (index < 0) {
+        throw Object.assign(new Error("FAQ entry was not found"), { code: "FAQ_NOT_FOUND" });
+      }
+      mockFaqEntries.splice(index, 1);
+      return { id };
     },
 
     async listModels(signal) {

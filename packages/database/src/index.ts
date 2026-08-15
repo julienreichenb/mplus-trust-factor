@@ -46,6 +46,13 @@ export {
   type SeedExperienceCutoffsPrisma,
   type SeedExperienceCutoffsReport,
 } from "./seed-experience-season-cutoffs.js";
+export {
+  PRODUCTION_FAQ_ENTRIES,
+  PRODUCTION_FAQ_IDS,
+  productionFaqId,
+  type ProductionFaqSeedEntry,
+} from "./faq-production-content.js";
+export { seedProductionFaq, type SeedProductionFaqPrisma, type SeedProductionFaqReport } from "./seed-faq.js";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

@@ -35,7 +35,7 @@ const CASES = [
   },
   {
     permissions: ["admin.settings.manage"],
-    paths: ["/admin/misc"],
+    paths: ["/admin/faq", "/admin/misc"],
   },
 ];
 
