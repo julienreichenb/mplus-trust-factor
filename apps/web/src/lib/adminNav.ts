@@ -5,6 +5,7 @@ export type AdminDestinationId =
   | "ability-catalog"
   | "admin-users"
   | "bulk-processing"
+  | "admin-faq"
   | "admin-misc"
   /** @deprecated legacy ids kept for route meta redirects */
   | "score-models"
@@ -61,6 +62,13 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     path: "/admin/bulk-processing",
     label: "Bulk processing",
     isAuthorized: (permissions) => hasPermission(permissions, "admin.jobs.manage"),
+  },
+  {
+    id: "admin-faq",
+    name: "admin-faq",
+    path: "/admin/faq",
+    label: "FAQ",
+    isAuthorized: (permissions) => hasPermission(permissions, "admin.settings.manage"),
   },
   {
     id: "admin-misc",

@@ -38,6 +38,14 @@ import type {
   ProfileEntitlements,
   ProfileWarning,
   AdminRealmSyncResponse,
+  AdminFaqEntryDTO,
+  CreateFaqEntryRequest,
+  PublicFaqEntryDTO,
+  PublicFaqListResponse,
+  PublicScoringContextDTO,
+  AdminFaqListResponse,
+  UpdateFaqEntryRequest,
+  MoveFaqEntryRequest,
 } from "@mplus/contracts";
 
 /** Field visibility flags — launch may unlock everything. */
@@ -147,6 +155,14 @@ export interface MplusApiClient {
     request: CharacterComparisonRequest,
     signal?: AbortSignal,
   ): Promise<CharacterComparisonResponse>;
+  listFaq(signal?: AbortSignal): Promise<PublicFaqListResponse>;
+  getPublishedScoringContext(signal?: AbortSignal): Promise<PublicScoringContextDTO>;
+  listPublicScoreModels(signal?: AbortSignal): Promise<AdminScoreModelDTO[]>;
+  listAdminFaq(signal?: AbortSignal): Promise<AdminFaqListResponse>;
+  createFaq(input: CreateFaqEntryRequest, signal?: AbortSignal): Promise<AdminFaqEntryDTO>;
+  updateFaq(id: string, input: UpdateFaqEntryRequest, signal?: AbortSignal): Promise<AdminFaqEntryDTO>;
+  moveFaq(id: string, input: MoveFaqEntryRequest, signal?: AbortSignal): Promise<AdminFaqEntryDTO>;
+  deleteFaq(id: string, signal?: AbortSignal): Promise<{ id: string }>;
   listModels(signal?: AbortSignal): Promise<AdminScoreModelDTO[]>;
   cloneModel(modelId: string, signal?: AbortSignal): Promise<AdminScoreModelDTO>;
   updateModel(
@@ -261,4 +277,12 @@ export type {
   TalentSummary,
   TalentTreeKind,
   AdminRealmSyncResponse,
+  AdminFaqEntryDTO,
+  CreateFaqEntryRequest,
+  PublicFaqListResponse,
+  AdminFaqListResponse,
+  UpdateFaqEntryRequest,
+  MoveFaqEntryRequest,
+  PublicFaqEntryDTO,
+  PublicScoringContextDTO,
 };

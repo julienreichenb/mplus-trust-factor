@@ -17,6 +17,7 @@ export const routeDefs: RouteRecordRaw[] = [
     props: true,
   },
   { path: "/compare", name: "compare", component: () => import("./pages/ComparePage.vue") },
+  { path: "/faq", name: "faq", component: () => import("./pages/FaqPage.vue") },
   {
     path: "/auth/signin",
     name: "auth-signin",
@@ -74,6 +75,12 @@ export const routeDefs: RouteRecordRaw[] = [
     name: "admin-calibration-report",
     component: () => import("./pages/AdminCalibrationReportPage.vue"),
     meta: { adminDestinationId: "score-console" },
+  },
+  {
+    path: "/admin/faq",
+    name: "admin-faq",
+    component: () => import("./pages/AdminFaqPage.vue"),
+    meta: { adminDestinationId: "admin-faq" },
   },
   {
     path: "/admin/misc",

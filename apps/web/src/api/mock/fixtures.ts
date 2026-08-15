@@ -5,6 +5,7 @@ import type {
   JobStatusDTO,
   RedFlagDTO,
   ScoreSnapshotDTO,
+  AdminFaqEntryDTO,
 } from "../types";
 import { deepClone } from "../../lib/clone";
 import { PERSISTED_V6_SCORE_MODEL_CONFIG } from "../model-config/persisted-v6-fixture";
@@ -694,6 +695,8 @@ export const mockSession = {
   dynamicProfiles: new Map<string, CharacterProfileView>(),
 };
 
+export let mockFaqEntries: AdminFaqEntryDTO[] = [];
+
 export function createDynamicQueuedProfile(identity: CharacterIdentityInput): CharacterProfileView {
   const characterId = `dyn-${identityKey(identity)}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 36);
   return {
@@ -772,6 +775,7 @@ export function allocateModelVersion(): number {
 export function resetMockState(): void {
   mockSession.refreshPolls.clear();
   mockSession.dynamicProfiles.clear();
+  mockFaqEntries = [];
   nextModelVersion = 7;
   modelStore = [
     {

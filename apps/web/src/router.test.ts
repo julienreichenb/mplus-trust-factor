@@ -23,6 +23,7 @@ describe("web router registration", () => {
     expect(names).toContain("home");
     expect(names).toContain("character");
     expect(names).toContain("compare");
+    expect(names).toContain("faq");
     expect(names).toContain("admin-scoring");
     expect(names).toContain("admin-character");
     expect(names).toContain("admin-ability-catalog");
@@ -96,6 +97,11 @@ describe("admin route guards", () => {
       path: "/admin/bulk-processing",
       allow: ["admin.jobs.manage"],
       deny: ["admin.users.read"],
+    },
+    {
+      path: "/admin/faq",
+      allow: ["admin.settings.manage"],
+      deny: ["admin.score_models.manage"],
     },
   ])("allows $path with $allow and denies with $deny", async ({ path, allow, deny }) => {
     const allowed = await navigate(path, allow);

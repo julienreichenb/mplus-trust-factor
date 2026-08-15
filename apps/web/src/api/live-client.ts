@@ -19,6 +19,10 @@ import type {
   MetaResponse,
   ModelValidationResult,
   MplusApiClient,
+  PublicFaqListResponse,
+  PublicScoringContextDTO,
+  AdminFaqListResponse,
+  AdminFaqEntryDTO,
   RefreshStatusResponse,
   RegionCode,
 } from "./types";
@@ -161,6 +165,24 @@ export function createLiveApiClient(options: {
 
     compareCharacters: (request: CharacterComparisonRequest, signal) =>
       send<CharacterComparisonResponse>("POST", "/api/v1/comparisons", request, signal),
+
+    listFaq: (signal) => get<PublicFaqListResponse>("/api/v1/faq", signal),
+    getPublishedScoringContext: (signal) => get<PublicScoringContextDTO>("/api/v1/scoring/context", signal),
+    listPublicScoreModels: (signal) =>
+      get<{ models: AdminScoreModelDTO[] }>("/api/v1/score-models/public", signal).then((r) => r.models),
+
+    listAdminFaq: (signal) => get<AdminFaqListResponse>("/api/v1/admin/faq", signal),
+
+    createFaq: (input, signal) => send<AdminFaqEntryDTO>("POST", "/api/v1/admin/faq", input, signal),
+
+    updateFaq: (id, input, signal) =>
+      send<AdminFaqEntryDTO>("PATCH", `/api/v1/admin/faq/${encodeURIComponent(id)}`, input, signal),
+
+    moveFaq: (id, input, signal) =>
+      send<AdminFaqEntryDTO>("POST", `/api/v1/admin/faq/${encodeURIComponent(id)}/move`, input, signal),
+
+    deleteFaq: (id, signal) =>
+      send<{ id: string }>("DELETE", `/api/v1/admin/faq/${encodeURIComponent(id)}`, undefined, signal),
 
     listModels: (signal) =>
       get<{ models: AdminScoreModelDTO[] }>("/api/v1/admin/score-models", signal).then((r) => r.models),

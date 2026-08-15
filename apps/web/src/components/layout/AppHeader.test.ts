@@ -42,6 +42,7 @@ const adminItems = [
   { to: "/admin/ability-catalog", label: "Ability catalog" },
   { to: "/admin/users", label: "Admin users" },
   { to: "/admin/bulk-processing", label: "Bulk processing" },
+  { to: "/admin/faq", label: "FAQ" },
   { to: "/admin/misc", label: "Misc tools" },
 ];
 
@@ -58,6 +59,7 @@ function headerRoutes() {
   return [
     { path: "/", name: "home", component: { template: "<div />" } },
     { path: "/compare", name: "compare", component: { template: "<div />" } },
+    { path: "/faq", name: "faq", component: { template: "<div />" } },
     { path: "/account", name: "account", component: { template: "<div />" } },
     { path: "/administrator", name: "administrator", component: { template: "<div />" } },
     { path: "/admin", name: "admin-root", component: { template: "<div />" } },
@@ -73,6 +75,7 @@ function headerRoutes() {
       name: "admin-bulk-processing",
       component: { template: "<div />" },
     },
+    { path: "/admin/faq", name: "admin-faq", component: { template: "<div />" } },
     { path: "/admin/misc", name: "admin-misc", component: { template: "<div />" } },
   ];
 }
@@ -134,7 +137,7 @@ describe("NavDropdown disclosure", () => {
     const panel = wrapper.get("[data-testid='nav-dropdown-menu']");
     expect(panel.attributes("role")).toBeUndefined();
     expect(panel.findAll('[role="menuitem"]')).toHaveLength(0);
-    expect(panel.findAll("a")).toHaveLength(5);
+    expect(panel.findAll("a")).toHaveLength(6);
     wrapper.unmount();
   });
 
@@ -277,6 +280,18 @@ describe("AppHeader admin navigation", () => {
     authenticated.value = false;
   });
 
+  it("keeps Home, Compare and FAQ in the primary navbar", async () => {
+    const { wrapper } = await mountHeader();
+    const nav = wrapper.get("nav[aria-label='Primary']");
+    expect(nav.text()).toContain("Home");
+    expect(nav.text()).toContain("Compare");
+    expect(nav.text()).toContain("FAQ");
+    expect(nav.get('a[href="/"]').text()).toBe("Home");
+    expect(nav.get('a[href="/compare"]').text()).toBe("Compare");
+    expect(nav.get('a[href="/faq"]').text()).toBe("FAQ");
+    wrapper.unmount();
+  });
+
   it("hides the Admin dropdown when no destinations are authorized", async () => {
     permissions.value = ["profile.refresh.request", "score.recalculate"];
     const { wrapper } = await mountHeader();
@@ -293,11 +308,15 @@ describe("AppHeader admin navigation", () => {
     wrapper.unmount();
   });
 
-  it("shows Misc tools when settings permission is granted", async () => {
+  it("shows Misc tools and FAQ when settings permission is granted", async () => {
     permissions.value = ["profile.refresh.request", "admin.settings.manage"];
     const { wrapper } = await mountHeader();
-    expect(wrapper.find("[data-testid='admin-nav-dropdown']").exists()).toBe(true);
-    expect(wrapper.text()).toContain("Misc tools");
+    const dropdown = wrapper.get("[data-testid='admin-nav-dropdown']");
+    await dropdown.get("[data-testid='nav-dropdown-trigger']").trigger("click");
+    await flushPromises();
+    expect(dropdown.text()).toContain("Misc tools");
+    expect(dropdown.text()).toContain("FAQ");
+    expect(dropdown.find('a[href="/admin/faq"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -344,6 +363,7 @@ describe("AppHeader admin navigation", () => {
     expect(text).toContain("Ability catalog");
     expect(text).toContain("Admin users");
     expect(text).toContain("Bulk processing");
+    expect(text).toContain("FAQ");
     expect(text).not.toMatch(/Scoring V2/i);
     expect(text).not.toContain("Tuning");
     expect(text).not.toContain("Calibration");
@@ -369,6 +389,7 @@ describe("AppHeader admin navigation", () => {
       "/admin/ability-catalog",
       "/admin/users",
       "/admin/bulk-processing",
+      "/admin/faq",
       "/admin/misc",
       "/admin/users?tab=roles",
       "/admin/scoring#draft",
