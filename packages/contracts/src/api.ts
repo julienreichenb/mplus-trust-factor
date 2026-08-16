@@ -5,6 +5,10 @@ import type { WclContributionType, WclDataState, WclVisibilityState } from "./wa
 import type { CharacterProviderStateDTO, SourceDisagreementDTO } from "./fusion.js";
 import type { ScoreExplainabilityV2PublicDTO } from "./explainability-v2.js";
 import type { BoostAssessmentPublicDTO } from "./boost-assessment.js";
+import type {
+  CanonicalDungeonEvidencePublicDTO,
+  ScoreCalculationPublicDTO,
+} from "./score-calculation-public.js";
 
 export interface ApiErrorEnvelope {
   error: {
@@ -553,6 +557,10 @@ export interface CharacterProfileResponse {
    * Null when no assessment has been persisted for the effective season.
    */
   boostAssessment?: BoostAssessmentPublicDTO | null;
+  /** Persisted overall calculation breakdown for methodology UI. */
+  scoreCalculation?: ScoreCalculationPublicDTO | null;
+  /** Canonical PRIMARY/SECONDARY evidence reports per dungeon. */
+  canonicalDungeonEvidence?: CanonicalDungeonEvidencePublicDTO[];
 }
 
 export interface CharacterComparisonRequest {

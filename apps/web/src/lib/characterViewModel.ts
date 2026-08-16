@@ -31,6 +31,8 @@ export interface ContributorSignal {
   dimensionKey?: RadarDimension;
   /** Stable machine code when from Score Explainability V1. */
   code?: string;
+  /** Backend qualitative presentation; never computed from Vue thresholds. */
+  qualitativeLabel?: "VERY GOOD" | "GOOD" | "BAD" | "VERY BAD" | null;
 }
 
 /** Per-dimension product explainability view (score story vs confidence story). */
@@ -118,15 +120,22 @@ function signalFromDriver(
   kind: ContributorSignalKind,
   label: string,
   code?: string,
+  qualitativeLabel?: ContributorSignal["qualitativeLabel"],
 ): ContributorSignal {
   const dimKey = dim.dimension as RadarDimension;
   return {
     kind,
     label,
     code,
+    qualitativeLabel: qualitativeLabel ?? null,
     dimension: DIMENSION_LABELS[dimKey] ?? dim.dimension,
     dimensionKey: dimKey,
   };
+}
+
+function isProductHiddenScoreDriver(code: string | undefined, label: string): boolean {
+  if (code === "utility.interrupt_attempt_credit") return true;
+  return /interrupt credit:/i.test(label);
 }
 
 function kindFromDirection(direction: ScoreDriverDirection): ContributorSignalKind {
@@ -171,8 +180,15 @@ export function buildDimensionExplainabilityView(
   if (isScoredDimension(dim)) {
     for (const driver of expl.scoreDrivers ?? []) {
       if (!driver?.label?.trim()) continue;
+      if (isProductHiddenScoreDriver(driver.code, driver.label)) continue;
       const kind = kindFromDirection(driver.direction);
-      const signal = signalFromDriver(dim, kind, driver.label.trim(), driver.code);
+      const signal = signalFromDriver(
+        dim,
+        kind,
+        driver.label.trim(),
+        driver.code,
+        driver.qualitativeLabel,
+      );
       if (kind === "positive") strengths.push(signal);
       else if (kind === "risk") weaknesses.push(signal);
       else facts.push(signal);
@@ -253,6 +269,36 @@ export function unavailableDimensionLabel(dimension?: string | null): string {
 export function humanizeMetricKey(metricKey: string): string {
   const leaf = metricKey.includes(".") ? metricKey.slice(metricKey.lastIndexOf(".") + 1) : metricKey;
   return leaf.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const QUALITATIVE_SENTENCE: Record<
+  NonNullable<ContributorSignal["qualitativeLabel"]>,
+  string
+> = {
+  "VERY GOOD": "Very good",
+  GOOD: "Good",
+  BAD: "Bad",
+  "VERY BAD": "Very bad",
+};
+
+/** Strip trailing "scored {n}" so users never see a raw driver value. */
+export function signalTopicFromLabel(label: string): string {
+  return label.replace(/\s+scored\s+[-+]?\d+(?:\.\d+)?\s*$/i, "").trim();
+}
+
+/**
+ * Presentation-only sentence for Key Signals.
+ * Uses backend qualitativeLabel; does not recompute score bands.
+ */
+export function formatKeySignalDisplayText(signal: ContributorSignal): string {
+  const qualitative = signal.qualitativeLabel
+    ? QUALITATIVE_SENTENCE[signal.qualitativeLabel]
+    : null;
+  if (!qualitative) return signal.label;
+  const topic = signalTopicFromLabel(signal.label);
+  if (!topic) return qualitative;
+  const topicTail = topic.charAt(0).toLowerCase() + topic.slice(1);
+  return `${qualitative} ${topicTail}`;
 }
 
 export function topSignals(

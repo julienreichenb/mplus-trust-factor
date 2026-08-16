@@ -1066,3 +1066,22 @@ export type {
   ReplayscoringDimensionsInput,
   ReplayPersistedDimension,
 } from "./audit/index.js";
+
+export {
+  projectScoreCalculationPublic,
+  projectCanonicalDungeonEvidence,
+  parsePersistedCanonicalEvidenceSlots,
+  canonicalFightIdentityKey,
+} from "./presentation/project-public-profile-extras.js";
+export {
+  clusterHostilePullSegments,
+  HOSTILE_PULL_GAP_MS,
+  projectCooldownReplayFromDigest,
+  projectCooldownEventTarget,
+  parseWclMasterDataActors,
+  isPersistedWclBossActor,
+  COOLDOWN_REPLAY_MAX_EVENTS,
+} from "./presentation/project-cooldown-replay.js";
+export {
+  selectExactCanonicalRunDigest,
+} from "./presentation/select-canonical-run-digest.js";

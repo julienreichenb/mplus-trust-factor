@@ -129,19 +129,19 @@ describe("DimensionCards explainability", () => {
     });
 
     expect(wrapper.find('[data-testid="dimension-cards"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("What affects your score");
+    expect(wrapper.text()).not.toContain("What affects your score");
     expect(wrapper.text()).toContain("Strong Phase 1 performance");
     expect(wrapper.text()).toContain("Offensive cooldown discipline below neutral");
     expect(wrapper.text()).toContain("No strategic CC observed");
     expect(wrapper.text()).toContain("Previous-season activity: none confirmed");
-    expect(wrapper.text()).toContain("Full confidence");
+    expect(wrapper.text()).not.toContain("Full confidence");
+    expect(wrapper.text()).not.toContain("Why confidence is");
     expect(wrapper.text()).toContain("Incomplete cooldown evidence coverage");
     expect(wrapper.text()).toContain("Some health evidence is incomplete");
 
-    // Confidence reasons must not appear under Weaknesses headings only as score drivers.
     const cards = wrapper.findAll("article.card");
     const experience = cards.find((c) => c.text().includes("Experience"));
-    expect(experience?.text()).toMatch(/Facts \/ context/i);
+    expect(experience?.text()).not.toMatch(/Facts \/ context/i);
     expect(experience?.text()).toMatch(/none confirmed/i);
     expect(experience?.text()).not.toMatch(/Weaknesses[\s\S]*none confirmed/i);
   });

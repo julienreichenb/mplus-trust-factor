@@ -141,6 +141,10 @@ export const publicDimensionExplainabilityV1Schema = z.object({
       label: z.string().min(1),
       direction: scoreDriverDirectionSchema,
       value: z.number().finite().nullable().optional(),
+      qualitativeLabel: z
+        .enum(["VERY GOOD", "GOOD", "BAD", "VERY BAD"])
+        .nullable()
+        .optional(),
     }),
   ),
   confidenceReasons: z.array(

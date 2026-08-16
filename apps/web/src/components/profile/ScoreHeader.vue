@@ -21,6 +21,10 @@ const props = defineProps<{
   displayedCharacterIsMain?: boolean;
 }>();
 
+const emit = defineEmits<{
+  openBoostAlert: [];
+}>();
+
 const grade = computed(() => presentGrade(props.profile.score?.grade));
 const confidence = computed(() => resolveDataConfidence(props.profile));
 const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
@@ -302,7 +306,11 @@ const gradeAriaLabel = computed(() => {
               <ActiveRerolls v-if="activeRerolls?.length" :characters="activeRerolls" />
             </div>
 
-            <HeroInsightAccordion :profile="profile" />
+            <HeroInsightAccordion
+              :profile="profile"
+              :boost-assessment="profile.boostAssessment"
+              @open-boost-alert="emit('openBoostAlert')"
+            />
           </div>
 
           <div v-if="profile.seasonSummary?.mythicRating != null" class="mythic-score-glass">

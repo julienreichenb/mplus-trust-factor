@@ -128,7 +128,8 @@ describe("HeroInsightAccordion", () => {
     });
     expect(wrapper.text()).toContain("Strong Phase 1 performance");
     expect(wrapper.text()).toContain("Cooldown below neutral");
-    expect(wrapper.text()).toContain("Previous-season activity: none confirmed");
+    expect(wrapper.text()).not.toContain("Facts / context");
+    expect(wrapper.text()).not.toContain("Previous-season activity: none confirmed");
     expect(wrapper.find("[data-testid='explainability-fallback']").exists()).toBe(false);
   });
 });

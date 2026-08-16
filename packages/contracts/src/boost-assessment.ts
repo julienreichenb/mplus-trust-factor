@@ -143,3 +143,15 @@ export interface BoostAssessmentPublicDTO {
 
 export const BOOST_ASSESSMENT_PUBLIC_DISCLAIMER =
   "Heuristic indicator based on public gameplay evidence. It does not prove paid boosting, account sharing, or player identity.";
+
+/** Product HIGH-alert gate — uses persisted band, never a frontend score threshold. */
+export function isHighBoostSuspicionAlert(
+  assessment: BoostAssessmentPublicDTO | null | undefined,
+): boolean {
+  return (
+    assessment?.applicability.status === "APPLICABLE" &&
+    assessment.suspicionBand === "HIGH" &&
+    assessment.suspicionScore != null &&
+    Number.isFinite(assessment.suspicionScore)
+  );
+}

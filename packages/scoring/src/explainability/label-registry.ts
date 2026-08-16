@@ -125,7 +125,7 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
     labelKey: "score.utility.interrupt_attempt_credit",
     template:
       "Interrupt credit: {confirmedSuccess} landed, {validOverlap} overlapping attempts, {matchedFailed} misses",
-    visibility: "PUBLIC",
+    visibility: "AUDIT_ONLY",
   },
   "utility.applicability_uncertain": {
     labelKey: "score.utility.applicability_uncertain",

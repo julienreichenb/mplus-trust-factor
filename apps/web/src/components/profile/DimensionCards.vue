@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { DimensionScoreDTO, PerformanceSummaryDTO } from "@mplus/contracts";
-import type { ScoringRunSelection } from "../../api/types";
+import type {
+  BoostRunEvidencePublicDTO,
+  CanonicalDungeonEvidencePublicDTO,
+  DimensionScoreDTO,
+  PerformanceSummaryDTO,
+  SurvivalSummaryPublicDTO,
+} from "@mplus/contracts";
+import type { ScoringRunSelection, SelectedRunSummaryDTO } from "../../api/types";
 import {
   DIMENSION_LABELS,
   filterDimensionsForModel,
@@ -16,6 +22,7 @@ import MetaChip from "../common/MetaChip.vue";
 import KeySignalRow from "./KeySignalRow.vue";
 import PerformanceSummaryPanel from "./PerformanceSummaryPanel.vue";
 import SelectedRunsSection from "./SelectedRunsSection.vue";
+import type { RunDrawerModel } from "./RunDetailsDrawer.vue";
 
 const props = defineProps<{
   dimensions: DimensionScoreDTO[];
@@ -23,7 +30,15 @@ const props = defineProps<{
   modelVersion?: number | null;
   performanceSummary?: PerformanceSummaryDTO | null;
   runSelection?: ScoringRunSelection | null;
+  selectedRunDetails?: SelectedRunSummaryDTO[];
+  canonicalDungeonEvidence?: CanonicalDungeonEvidencePublicDTO[];
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
+  boostRunEvidence?: BoostRunEvidencePublicDTO[] | null;
   runsLocked?: boolean;
+}>();
+
+const emit = defineEmits<{
+  openRun: [run: RunDrawerModel];
 }>();
 
 const cards = computed(() =>
@@ -45,9 +60,10 @@ const cards = computed(() =>
         (explain.strengths.length > 0 ||
           explain.weaknesses.length > 0 ||
           explain.facts.length > 0);
-      const showConfidenceStory =
-        explain.hasExplainability &&
-        (explain.confidenceReasons.length > 0 || explain.fullConfidence);
+        const showEvidenceNote =
+          explain.hasExplainability &&
+          explain.confidenceReasons.length > 0 &&
+          !explain.fullConfidence;
       return {
         ...d,
         dimKey,
@@ -55,7 +71,7 @@ const cards = computed(() =>
         unavailable,
         explain,
         hasScoreStory,
-        showConfidenceStory,
+        showEvidenceNote,
         weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
         confidenceLabel:
           unavailable || d.confidence == null ? "—" : formatPercent(d.confidence * 100, 0),
@@ -114,8 +130,9 @@ const cards = computed(() =>
         >
           <MetaChip role="listitem" label="Weight" :value="card.weightLabel" />
           <MetaChip
+            v-if="!card.explain.fullConfidence"
             role="listitem"
-            label="Confidence"
+            label="Evidence"
             :value="card.confidenceLabel"
             value-class="mpts-data"
           />
@@ -128,7 +145,6 @@ const cards = computed(() =>
             class="card__block"
             data-testid="confidence-reasons"
           >
-            <h4 class="card__subtitle">Why confidence is limited</h4>
             <ul class="card__signals" :aria-label="`${card.label} confidence reasons`">
               <KeySignalRow
                 v-for="(signal, index) in card.explain.confidenceReasons"
@@ -146,7 +162,6 @@ const cards = computed(() =>
             class="card__block"
             data-testid="score-drivers"
           >
-            <h4 class="card__subtitle">What affects your score</h4>
             <div v-if="card.explain.strengths.length" class="card__group">
               <p class="card__group-label" data-kind="positive">Strengths</p>
               <ul class="card__signals" :aria-label="`${card.label} strengths`">
@@ -170,7 +185,6 @@ const cards = computed(() =>
               </ul>
             </div>
             <div v-if="card.explain.facts.length" class="card__group">
-              <p class="card__group-label" data-kind="fact">Facts / context</p>
               <ul class="card__signals" :aria-label="`${card.label} score facts`">
                 <KeySignalRow
                   v-for="(signal, index) in card.explain.facts"
@@ -193,20 +207,13 @@ const cards = computed(() =>
           </p>
 
           <div
-            v-if="card.showConfidenceStory"
+            v-if="card.showEvidenceNote"
             class="card__block card__block--confidence"
             data-testid="confidence-reasons"
           >
-            <h4 class="card__subtitle">
-              Why confidence is {{ card.confidenceLabel }}
-            </h4>
-            <p v-if="card.explain.fullConfidence" class="card__full-conf">
-              Full confidence
-            </p>
             <ul
-              v-else
               class="card__signals"
-              :aria-label="`${card.label} confidence reasons`"
+              :aria-label="`${card.label} evidence notes`"
             >
               <KeySignalRow
                 v-for="(signal, index) in card.explain.confidenceReasons"
@@ -223,11 +230,16 @@ const cards = computed(() =>
     <SelectedRunsSection
       embedded
       :selection="runSelection"
+      :selected-run-details="selectedRunDetails"
+      :canonical-dungeon-evidence="canonicalDungeonEvidence"
       :locked="runsLocked"
+      @open-run="emit('openRun', $event)"
     />
 
     <PerformanceSummaryPanel
       :summary="performanceSummary"
+      :canonical-dungeon-evidence="canonicalDungeonEvidence"
+      :survival-summary="survivalSummary"
       :locked="locked"
       embedded
     />
@@ -321,16 +333,6 @@ const cards = computed(() =>
 
 .card__block--confidence {
   border-top-style: dashed;
-}
-
-.card__subtitle {
-  margin: 0;
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
 }
 
 .card__group {

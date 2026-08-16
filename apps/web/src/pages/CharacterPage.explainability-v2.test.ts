@@ -216,6 +216,8 @@ describe("CharacterPage score explanation authority", () => {
           CharacterPortraitStage: true,
           ScoreHeader: true,
           BoostSuspicionSection: true,
+          BoostSuspicionAlertDialog: true,
+          RunDetailsDrawer: true,
           WclVisibilityBanner: true,
           DataProvenancePanel: true,
           MethodologyPanel: true,

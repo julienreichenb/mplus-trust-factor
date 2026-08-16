@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { PerformanceSummaryDTO } from "@mplus/contracts";
+import type { CanonicalDungeonEvidencePublicDTO, PerformanceSummaryDTO, SurvivalSummaryPublicDTO } from "@mplus/contracts";
 import { resolveParsePercentileColor } from "../../lib/parsePercentileColor";
-import { sanitizeWarcraftLogsUrl } from "../../lib/warcraftLogsUrl";
+import { dungeonBackgroundUrl } from "../../lib/dungeonArt";
+import CanonicalSelectedRunLinks from "./CanonicalSelectedRunLinks.vue";
 
 const props = defineProps<{
   summary: PerformanceSummaryDTO | null | undefined;
+  canonicalDungeonEvidence?: CanonicalDungeonEvidencePublicDTO[];
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
   locked?: boolean;
   /** When true, omit the section heading (parent owns the title). */
   embedded?: boolean;
@@ -24,17 +27,6 @@ const LEGACY_STAT_TOOLTIPS = {
     "Current-season performance blend: 65% Peak + 35% Consistency. Missing dungeons are omitted from the average — never scored as zero.",
   coverage:
     "How many of the expected season dungeons have usable WCL percentile data. Lower coverage reduces confidence, not the score itself.",
-} as const;
-
-const ROLE_AWARE_TOOLTIPS = {
-  bestAverage: "Equal-weighted average of Best % parse percentiles across active dungeons.",
-  medianAverage:
-    "Equal-weighted average of Median % parse percentiles across active dungeons.",
-  damageParse: "Role-aware damage throughput parse score from profile zone rankings.",
-  healingParse: "Role-aware healing throughput parse score from profile zone rankings.",
-  performance: "Final Performance dimension score for this role.",
-  coverage:
-    "How many active dungeon cells have usable parse percentiles per throughput channel.",
 } as const;
 
 const hasRenderableData = computed(() => {
@@ -61,9 +53,9 @@ function parsePctClass(value: number | null | undefined): string {
   return resolveParsePercentileColor(value).className;
 }
 
-type ExplanatoryRun = NonNullable<
-  NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number]["bestRun"]
->;
+function dungeonArtUrl(slug: string): string | null {
+  return dungeonBackgroundUrl(slug);
+}
 
 type LegacyDungeon = NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number];
 
@@ -123,35 +115,6 @@ const healerRows = computed((): HealerDungeonRow[] => {
   });
 });
 
-const roleAwareCoverageLabel = computed(() => {
-  const ra = roleAware.value;
-  if (!ra) return "";
-  if (ra.role === "HEALER" && ra.healing) {
-    return `Heal ${ra.healing.availableCells}/${ra.healing.expectedCells} · Damage ${ra.damage.availableCells}/${ra.damage.expectedCells}`;
-  }
-  return `${ra.damage.availableCells}/${ra.damage.expectedCells} dungeons`;
-});
-
-/** Preserve best → latest order; collapse identical BOTH entries to one numbered link. */
-function selectedRunEntries(
-  dungeon: LegacyDungeon | null | undefined,
-): Array<{ index: number; run: ExplanatoryRun }> {
-  if (!dungeon) return [];
-  const runs: ExplanatoryRun[] = [];
-  if (dungeon.bestRun) runs.push(dungeon.bestRun);
-  if (
-    dungeon.latestRun &&
-    (!dungeon.bestRun || dungeon.latestRun.runId !== dungeon.bestRun.runId)
-  ) {
-    runs.push(dungeon.latestRun);
-  }
-  return runs.map((run, i) => ({ index: i + 1, run }));
-}
-
-function safeWclUrl(url: string | null | undefined): string | null {
-  return sanitizeWarcraftLogsUrl(url);
-}
-
 function formatHealerLoggedRuns(
   healing: number | null | undefined,
   damage: number | null | undefined,
@@ -186,49 +149,33 @@ function formatHealerLoggedRuns(
     </template>
 
     <template v-else-if="roleAware">
-      <dl class="cards" data-testid="performance-summary-role-aware-cards">
+      <dl
+        v-if="roleAware.role === 'HEALER' || roleAware.role === 'TANK'"
+        class="cards"
+        data-testid="performance-summary-role-aware-cards"
+      >
         <template v-if="roleAware.role === 'HEALER'">
-          <div class="card" tabindex="0">
-            <dt>Healing parse</dt>
+          <div class="card">
+            <dt>Healing</dt>
             <dd class="mpts-data">{{ formatScore(roleAware.healing?.score) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.healingParse }}</span>
+            <span class="card__hint">Healing parse mix this season</span>
           </div>
-          <div class="card" tabindex="0">
-            <dt>Damage parse</dt>
+          <div class="card">
+            <dt>Damage</dt>
             <dd class="mpts-data">{{ formatScore(roleAware.damage.score) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.damageParse }}</span>
-          </div>
-          <div class="card" tabindex="0">
-            <dt>Performance</dt>
-            <dd class="mpts-data">{{ formatScore(roleAware.performanceScore) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.performance }}</span>
-          </div>
-          <div class="card" tabindex="0">
-            <dt>Coverage</dt>
-            <dd class="mpts-data">{{ roleAwareCoverageLabel }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.coverage }}</span>
+            <span class="card__hint">Damage parse mix this season</span>
           </div>
         </template>
-        <template v-else>
-          <div class="card" tabindex="0">
-            <dt>Best avg</dt>
-            <dd class="mpts-data">{{ formatPct(roleAware.damage.bestAverage) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.bestAverage }}</span>
-          </div>
-          <div class="card" tabindex="0">
-            <dt>Median avg</dt>
-            <dd class="mpts-data">{{ formatPct(roleAware.damage.medianAverage) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.medianAverage }}</span>
-          </div>
-          <div class="card" tabindex="0">
-            <dt>Damage parse</dt>
+        <template v-else-if="roleAware.role === 'TANK'">
+          <div class="card">
+            <dt>Damage</dt>
             <dd class="mpts-data">{{ formatScore(roleAware.damage.score) }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.damageParse }}</span>
+            <span class="card__hint">Damage parse mix this season</span>
           </div>
-          <div class="card" tabindex="0">
-            <dt>Coverage</dt>
-            <dd class="mpts-data">{{ roleAwareCoverageLabel }}</dd>
-            <span class="card__tip" role="tooltip">{{ ROLE_AWARE_TOOLTIPS.coverage }}</span>
+          <div class="card">
+            <dt>Survival</dt>
+            <dd class="mpts-data">{{ formatScore(survivalSummary?.score) }}</dd>
+            <span class="card__hint">How well this tank lives through keys</span>
           </div>
         </template>
       </dl>
@@ -238,6 +185,9 @@ function formatHealerLoggedRuns(
           <caption class="sr-only">Per-dungeon healing and damage parse percentiles</caption>
           <thead>
             <tr>
+              <th scope="col" rowspan="2" class="dungeon-art-col">
+                <span class="sr-only">Dungeon art</span>
+              </th>
               <th scope="col" rowspan="2">Dungeon</th>
               <th scope="colgroup" colspan="2">Healing</th>
               <th scope="colgroup" colspan="2">Damage</th>
@@ -253,6 +203,14 @@ function formatHealerLoggedRuns(
           </thead>
           <tbody>
             <tr v-for="row in healerRows" :key="row.dungeonSlug">
+              <td class="dungeon-art-col">
+                <img
+                  v-if="dungeonArtUrl(row.dungeonSlug)"
+                  class="dungeon-art"
+                  :src="dungeonArtUrl(row.dungeonSlug)!"
+                  alt=""
+                />
+              </td>
               <th scope="row">{{ row.dungeonName }}</th>
               <td class="mpts-data">
                 <span class="parse-pct" :class="parsePctClass(row.healingBest)">{{
@@ -278,31 +236,10 @@ function formatHealerLoggedRuns(
                 formatHealerLoggedRuns(row.healingLoggedRuns, row.damageLoggedRuns)
               }}</td>
               <td>
-                <span
-                  v-if="selectedRunEntries(row.legacyDungeon).length === 0"
-                  class="selected-runs selected-runs--empty"
-                >—</span>
-                <span v-else class="selected-runs" data-testid="selected-run-links">
-                  <template
-                    v-for="(entry, i) in selectedRunEntries(row.legacyDungeon)"
-                    :key="entry.run.runId + entry.index"
-                  >
-                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
-                    <a
-                      v-if="safeWclUrl(entry.run.wclUrl)"
-                      class="selected-runs__link"
-                      :href="safeWclUrl(entry.run.wclUrl)!"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
-                    >{{ entry.index }}</a>
-                    <span
-                      v-else
-                      class="selected-runs__plain"
-                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
-                    >{{ entry.index }}</span>
-                  </template>
-                </span>
+                <CanonicalSelectedRunLinks
+                  :dungeon-slug="row.dungeonSlug"
+                  :canonical-dungeon-evidence="canonicalDungeonEvidence"
+                />
               </td>
             </tr>
           </tbody>
@@ -314,6 +251,9 @@ function formatHealerLoggedRuns(
           <caption class="sr-only">Per-dungeon Best and Median parse percentiles</caption>
           <thead>
             <tr>
+              <th scope="col" class="dungeon-art-col">
+                <span class="sr-only">Dungeon art</span>
+              </th>
               <th scope="col">Dungeon</th>
               <th scope="col">Best %</th>
               <th scope="col">Median %</th>
@@ -326,6 +266,14 @@ function formatHealerLoggedRuns(
               v-for="dungeon in roleAware.damage.dungeons"
               :key="dungeon.dungeonSlug"
             >
+              <td class="dungeon-art-col">
+                <img
+                  v-if="dungeonArtUrl(dungeon.dungeonSlug)"
+                  class="dungeon-art"
+                  :src="dungeonArtUrl(dungeon.dungeonSlug)!"
+                  alt=""
+                />
+              </td>
               <th scope="row">{{ dungeon.dungeonName }}</th>
               <td class="mpts-data">
                 <span
@@ -341,31 +289,10 @@ function formatHealerLoggedRuns(
               </td>
               <td class="mpts-data">{{ dungeon.loggedRunCount }}</td>
               <td>
-                <span
-                  v-if="selectedRunEntries(legacyDungeonBySlug.get(dungeon.dungeonSlug)).length === 0"
-                  class="selected-runs selected-runs--empty"
-                >—</span>
-                <span v-else class="selected-runs" data-testid="selected-run-links">
-                  <template
-                    v-for="(entry, i) in selectedRunEntries(legacyDungeonBySlug.get(dungeon.dungeonSlug))"
-                    :key="entry.run.runId + entry.index"
-                  >
-                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
-                    <a
-                      v-if="safeWclUrl(entry.run.wclUrl)"
-                      class="selected-runs__link"
-                      :href="safeWclUrl(entry.run.wclUrl)!"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
-                    >{{ entry.index }}</a>
-                    <span
-                      v-else
-                      class="selected-runs__plain"
-                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
-                    >{{ entry.index }}</span>
-                  </template>
-                </span>
+                <CanonicalSelectedRunLinks
+                  :dungeon-slug="dungeon.dungeonSlug"
+                  :canonical-dungeon-evidence="canonicalDungeonEvidence"
+                />
               </td>
             </tr>
           </tbody>
@@ -410,6 +337,9 @@ function formatHealerLoggedRuns(
           <caption class="sr-only">Per-dungeon Best and Median parse percentiles</caption>
           <thead>
             <tr>
+              <th scope="col" class="dungeon-art-col">
+                <span class="sr-only">Dungeon art</span>
+              </th>
               <th scope="col">Dungeon</th>
               <th scope="col">Best %</th>
               <th scope="col">Median %</th>
@@ -419,6 +349,14 @@ function formatHealerLoggedRuns(
           </thead>
           <tbody>
             <tr v-for="d in current!.dungeons" :key="d.dungeonSlug">
+              <td class="dungeon-art-col">
+                <img
+                  v-if="dungeonArtUrl(d.dungeonSlug)"
+                  class="dungeon-art"
+                  :src="dungeonArtUrl(d.dungeonSlug)!"
+                  alt=""
+                />
+              </td>
               <th scope="row">{{ d.dungeonName }}</th>
               <td class="mpts-data">
                 <span
@@ -434,28 +372,10 @@ function formatHealerLoggedRuns(
               </td>
               <td class="mpts-data">{{ d.loggedRunCount }}</td>
               <td>
-                <span
-                  v-if="selectedRunEntries(d).length === 0"
-                  class="selected-runs selected-runs--empty"
-                >—</span>
-                <span v-else class="selected-runs" data-testid="selected-run-links">
-                  <template v-for="(entry, i) in selectedRunEntries(d)" :key="entry.run.runId + entry.index">
-                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
-                    <a
-                      v-if="safeWclUrl(entry.run.wclUrl)"
-                      class="selected-runs__link"
-                      :href="safeWclUrl(entry.run.wclUrl)!"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
-                    >{{ entry.index }}</a>
-                    <span
-                      v-else
-                      class="selected-runs__plain"
-                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
-                    >{{ entry.index }}</span>
-                  </template>
-                </span>
+                <CanonicalSelectedRunLinks
+                  :dungeon-slug="d.dungeonSlug"
+                  :canonical-dungeon-evidence="canonicalDungeonEvidence"
+                />
               </td>
             </tr>
           </tbody>
@@ -518,6 +438,15 @@ function formatHealerLoggedRuns(
   font-weight: 600;
 }
 
+.card__hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .card__tip {
   position: absolute;
   left: 0;
@@ -560,7 +489,21 @@ td {
   text-align: left;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
-  vertical-align: top;
+  vertical-align: middle;
+}
+
+.dungeon-art-col {
+  width: 3.25rem;
+  padding-right: var(--space-2);
+}
+
+.dungeon-art {
+  display: block;
+  width: 2.75rem;
+  height: 1.85rem;
+  object-fit: cover;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
 }
 
 .parse-pct {
@@ -597,31 +540,5 @@ td {
 
 .parse-pct--gold {
   color: var(--color-parse-gold);
-}
-
-.selected-runs {
-  display: inline;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.selected-runs__link {
-  color: var(--color-gold-300);
-  text-decoration: none;
-}
-
-.selected-runs__link:hover,
-.selected-runs__link:focus-visible {
-  color: var(--color-brand-hover);
-  text-decoration: underline;
-  outline: none;
-}
-
-.selected-runs__plain {
-  color: var(--color-text-muted);
-}
-
-.selected-runs--empty {
-  color: var(--color-text-muted);
 }
 </style>

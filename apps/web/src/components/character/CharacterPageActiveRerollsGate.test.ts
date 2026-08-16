@@ -16,6 +16,7 @@ vi.mock("../../composables/useAuthSession", () => ({
     canSeeAdminNav: ref(false),
     me: ref({ authenticated: false }),
     loading: ref(false),
+    hasPermission: () => false,
   }),
 }));
 
@@ -89,6 +90,8 @@ describe("CharacterPage Active Rerolls anonymous gate", () => {
           ScoreHeader: true,
           DimensionCards: true,
           BoostSuspicionSection: true,
+          BoostSuspicionAlertDialog: true,
+          RunDetailsDrawer: true,
           WclVisibilityBanner: true,
           KeySignalsPanel: true,
           DataProvenancePanel: true,

@@ -18,7 +18,11 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import {
+  deriveWclContributionTypes,
+  normalizeWclProvenance,
+  PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+} from "@mplus/contracts";
 import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   decideScoreRefresh,
@@ -44,6 +48,14 @@ import {
   type RefreshJobControlDeps,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
+import {
+  projectCanonicalDungeonEvidence,
+  parsePersistedCanonicalEvidenceSlots,
+  projectScoreCalculationPublic,
+  projectCooldownReplayFromDigest,
+  canonicalFightIdentityKey,
+  selectExactCanonicalRunDigest,
+} from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining } from "../lib/freshness.js";
@@ -75,6 +87,107 @@ import {
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const PROFILE_PATH_PREFIX = "/character";
+
+async function loadWclMasterDataActorsByRawRunId(
+  prisma: { $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<unknown> },
+  rawRunIds: string[],
+): Promise<Map<string, unknown>> {
+  const actorsByRawRunId = new Map<string, unknown>();
+  if (rawRunIds.length === 0) return actorsByRawRunId;
+  const placeholders = rawRunIds.map((_, index) => `$${index + 1}::uuid`).join(", ");
+  const rows = (await prisma.$queryRawUnsafe(
+    `SELECT id::text AS id, payload->'masterData'->'actors' AS actors
+     FROM wcl_run_raw
+     WHERE id IN (${placeholders})`,
+    ...rawRunIds,
+  )) as Array<{ id: string; actors: unknown }>;
+  for (const row of rows) {
+    actorsByRawRunId.set(row.id, row.actors ?? []);
+  }
+  return actorsByRawRunId;
+}
+
+async function loadPartyDeathsByRawRunId(
+  prisma: {
+    characterRunDigest: {
+      findMany: (args: {
+        where: { rawRunId: { in: string[] }; extractorVersion: string };
+        select: {
+          rawRunId: true;
+          participantActorId: true;
+          characterName: true;
+          classSlug: true;
+          survival: true;
+        };
+      }) => Promise<
+        Array<{
+          rawRunId: string;
+          participantActorId: number;
+          characterName: string;
+          classSlug: string | null;
+          survival: unknown;
+        }>
+      >;
+    };
+  },
+  rawRunIds: string[],
+): Promise<
+  Map<
+    string,
+    {
+      deaths: unknown[];
+      roster: Array<{ participantActorId: number; name: string; classSlug: string | null }>;
+    }
+  >
+> {
+  const byRawRunId = new Map<
+    string,
+    {
+      deaths: unknown[];
+      roster: Array<{ participantActorId: number; name: string; classSlug: string | null }>;
+    }
+  >();
+  if (rawRunIds.length === 0) return byRawRunId;
+  const rows = await prisma.characterRunDigest.findMany({
+    where: {
+      rawRunId: { in: rawRunIds },
+      extractorVersion: PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+    },
+    select: {
+      rawRunId: true,
+      participantActorId: true,
+      characterName: true,
+      classSlug: true,
+      survival: true,
+    },
+  });
+  for (const row of rows) {
+    const survival =
+      row.survival && typeof row.survival === "object" && !Array.isArray(row.survival)
+        ? (row.survival as { deaths?: unknown; timeline?: { deaths?: unknown } })
+        : null;
+    const rawDeaths = Array.isArray(survival?.deaths)
+      ? survival.deaths
+      : Array.isArray(survival?.timeline?.deaths)
+        ? survival.timeline.deaths
+        : [];
+    const deaths = rawDeaths.map((death) => {
+      if (!death || typeof death !== "object" || Array.isArray(death)) return death;
+      const rec = death as Record<string, unknown>;
+      if (typeof rec.participantActorId === "number" && rec.participantActorId > 0) return death;
+      return { ...rec, participantActorId: row.participantActorId };
+    });
+    const existing = byRawRunId.get(row.rawRunId) ?? { deaths: [], roster: [] };
+    existing.deaths.push(...deaths);
+    existing.roster.push({
+      participantActorId: row.participantActorId,
+      name: row.characterName,
+      classSlug: row.classSlug,
+    });
+    byRawRunId.set(row.rawRunId, existing);
+  }
+  return byRawRunId;
+}
 
 /** Process-local serialize exact-resolve bootstrap/repair per identity (tests + single API instance). */
 const resolveIdentityLocks = new Map<string, Promise<void>>();
@@ -1392,7 +1505,228 @@ export class CharacterService {
       );
     }
 
-    return { ...base, ...enrichments, explainabilityV2, boostAssessment };
+    const scoreCalculation = projectScoreCalculationPublic({
+      overallFormula:
+        typeof (base.score?.explanation as { overallFormula?: unknown } | null)?.overallFormula ===
+        "string"
+          ? (base.score?.explanation as { overallFormula: string }).overallFormula
+          : "WEIGHTED_DIMENSIONS",
+      role: characterDetail.role ?? null,
+      effectiveWeights:
+        ((base.score?.explanation as { effectiveWeights?: Record<string, number> } | null)
+          ?.effectiveWeights ??
+          Object.fromEntries(
+            (base.score?.dimensions ?? []).map((d) => [d.dimension.toLowerCase(), d.weight]),
+          )) as Record<string, number>,
+      dimensionScores: Object.fromEntries(
+        (base.score?.dimensions ?? []).map((d) => [d.dimension.toLowerCase(), d.score]),
+      ),
+      performanceMix: performanceSummary?.roleAware?.weightsApplied ?? null,
+    });
+    const scoreRow = await this.container.worker.prisma.characterScore.findFirst({
+      where: {
+        characterId: character.id,
+        ...(snapshot?.seasonId ? { seasonId: snapshot.seasonId } : {}),
+      },
+      orderBy: { calculatedAt: "desc" },
+      select: { selectedRuns: true, seasonId: true },
+    });
+    const persistedEvidenceSlots = parsePersistedCanonicalEvidenceSlots(scoreRow?.selectedRuns);
+    const manifestSeasonId = snapshot?.seasonId ?? scoreRow?.seasonId ?? null;
+    const manifest = manifestSeasonId
+      ? await this.container.worker.prisma.evidenceManifest.findFirst({
+          where: { characterId: character.id, seasonId: manifestSeasonId },
+          orderBy: { frozenAt: "desc" },
+          select: {
+            slots: {
+              select: {
+                slotIndex: true,
+                keyLevel: true,
+                reportCode: true,
+                fightId: true,
+                dungeon: { select: { slug: true } },
+                run: { select: { completedAt: true, keyLevel: true } },
+              },
+            },
+          },
+        })
+      : null;
+    const manifestSlots = (manifest?.slots ?? []).flatMap((slot) => {
+      const slotIndex: 0 | 1 | null = slot.slotIndex === 1 ? 1 : slot.slotIndex === 0 ? 0 : null;
+      if (slotIndex == null) return [];
+      return [
+        {
+          dungeonSlug: slot.dungeon.slug,
+          slotIndex,
+          keyLevel: slot.keyLevel ?? slot.run?.keyLevel ?? null,
+          completedAt: slot.run?.completedAt?.toISOString() ?? null,
+          reportCode: slot.reportCode,
+          fightId: slot.fightId,
+        },
+      ];
+    });
+    const fightFilters = persistedEvidenceSlots.flatMap((slot) => {
+      if (!slot.reportCode || slot.fightId == null) return [];
+      return [{ reportCode: slot.reportCode, fightId: slot.fightId }];
+    });
+    const primaryFightFilters = persistedEvidenceSlots.flatMap((slot) => {
+      if (slot.slotIndex !== 0 || !slot.reportCode || slot.fightId == null) return [];
+      return [{ reportCode: slot.reportCode, fightId: slot.fightId }];
+    });
+    const digestFactRows =
+      fightFilters.length > 0
+        ? await this.container.worker.prisma.characterRunDigest.findMany({
+            where: {
+              characterId: character.id,
+              rawRun: { OR: fightFilters },
+            },
+            select: {
+              participantActorId: true,
+              extractorVersion: true,
+              sourceMetadata: true,
+              rawRun: {
+                select: { reportCode: true, fightId: true, reportRevision: true },
+              },
+            },
+          })
+        : [];
+    const primaryDigestRows =
+      primaryFightFilters.length > 0
+        ? await this.container.worker.prisma.characterRunDigest.findMany({
+            where: {
+              characterId: character.id,
+              rawRun: { OR: primaryFightFilters },
+            },
+            select: {
+              participantActorId: true,
+              extractorVersion: true,
+              classSlug: true,
+              specSlug: true,
+              offensive: true,
+              utility: true,
+              survival: true,
+              rawRun: {
+                select: { id: true, reportCode: true, fightId: true, reportRevision: true },
+              },
+            },
+          })
+        : [];
+    const digestFacts: Array<{
+      reportCode: string;
+      fightId: number;
+      keyLevel: number | null;
+      completedAt: string | null;
+    }> = [];
+    const cooldownByFightKey: Record<
+      string,
+      ReturnType<typeof projectCooldownReplayFromDigest>
+    > = {};
+    const primaryCooldownPicks: Array<{
+      fightKey: string;
+      reportCode: string;
+      fightId: number;
+      digestRow: (typeof primaryDigestRows)[number] | null;
+    }> = [];
+    for (const slot of persistedEvidenceSlots) {
+      const fightKey = canonicalFightIdentityKey(slot.reportCode, slot.fightId);
+      if (!fightKey || !slot.reportCode || slot.fightId == null) continue;
+      const identitySlot = {
+        reportCode: slot.reportCode,
+        fightId: slot.fightId,
+        reportRevision: slot.reportRevision,
+        participantActorId: slot.participantActorId,
+      };
+      const factRow = selectExactCanonicalRunDigest(
+        digestFactRows,
+        identitySlot,
+        PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+      );
+      if (factRow) {
+        const nested =
+          factRow.sourceMetadata && typeof factRow.sourceMetadata === "object"
+            ? ((factRow.sourceMetadata as { digest?: Record<string, unknown> }).digest ??
+              (factRow.sourceMetadata as Record<string, unknown>))
+            : {};
+        digestFacts.push({
+          reportCode: slot.reportCode,
+          fightId: slot.fightId,
+          keyLevel:
+            typeof nested.keyLevel === "number" && Number.isFinite(nested.keyLevel)
+              ? nested.keyLevel
+              : null,
+          completedAt: typeof nested.completedAt === "string" ? nested.completedAt : null,
+        });
+      }
+      if (slot.slotIndex !== 0) continue;
+      const digestRow = selectExactCanonicalRunDigest(
+        primaryDigestRows,
+        identitySlot,
+        PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+      );
+      primaryCooldownPicks.push({
+        fightKey,
+        reportCode: slot.reportCode,
+        fightId: slot.fightId,
+        digestRow,
+      });
+    }
+    const actorsByRawRunId = await loadWclMasterDataActorsByRawRunId(
+      this.container.worker.prisma,
+      [
+        ...new Set(
+          primaryCooldownPicks
+            .map((pick) => pick.digestRow?.rawRun.id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        ),
+      ],
+    );
+    const partyDeathsByRawRunId = await loadPartyDeathsByRawRunId(
+      this.container.worker.prisma,
+      [
+        ...new Set(
+          primaryCooldownPicks
+            .map((pick) => pick.digestRow?.rawRun.id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        ),
+      ],
+    );
+    for (const pick of primaryCooldownPicks) {
+      cooldownByFightKey[pick.fightKey] = projectCooldownReplayFromDigest(
+        pick.digestRow
+          ? {
+              reportCode: pick.reportCode,
+              fightId: pick.fightId,
+              participantActorId: pick.digestRow.participantActorId,
+              classSlug: pick.digestRow.classSlug,
+              specSlug: pick.digestRow.specSlug,
+              offensive: pick.digestRow.offensive,
+              utility: pick.digestRow.utility,
+              survival: pick.digestRow.survival,
+              partyDeaths: partyDeathsByRawRunId.get(pick.digestRow.rawRun.id)?.deaths ?? [],
+              partyRoster: partyDeathsByRawRunId.get(pick.digestRow.rawRun.id)?.roster ?? [],
+              hostileActors: actorsByRawRunId.get(pick.digestRow.rawRun.id) ?? [],
+            }
+          : null,
+      );
+    }
+    const canonicalDungeonEvidence = projectCanonicalDungeonEvidence({
+      scoringRunSelection,
+      explainabilityV2,
+      wclUrlByRunId,
+      persistedEvidenceSlots,
+      manifestSlots,
+      digestFacts,
+      cooldownByFightKey,
+    });
+
+    return {
+      ...base,
+      ...enrichments,
+      explainabilityV2,
+      boostAssessment,
+      scoreCalculation,
+      canonicalDungeonEvidence,
+    };
   }
 
   /** SWR profile read. 200 fresh/stale (background refresh enqueued when stale), 202 queued, 404 confirmed absent. */
