@@ -45,4 +45,10 @@ describe("signed peer-gap inspections", () => {
     expect(rows[0]!.greenSeverity).toBeGreaterThan(0);
     expect(rows[0]!.redSeverity).toBe(0);
   });
+
+  it("classifies extreme from signed delta without absolute subject/peer gates", () => {
+    const rows = inspectComparablePeerGapRuns([run(0, 35, 85, "d0")]);
+    expect(rows[0]!.performanceDelta).toBe(-50);
+    expect(rows[0]!.classification).toBe("RED_EXTREME");
+  });
 });

@@ -12,6 +12,7 @@ import {
   dungeonRunSlotWeight,
   isGreenPeerClass,
   isRedPeerClass,
+  peerMismatchSuspicionFloor,
   performanceDelta,
   signedDeltaSeverity,
 } from "./policy.js";
@@ -80,6 +81,10 @@ function rosterComplete(run: BoostAssessmentExtractorInput["runs"][number], subj
 function combineSuspicion(args: {
   signals: BoostAssessmentInternalSignal[];
   extremePrimaryDungeonCount: number;
+  analyzablePrimaryRunCount: number;
+  redPrimaryCount: number;
+  veryStrongPrimaryCount: number;
+  medianPrimaryPerformanceDelta: number | null;
 }): number {
   const contrib = (code: BoostSignalCode) =>
     args.signals.find((s) => s.code === code && s.status === "COMPUTED")?.contribution ?? 0;
@@ -105,11 +110,16 @@ function combineSuspicion(args: {
   if (positive.length === 1 && positive[0]?.code === "HIGHEST_RUN_TEMPORAL_CLUSTER") {
     raw = Math.min(raw, BOOST_ASSESSMENT_POLICY.temporalAloneSuspicionCap);
   }
-  if (args.extremePrimaryDungeonCount >= 5) {
-    raw = Math.max(raw, BOOST_ASSESSMENT_POLICY.extremePrimaryFiveSuspicionFloor);
-  } else if (args.extremePrimaryDungeonCount >= BOOST_ASSESSMENT_POLICY.extremePrimaryDungeonFloor) {
-    raw = Math.max(raw, BOOST_ASSESSMENT_POLICY.extremePrimarySuspicionFloor);
-  }
+  raw = Math.max(
+    raw,
+    peerMismatchSuspicionFloor({
+      analyzablePrimaryRunCount: args.analyzablePrimaryRunCount,
+      redPrimaryCount: args.redPrimaryCount,
+      veryStrongPrimaryCount: args.veryStrongPrimaryCount,
+      extremePrimaryDungeonCount: args.extremePrimaryDungeonCount,
+      medianPrimaryPerformanceDelta: args.medianPrimaryPerformanceDelta,
+    }),
+  );
   return clamp(Math.round(raw), 0, 100);
 }
 
@@ -139,6 +149,22 @@ export function assessBoostSuspicionV1(input: BoostAssessmentExtractorInput): Bo
     peerGap.status === "computed" && typeof peerGap.publicEvidence.extremePrimaryDungeonCount === "number"
       ? peerGap.publicEvidence.extremePrimaryDungeonCount
       : 0;
+  const analyzablePrimaryRunCount =
+    peerGap.status === "computed" && typeof peerGap.publicEvidence.comparablePrimaryRunCount === "number"
+      ? peerGap.publicEvidence.comparablePrimaryRunCount
+      : 0;
+  const redPrimaryCount =
+    peerGap.status === "computed" && typeof peerGap.publicEvidence.redPrimaryCount === "number"
+      ? peerGap.publicEvidence.redPrimaryCount
+      : 0;
+  const veryStrongPrimaryCount =
+    peerGap.status === "computed" && typeof peerGap.publicEvidence.veryStrongPrimaryCount === "number"
+      ? peerGap.publicEvidence.veryStrongPrimaryCount
+      : 0;
+  const medianPrimaryPerformanceDelta =
+    peerGap.status === "computed" && typeof peerGap.publicEvidence.medianPrimaryPerformanceDelta === "number"
+      ? peerGap.publicEvidence.medianPrimaryPerformanceDelta
+      : null;
   const cohort = computeRecurrentStrongPeerCohort({
     sampleRuns: sample,
     subjectCharacterId: input.subjectCharacterId,
@@ -195,7 +221,14 @@ export function assessBoostSuspicionV1(input: BoostAssessmentExtractorInput): Bo
   const insufficientSample = sample.length < BOOST_ASSESSMENT_POLICY.minUsableSampleRuns;
 
   const scored = signals.filter((s) => s.status === "COMPUTED");
-  const rawSuspicion = combineSuspicion({ signals, extremePrimaryDungeonCount });
+  const rawSuspicion = combineSuspicion({
+    signals,
+    extremePrimaryDungeonCount,
+    analyzablePrimaryRunCount,
+    redPrimaryCount,
+    veryStrongPrimaryCount,
+    medianPrimaryPerformanceDelta,
+  });
 
   let status: BoostAssessmentResult["status"] = "AVAILABLE";
   let assessmentCompleteness: BoostAssessmentResult["assessmentCompleteness"] = "FULL";

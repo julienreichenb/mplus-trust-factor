@@ -1,6 +1,7 @@
 import { clamp01 } from "../../math.js";
 import { isExceptionalOperatingLevel } from "../character-context.js";
 import { analysableRuns } from "../dungeon-filter.js";
+import { computeTrueMedian } from "../../context/median.js";
 import {
   BOOST_ASSESSMENT_POLICY,
   classifyPeerGap,
@@ -9,6 +10,7 @@ import {
   isExtremeRedPeerClass,
   isGreenPeerClass,
   isRedPeerClass,
+  isVeryStrongNegativeDelta,
   normalizeRate,
   performanceDelta,
   signedDeltaSeverity,
@@ -120,68 +122,105 @@ export function computeStrongPeerPerformanceGap(args: {
   }
 
   const comparableWeight = comparable.reduce((s, r) => s + r.weight, 0);
+  const primaryRows = comparable.filter((r) => r.role === "PRIMARY");
+  const primaryWeight = primaryRows.reduce((s, r) => s + r.weight, 0);
   let redMass = 0;
   let greenMass = 0;
+  let primaryRedMass = 0;
+  let primaryGreenMass = 0;
   let materialWeight = 0;
-  let extremeWeight = 0;
+  let primaryMaterialWeight = 0;
+  let primaryExtremeWeight = 0;
   let redPrimaryCount = 0;
   let extremePrimaryCount = 0;
+  let veryStrongPrimaryCount = 0;
   let greenPrimaryCount = 0;
   const extremePrimaryDungeons = new Set<string>();
+  const primaryDeltas: number[] = [];
   let comparablePrimary = 0;
   let comparableSecondary = 0;
 
   for (const row of comparable) {
     redMass += row.redSeverity * row.weight;
     greenMass += row.greenSeverity * row.weight;
-    if (row.role === "PRIMARY") comparablePrimary += 1;
-    else comparableSecondary += 1;
-    if (isRedPeerClass(row.classification)) materialWeight += row.weight;
-    if (isExtremeRedPeerClass(row.classification)) extremeWeight += row.weight;
-    if (row.role === "PRIMARY" && isRedPeerClass(row.classification)) redPrimaryCount += 1;
-    if (row.role === "PRIMARY" && isGreenPeerClass(row.classification)) greenPrimaryCount += 1;
-    if (row.role === "PRIMARY" && isExtremeRedPeerClass(row.classification)) {
-      extremePrimaryCount += 1;
-      if (row.run.dungeonSlug) extremePrimaryDungeons.add(row.run.dungeonSlug);
+    if (row.role === "PRIMARY") {
+      comparablePrimary += 1;
+      primaryRedMass += row.redSeverity * row.weight;
+      primaryGreenMass += row.greenSeverity * row.weight;
+      primaryDeltas.push(row.performanceDelta);
+      if (isRedPeerClass(row.classification)) {
+        redPrimaryCount += 1;
+        primaryMaterialWeight += row.weight;
+      }
+      if (isGreenPeerClass(row.classification)) greenPrimaryCount += 1;
+      if (isVeryStrongNegativeDelta(row.performanceDelta)) veryStrongPrimaryCount += 1;
+      if (isExtremeRedPeerClass(row.classification)) {
+        extremePrimaryCount += 1;
+        primaryExtremeWeight += row.weight;
+        if (row.run.dungeonSlug) extremePrimaryDungeons.add(row.run.dungeonSlug);
+      }
+    } else {
+      comparableSecondary += 1;
     }
+    if (isRedPeerClass(row.classification)) materialWeight += row.weight;
   }
 
   const weightedRedSeverity = comparableWeight > 0 ? redMass / comparableWeight : 0;
   const weightedGreenSeverity = comparableWeight > 0 ? greenMass / comparableWeight : 0;
-  const weightedMaterialRate = comparableWeight > 0 ? materialWeight / comparableWeight : 0;
-  const weightedExtremeRate = comparableWeight > 0 ? extremeWeight / comparableWeight : 0;
+  const primaryWeightedRedSeverity = primaryWeight > 0 ? primaryRedMass / primaryWeight : 0;
+  const primaryWeightedGreenSeverity = primaryWeight > 0 ? primaryGreenMass / primaryWeight : 0;
+  const primaryMaterialRate = primaryWeight > 0 ? primaryMaterialWeight / primaryWeight : 0;
+  const primaryExtremeRate = primaryWeight > 0 ? primaryExtremeWeight / primaryWeight : 0;
   const recurrence = Math.max(
     normalizeRate(
-      weightedMaterialRate,
+      primaryMaterialRate,
       BOOST_ASSESSMENT_POLICY.materialGapRateOnset,
       BOOST_ASSESSMENT_POLICY.materialGapRateSaturation,
     ),
     normalizeRate(
-      weightedExtremeRate,
+      primaryExtremeRate,
       BOOST_ASSESSMENT_POLICY.extremeGapRateOnset,
       BOOST_ASSESSMENT_POLICY.extremeGapRateSaturation,
     ),
   );
-  let redValue = clamp01(weightedRedSeverity * Math.max(recurrence, weightedRedSeverity > 0.8 ? 1 : recurrence));
-  const greenValue = weightedGreenSeverity;
+  let redValue = clamp01(
+    primaryWeightedRedSeverity * Math.max(recurrence, primaryWeightedRedSeverity > 0.8 ? 1 : recurrence),
+  );
+  const greenValue = primaryWeightedGreenSeverity;
   let value = clamp01(redValue - BOOST_ASSESSMENT_POLICY.greenCounterEvidenceGain * greenValue);
   const extremeDungeonCount = extremePrimaryDungeons.size;
+  const medianPrimaryPerformanceDelta = computeTrueMedian(primaryDeltas);
   if (extremeDungeonCount >= BOOST_ASSESSMENT_POLICY.extremePrimaryDungeonFloor) {
     value = Math.max(value, BOOST_ASSESSMENT_POLICY.extremePrimaryValueFloor);
     redValue = Math.max(redValue, BOOST_ASSESSMENT_POLICY.extremePrimaryValueFloor);
+  } else if (veryStrongPrimaryCount >= 4 && comparablePrimary >= 4) {
+    value = Math.max(value, BOOST_ASSESSMENT_POLICY.veryStrongPrimaryFourValueFloor);
+    redValue = Math.max(redValue, BOOST_ASSESSMENT_POLICY.veryStrongPrimaryFourValueFloor);
+  } else if (
+    redPrimaryCount >= 5 &&
+    comparablePrimary >= 5 &&
+    medianPrimaryPerformanceDelta != null &&
+    medianPrimaryPerformanceDelta <= -BOOST_ASSESSMENT_POLICY.materialRecurrentMedianFloorDelta
+  ) {
+    value = Math.max(value, BOOST_ASSESSMENT_POLICY.materialPrimaryFiveValueFloor);
+    redValue = Math.max(redValue, BOOST_ASSESSMENT_POLICY.materialPrimaryFiveValueFloor);
   }
+
+  const severePrimaryRatio = comparablePrimary > 0 ? veryStrongPrimaryCount / comparablePrimary : 0;
 
   return {
     status: "computed",
     evidence: { value, confidence: clamp01(0.4 + 0.6 * peerCoverage), sampleSize: comparable.length, coverage: peerCoverage },
     summary:
-      value >= 0.7
-        ? `Subject is repeatedly far below teammates on highest analysed keys (${extremePrimaryCount} extreme PRIMARY gaps across ${extremeDungeonCount} dungeons).`
-        : value >= 0.35
-          ? `Material same-run underperformance versus teammates on highest analysed keys.`
-          : greenValue > redValue
-            ? `Subject generally outperforms teammates on highest analysed keys (green counter-evidence).`
-            : `Same-run Key % versus teammates is not a strong carry pattern.`,
+      redPrimaryCount >= 4 && comparablePrimary >= 4
+        ? `Severe performance gaps were observed across ${redPrimaryCount} of ${comparablePrimary} analyzable highest runs.`
+        : value >= 0.7
+          ? `Subject is repeatedly far below teammates on highest analysed keys (${extremePrimaryCount} extreme PRIMARY gaps across ${extremeDungeonCount} dungeons).`
+          : value >= 0.35
+            ? `Material same-run underperformance versus teammates on highest analysed keys.`
+            : greenValue > redValue
+              ? `Subject generally outperforms teammates on highest analysed keys (green counter-evidence).`
+              : `Same-run Key % versus teammates is not a strong carry pattern.`,
     publicEvidence: {
       boostSampleSize: n,
       peerComparableRunCount: comparable.length,
@@ -192,11 +231,20 @@ export function computeStrongPeerPerformanceGap(args: {
       redPrimaryCount,
       extremePrimaryCount,
       extremePrimaryDungeonCount: extremeDungeonCount,
+      veryStrongPrimaryCount,
       greenPrimaryCount,
-      weightedRedSeverity: Number(weightedRedSeverity.toFixed(4)),
-      weightedGreenSeverity: Number(weightedGreenSeverity.toFixed(4)),
-      weightedMaterialRate: Number(weightedMaterialRate.toFixed(4)),
-      weightedExtremeRate: Number(weightedExtremeRate.toFixed(4)),
+      medianPrimaryPerformanceDelta:
+        medianPrimaryPerformanceDelta == null ? null : Number(medianPrimaryPerformanceDelta.toFixed(2)),
+      severePrimaryRatio: Number(severePrimaryRatio.toFixed(4)),
+      materiallyNegativePrimaryCount: redPrimaryCount,
+      severeNegativePrimaryCount: veryStrongPrimaryCount,
+      analyzablePrimaryRunCount: comparablePrimary,
+      weightedRedSeverity: Number(primaryWeightedRedSeverity.toFixed(4)),
+      weightedGreenSeverity: Number(primaryWeightedGreenSeverity.toFixed(4)),
+      mixedWeightedRedSeverity: Number(weightedRedSeverity.toFixed(4)),
+      mixedWeightedGreenSeverity: Number(weightedGreenSeverity.toFixed(4)),
+      weightedMaterialRate: Number(primaryMaterialRate.toFixed(4)),
+      weightedExtremeRate: Number(primaryExtremeRate.toFixed(4)),
       weightedMaterialGapWeight: Number(materialWeight.toFixed(4)),
       materialPeerGapRunCount: comparable.filter((r) => isRedPeerClass(r.classification)).length,
       extremePeerGapRunCount: comparable.filter((r) => isExtremeRedPeerClass(r.classification)).length,

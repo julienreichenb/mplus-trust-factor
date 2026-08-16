@@ -24,6 +24,7 @@
     "experience:cutoffs:collect": "tsx src/orchestration/scoring/experience-cutoffs-collect.cli.ts",
     "scoring:validate:digest-backfill": "tsx src/orchestration/scoring/live-digest-backfill-validate.cli.ts",
     "boost:probe": "tsx src/boost-assessment/probe.cli.ts",
+    "boost:population-audit": "tsx src/boost-assessment/population-audit.cli.ts",
     "wcl:hydrate:rankings": "tsx src/wcl-fight-rankings/hydrate-rankings.cli.ts",
     "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
