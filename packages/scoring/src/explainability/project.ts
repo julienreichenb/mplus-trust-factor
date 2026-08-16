@@ -1,4 +1,5 @@
 import {
+  presentQualitativeScoreLabel,
   type DimensionExplainabilityV1,
   type PublicDimensionExplainabilityV1,
   type PublicScoreExplainabilityV1,
@@ -61,6 +62,7 @@ export function projectDimensionExplainabilityPublic(
       label: driver.label,
       direction: driver.direction,
       value: driver.value,
+      qualitativeLabel: presentQualitativeScoreLabel(driver.value),
     }));
 
   const confidenceReasons = dimension.confidenceStory.reasons

@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import type { ContributorSignal } from "../../lib/characterViewModel";
+import {
+  formatKeySignalDisplayText,
+  type ContributorSignal,
+} from "../../lib/characterViewModel";
 import DimensionAxisIcon from "../charts/DimensionAxisIcon.vue";
 
 defineProps<{
@@ -52,7 +55,11 @@ function kindAria(kind: ContributorSignal["kind"]): string {
       <p class="signal-row__label">
         <span class="signal-row__prefix" aria-hidden="true">{{ kindPrefix(signal.kind) }}</span>
         <span class="sr-only">{{ kindAria(signal.kind) }}:</span>
-        {{ signal.label }}
+        <span
+          class="signal-row__text"
+          :data-qualitative="signal.qualitativeLabel ? 'true' : 'false'"
+          :data-qualitative-label="signal.qualitativeLabel || undefined"
+        >{{ formatKeySignalDisplayText(signal) }}</span>
       </p>
       <p v-if="signal.dimension && !hideDimension" class="signal-row__dimension">{{ signal.dimension }}</p>
     </div>
@@ -121,6 +128,10 @@ function kindAria(kind: ContributorSignal["kind"]): string {
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.35;
+}
+
+.signal-row__text[data-qualitative="true"] {
+  font-weight: 700;
 }
 
 .signal-row__prefix {

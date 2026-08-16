@@ -1,14 +1,32 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { ScoringRunSelection } from "../../api/types";
+import type { CanonicalDungeonEvidencePublicDTO } from "@mplus/contracts";
+import type { ScoringRunSelection, SelectedRunSummaryDTO } from "../../api/types";
 import { dungeonBackgroundUrl } from "../../lib/dungeonArt";
+import { canonicalReportsForDungeon } from "../../lib/canonicalSelectedRuns";
+import { sanitizeWarcraftLogsUrl } from "../../lib/warcraftLogsUrl";
+import type { RunDrawerModel } from "./RunDetailsDrawer.vue";
 
 const props = defineProps<{
   selection: ScoringRunSelection | null | undefined;
+  selectedRunDetails?: SelectedRunSummaryDTO[];
+  canonicalDungeonEvidence?: CanonicalDungeonEvidencePublicDTO[];
   locked?: boolean;
   /** When true, omit the section heading (parent owns the season title). */
   embedded?: boolean;
 }>();
+
+const emit = defineEmits<{
+  openRun: [run: RunDrawerModel];
+}>();
+
+const detailsBySlug = computed(() => {
+  const map = new Map<string, SelectedRunSummaryDTO>();
+  for (const row of props.selectedRunDetails ?? []) {
+    map.set(row.dungeonSlug, row);
+  }
+  return map;
+});
 
 const artBySlug = computed(() => {
   const map = new Map<string, string>();
@@ -21,7 +39,38 @@ const artBySlug = computed(() => {
 
 function formatWhen(value: string | null): string {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString();
+  return new Date(value).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function canonicalPrimary(slug: string) {
+  return canonicalReportsForDungeon(props.canonicalDungeonEvidence, slug).find(
+    (report) => report.identity === "PRIMARY",
+  );
+}
+
+function runWclUrl(run: NonNullable<ScoringRunSelection["selectedRuns"]>[number]): string | null {
+  const primary = canonicalPrimary(run.dungeonSlug);
+  return sanitizeWarcraftLogsUrl(primary?.wclUrl ?? null);
+}
+
+function openRun(run: NonNullable<ScoringRunSelection["selectedRuns"]>[number]): void {
+  if (!run.canonicalRunId) return;
+  const primary = canonicalPrimary(run.dungeonSlug);
+  const detail = detailsBySlug.value.get(run.dungeonSlug);
+  const keyLevel = primary?.keyLevel ?? run.keyLevel;
+  emit("openRun", {
+    dungeonName: run.dungeonName,
+    dungeonSlug: run.dungeonSlug,
+    keyLevel,
+    completedAt: primary?.completedAt ?? run.completedAt,
+    identity: "PRIMARY",
+    wclUrl: sanitizeWarcraftLogsUrl(primary?.wclUrl ?? detail?.wclUrl ?? null),
+    cooldownTimeline: primary?.cooldownTimeline ?? null,
+  });
 }
 
 function artStyle(slug: string): Record<string, string> | undefined {
@@ -47,13 +96,19 @@ function artStyle(slug: string): Record<string, string> | undefined {
     <p v-else-if="!selection?.selectedRuns?.length" class="empty">
       No selected runs available for this character.
     </p>
-
-    <div v-else class="runs-grid">
+    <template v-else>
+      <p class="runs-hint">Click a dungeon to inspect cooldown usage</p>
+      <div class="runs-grid">
       <article
         v-for="run in selection.selectedRuns"
         :key="run.dungeonSlug"
         class="run-card"
         :data-missing="run.canonicalRunId ? 'false' : 'true'"
+        :tabindex="run.canonicalRunId ? 0 : undefined"
+        :role="run.canonicalRunId ? 'button' : undefined"
+        @click="openRun(run)"
+        @keydown.enter="openRun(run)"
+        @keydown.space.prevent="openRun(run)"
       >
         <div
           class="run-card__art"
@@ -67,24 +122,23 @@ function artStyle(slug: string): Record<string, string> | undefined {
           <template v-if="run.canonicalRunId">
             <p class="key mpts-data">
               +{{ run.keyLevel ?? "—" }}
-              <span
-                v-if="run.timed === true"
-                class="status-chip status-chip--timed"
-              >Timed</span>
-              <span
-                v-else-if="run.timed === false"
-                class="status-chip status-chip--depleted"
-              >Depleted</span>
+              <span class="status-chip status-chip--date">{{ formatWhen(run.completedAt) }}</span>
             </p>
-            <p class="meta">{{ formatWhen(run.completedAt) }}</p>
-            <p v-if="run.coverageRatio != null" class="meta">
-              WCL coverage {{ Math.round(run.coverageRatio * 100) }}%
-            </p>
+            <a
+              v-if="runWclUrl(run)"
+              class="run-card__wcl"
+              data-testid="run-card-wcl-link"
+              :href="runWclUrl(run)!"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click.stop
+            >Warcraft Logs ↗</a>
           </template>
           <p v-else class="missing">No logged run this season</p>
         </div>
       </article>
     </div>
+    </template>
   </section>
 </template>
 
@@ -97,10 +151,15 @@ function artStyle(slug: string): Record<string, string> | undefined {
 .empty,
 .locked,
 .meta,
-.missing {
+.missing,
+.runs-hint {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+
+.runs-hint {
+  font-size: var(--text-xs);
 }
 
 .runs-grid {
@@ -131,6 +190,25 @@ function artStyle(slug: string): Record<string, string> | undefined {
   border-radius: var(--radius-card);
   overflow: hidden;
   background: #171719;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast),
+    background-color var(--duration-fast),
+    transform var(--duration-fast),
+    box-shadow var(--duration-fast);
+}
+
+.run-card[data-missing="false"]:hover,
+.run-card[data-missing="false"]:focus-visible {
+  border-color: color-mix(in srgb, var(--color-gold-300) 55%, var(--color-border));
+  background: var(--color-surface-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 28%);
+  outline: none;
+}
+
+.run-card[data-missing="true"] {
+  cursor: default;
 }
 
 /*
@@ -207,15 +285,26 @@ function artStyle(slug: string): Record<string, string> | undefined {
   line-height: 1.2;
 }
 
-.status-chip--timed {
-  color: var(--color-success-500);
-  border-color: color-mix(in srgb, var(--color-success-500) 45%, transparent);
-  background: color-mix(in srgb, var(--color-success-500) 14%, transparent);
+.status-chip--date {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
 }
 
-.status-chip--depleted {
-  color: var(--color-danger-500);
-  border-color: color-mix(in srgb, var(--color-danger-500) 45%, transparent);
-  background: color-mix(in srgb, var(--color-danger-500) 14%, transparent);
+.run-card__wcl {
+  display: inline-block;
+  margin-top: var(--space-2);
+  color: var(--color-gold-300);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.run-card__wcl:hover,
+.run-card__wcl:focus-visible {
+  text-decoration: underline;
+  outline: none;
 }
 </style>

@@ -92,6 +92,7 @@ export interface DimensionScoreDTO {
       label: string;
       direction: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
       value?: number | null;
+      qualitativeLabel?: "VERY GOOD" | "GOOD" | "BAD" | "VERY BAD" | null;
     }>;
     confidenceReasons: Array<{
       code: string;

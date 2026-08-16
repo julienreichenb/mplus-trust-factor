@@ -8,6 +8,7 @@ import {
   parseConfidenceReasons,
   presentGrade,
   resolveDataConfidence,
+  formatKeySignalDisplayText,
   topSignals,
 } from "./characterViewModel";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
@@ -20,6 +21,29 @@ describe("characterViewModel", () => {
       interpretation: "Strong trust profile",
       isUnrated: false,
     });
+  });
+
+  it("formats key-signal text as qualitative + topic without scored values", () => {
+    expect(
+      formatKeySignalDisplayText({
+        kind: "positive",
+        label: "Offensive cooldown discipline scored 81",
+        qualitativeLabel: "VERY GOOD",
+      }),
+    ).toBe("Very good offensive cooldown discipline");
+    expect(
+      formatKeySignalDisplayText({
+        kind: "risk",
+        label: "Defensive response scored 18",
+        qualitativeLabel: "VERY BAD",
+      }),
+    ).toBe("Very bad defensive response");
+    expect(
+      formatKeySignalDisplayText({
+        kind: "fact",
+        label: "No confirmed Mythic+ history for scored seasons",
+      }),
+    ).toBe("No confirmed Mythic+ history for scored seasons");
   });
 
   it("treats U as unrated rather than a weak tier", () => {
@@ -219,6 +243,42 @@ describe("characterViewModel", () => {
     expect(view.facts.map((s) => s.code)).toEqual(["utility.strategic_cc"]);
     expect(view.confidenceReasons.map((s) => s.code)).toEqual(["tiny_run_sample"]);
     expect(view.weaknesses.some((s) => /Tiny run sample/i.test(s.label))).toBe(false);
+  });
+
+  it("hides interrupt-attempt credit counts from product key signals", () => {
+    const dim: DimensionScoreDTO = {
+      dimension: "UTILITY",
+      score: 70,
+      confidence: 0.8,
+      weight: 0.25,
+      state: "AVAILABLE",
+      reason: null,
+      contributors: null,
+      explainability: {
+        scoreDrivers: [
+          {
+            code: "utility.family.interrupt",
+            labelKey: "score.utility.family.interrupt",
+            label: "Interrupt toolkit scored 82",
+            direction: "POSITIVE",
+            value: 82,
+            qualitativeLabel: "VERY GOOD",
+          },
+          {
+            code: "utility.interrupt_attempt_credit",
+            labelKey: "score.utility.interrupt_attempt_credit",
+            label: "Interrupt credit: 270 landed, 0 overlapping attempts, 0 misses",
+            direction: "POSITIVE",
+            value: 270,
+            qualitativeLabel: "VERY GOOD",
+          },
+        ],
+        confidenceReasons: [],
+      },
+    };
+    const view = buildDimensionExplainabilityView(dim);
+    expect(view.strengths.map((s) => s.code)).toEqual(["utility.family.interrupt"]);
+    expect(view.strengths.some((s) => /interrupt credit:/i.test(s.label))).toBe(false);
   });
 
   it("soft-fails when explainability is null without inventing weaknesses from limitations", () => {

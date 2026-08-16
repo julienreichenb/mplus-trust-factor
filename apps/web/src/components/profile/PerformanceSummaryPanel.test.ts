@@ -68,18 +68,36 @@ describe("PerformanceSummaryPanel selected run links", () => {
           bestUrl: "https://www.warcraftlogs.com/reports/ABC?fight=1",
           latestUrl: "https://warcraftlogs.com/reports/DEF?fight=2",
         }),
+        canonicalDungeonEvidence: [
+          {
+            dungeonSlug: "ara-kara",
+            dungeonName: "Ara-Kara",
+            reports: [
+              {
+                identity: "PRIMARY",
+                keyLevel: 23,
+                completedAt: "2026-07-31T12:00:00.000Z",
+                wclUrl: "https://www.warcraftlogs.com/reports/ABC?fight=1",
+              },
+              {
+                identity: "SECONDARY",
+                keyLevel: 22,
+                completedAt: "2026-07-27T12:00:00.000Z",
+                wclUrl: "https://warcraftlogs.com/reports/DEF?fight=2",
+              },
+            ],
+          },
+        ],
       },
     });
 
     const links = wrapper.findAll(".selected-runs__link");
     expect(links).toHaveLength(2);
-    expect(links[0]!.text()).toBe("1");
-    expect(links[1]!.text()).toBe("2");
+    expect(links[0]!.text()).toMatch(/\+23/);
+    expect(links[1]!.text()).toMatch(/\+22/);
     expect(links[0]!.attributes("href")).toBe("https://www.warcraftlogs.com/reports/ABC?fight=1");
     expect(links[0]!.attributes("target")).toBe("_blank");
     expect(links[0]!.attributes("rel")).toContain("noopener");
-    expect(links[0]!.attributes("rel")).toContain("noreferrer");
-    expect(links[0]!.attributes("aria-label")).toBe("Open selected Warcraft Logs run 1");
   });
 
   it("uses plain text for missing, non-HTTPS, unrelated, and deceptive hostnames", () => {
@@ -91,10 +109,26 @@ describe("PerformanceSummaryPanel selected run links", () => {
       "javascript:alert(1)",
     ]) {
       const wrapper = mount(PerformanceSummaryPanel, {
-        props: { summary: summaryWithRuns({ bestUrl: url, sameRun: true }) },
+        props: {
+          summary: summaryWithRuns({ bestUrl: url, sameRun: true }),
+          canonicalDungeonEvidence: [
+            {
+              dungeonSlug: "ara-kara",
+              dungeonName: "Ara-Kara",
+              reports: [
+                {
+                  identity: "PRIMARY",
+                  keyLevel: 12,
+                  completedAt: "2026-01-15T12:00:00.000Z",
+                  wclUrl: url,
+                },
+              ],
+            },
+          ],
+        },
       });
       expect(wrapper.find(".selected-runs__link").exists()).toBe(false);
-      expect(wrapper.find(".selected-runs__plain").text()).toBe("1");
+      expect(wrapper.find(".selected-runs__plain").text()).toMatch(/\+12/);
     }
   });
 });
@@ -243,8 +277,7 @@ describe("PerformanceSummaryPanel role-aware UI", () => {
     });
     expect(wrapper.find('[data-testid="performance-summary-damage-table"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Healing");
-    expect(wrapper.text()).toContain("Best avg");
-    expect(wrapper.text()).not.toContain("Peak");
+    expect(wrapper.find('[data-testid="performance-summary-role-aware-cards"]').exists()).toBe(false);
   });
 
   it("13. Healer table renders grouped Healing + Damage columns", () => {
@@ -252,9 +285,11 @@ describe("PerformanceSummaryPanel role-aware UI", () => {
       props: { summary: roleAwareSummary("HEALER") },
     });
     expect(wrapper.find('[data-testid="performance-summary-healer-table"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("Healing parse");
-    expect(wrapper.text()).toContain("Damage parse");
-    expect(wrapper.text()).toContain("Performance");
+    expect(wrapper.text()).toContain("Healing");
+    expect(wrapper.text()).toContain("Damage");
+    expect(
+      wrapper.find('[data-testid="performance-summary-healer-table"] tbody img.dungeon-art').attributes("src"),
+    ).toContain("render.worldofwarcraft.com");
     expect(wrapper.text()).not.toContain("Peak");
     expect(wrapper.text()).not.toContain("Consistency");
   });
@@ -277,15 +312,154 @@ describe("PerformanceSummaryPanel role-aware UI", () => {
     expect(new Set(pctClasses.flat()).size).toBeGreaterThan(1);
   });
 
+  it("healer selected-run links keep key labels visible", () => {
+    const wrapper = mount(PerformanceSummaryPanel, {
+      props: {
+        summary: roleAwareSummary("HEALER"),
+        canonicalDungeonEvidence: [
+          {
+            dungeonSlug: "algethar-academy",
+            dungeonName: "Algeth'ar Academy",
+            reports: [
+              {
+                identity: "PRIMARY",
+                keyLevel: 23,
+                completedAt: "2026-07-31T12:00:00.000Z",
+                wclUrl: "https://www.warcraftlogs.com/reports/ABC?fight=1",
+              },
+              {
+                identity: "SECONDARY",
+                keyLevel: 21,
+                completedAt: "2026-07-16T12:00:00.000Z",
+                wclUrl: "https://www.warcraftlogs.com/reports/DEF?fight=2",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const links = wrapper.findAll('[data-testid="performance-summary-healer-table"] .selected-runs__link');
+    expect(links[0]!.text()).toMatch(/\+23/);
+    expect(links[1]!.text()).toMatch(/\+21/);
+    expect(wrapper.text()).not.toContain("Log ↗");
+  });
+
   it("Aspha: roleAware.HEALER renders healer table with Healing and Damage parse columns", () => {
     const wrapper = mount(PerformanceSummaryPanel, {
       props: { summary: roleAwareSummary("HEALER") },
     });
     expect(wrapper.find('[data-testid="performance-summary-healer-table"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("Healing parse");
-    expect(wrapper.text()).toContain("Damage parse");
+    expect(wrapper.text()).toContain("Healing");
+    expect(wrapper.text()).toContain("Damage");
     expect(wrapper.text()).toContain("Best");
     expect(wrapper.text()).toContain("Median");
     expect(wrapper.find('[data-testid="performance-summary-damage-table"]').exists()).toBe(false);
+  });
+
+  it("DPS Peak and Typical summary cards are removed", () => {
+    const wrapper = mount(PerformanceSummaryPanel, {
+      props: { summary: roleAwareSummary("DPS") },
+    });
+    expect(wrapper.find('[data-testid="performance-summary-role-aware-cards"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Peak");
+    expect(wrapper.text()).not.toContain("Typical");
+    expect(wrapper.find('[data-testid="performance-summary-damage-table"]').exists()).toBe(true);
+  });
+
+  it("TANK cards show Damage and Survival from authoritative summaries", () => {
+    const wrapper = mount(PerformanceSummaryPanel, {
+      props: {
+        summary: roleAwareSummary("TANK"),
+        survivalSummary: {
+          score: 61,
+          confidence: 0.8,
+          availableDungeonCount: 6,
+          expectedDungeonCount: 8,
+          scoreMode: "FULL_BEHAVIORAL",
+          dungeons: [],
+          notes: [],
+        },
+      },
+    });
+    const cards = wrapper.get('[data-testid="performance-summary-role-aware-cards"]');
+    expect(cards.text()).toContain("Damage");
+    expect(cards.text()).toContain("Survival");
+    expect(cards.text()).toContain("61.0");
+    expect(cards.text()).not.toContain("Performance");
+  });
+});
+
+const twoCanonicalReports = [
+  {
+    dungeonSlug: "ara-kara",
+    dungeonName: "Ara-Kara",
+    reports: [
+      {
+        identity: "PRIMARY" as const,
+        keyLevel: 22,
+        completedAt: "2026-07-09T12:00:00.000Z",
+        wclUrl: "https://www.warcraftlogs.com/reports/PRI?fight=1",
+      },
+      {
+        identity: "SECONDARY" as const,
+        keyLevel: 20,
+        completedAt: "2026-06-27T12:00:00.000Z",
+        wclUrl: "https://www.warcraftlogs.com/reports/SEC?fight=2",
+      },
+    ],
+  },
+];
+
+function healerSummaryForAra(): PerformanceSummaryDTO {
+  const base = roleAwareSummary("HEALER");
+  return {
+    ...base,
+    roleAware: {
+      ...base.roleAware!,
+      healing: {
+        ...base.roleAware!.healing!,
+        dungeons: [
+          {
+            dungeonSlug: "ara-kara",
+            dungeonName: "Ara-Kara",
+            bestParsePercentile: 80,
+            medianParsePercentile: 75,
+            loggedRunCount: 4,
+          },
+        ],
+      },
+      damage: {
+        ...base.roleAware!.damage,
+        dungeons: [
+          {
+            dungeonSlug: "ara-kara",
+            dungeonName: "Ara-Kara",
+            bestParsePercentile: 40,
+            medianParsePercentile: 35,
+            loggedRunCount: 4,
+          },
+        ],
+      },
+    },
+  };
+}
+
+describe("canonical selected runs are role-independent", () => {
+  it.each([
+    { role: "DPS" as const, summary: roleAwareSummary("DPS"), table: "performance-summary-damage-table" },
+    { role: "TANK" as const, summary: roleAwareSummary("TANK"), table: "performance-summary-damage-table" },
+    { role: "HEALER" as const, summary: healerSummaryForAra(), table: "performance-summary-healer-table" },
+  ])("$role renders the same PRIMARY and SECONDARY canonical links", ({ table, summary }) => {
+    const wrapper = mount(PerformanceSummaryPanel, {
+      props: { summary, canonicalDungeonEvidence: twoCanonicalReports },
+    });
+    const links = wrapper.findAll(`[data-testid="${table}"] .selected-runs__link`);
+    expect(links).toHaveLength(2);
+    expect(links[0]!.text()).toMatch(/\+22/);
+    expect(links[1]!.text()).toMatch(/\+20/);
+    expect(links[0]!.attributes("href")).toContain("PRI");
+    expect(links[1]!.attributes("href")).toContain("SEC");
+    expect(wrapper.text()).not.toContain("Log ↗");
+    expect(links[0]!.text()).not.toEqual(links[1]!.text());
   });
 });

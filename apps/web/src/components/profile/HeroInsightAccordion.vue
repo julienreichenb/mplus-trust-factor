@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import type { BoostAssessmentPublicDTO } from "@mplus/contracts";
+import { isHighBoostSuspicionAlert } from "@mplus/contracts";
 import type { CharacterProfileView } from "../../api/types";
 import {
   EXPLAINABILITY_UNAVAILABLE_MESSAGE,
@@ -15,7 +17,14 @@ type PanelId = "signals" | "gear" | "talents";
 
 const props = defineProps<{
   profile: CharacterProfileView;
+  boostAssessment?: BoostAssessmentPublicDTO | null;
 }>();
+
+const emit = defineEmits<{
+  openBoostAlert: [];
+}>();
+
+const highBoost = computed(() => isHighBoostSuspicionAlert(props.boostAssessment));
 
 const openPanel = ref<PanelId>("signals");
 const copyState = ref<"idle" | "copied" | "failed">("idle");
@@ -28,7 +37,6 @@ const signals = computed(() =>
 );
 const positives = computed(() => topSignals(signals.value, "positive", 5));
 const risks = computed(() => topSignals(signals.value, "risk", 5));
-const facts = computed(() => topSignals(signals.value, "fact", 5));
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const loadoutCode = computed(() => props.profile.talents?.loadoutCode?.trim() || null);
 
@@ -94,7 +102,18 @@ async function copyLoadout(): Promise<void> {
 </script>
 
 <template>
-  <div class="insight-accordion" data-testid="insight-accordion">
+  <div class="insight-stack">
+    <button
+      v-if="highBoost && boostAssessment"
+      type="button"
+      class="boost-banner"
+      data-testid="boost-suspicion-banner"
+      @click="emit('openBoostAlert')"
+    >
+      <span class="boost-banner__label mpts-data">{{ boostAssessment.suspicionBand }} boost suspicion</span>
+    </button>
+
+    <div class="insight-accordion" data-testid="insight-accordion">
     <div
       v-for="panel in panels"
       :key="panel.id"
@@ -206,20 +225,6 @@ async function copyLoadout(): Promise<void> {
               </ul>
               <p v-else class="empty">No standout weaknesses in this snapshot</p>
             </section>
-            <section
-              v-if="facts.length"
-              class="key-signals__col key-signals__col--facts"
-              aria-labelledby="key-signals-facts"
-            >
-              <h3 id="key-signals-facts" class="key-signals__title">Facts / context</h3>
-              <ul class="key-signals__list">
-                <KeySignalRow
-                  v-for="(item, index) in facts"
-                  :key="`f-${index}`"
-                  :signal="item"
-                />
-              </ul>
-            </section>
           </template>
         </div>
 
@@ -236,14 +241,20 @@ async function copyLoadout(): Promise<void> {
         />
       </div>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.insight-stack {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 42rem;
+}
+
 .insight-accordion {
   display: grid;
   gap: 0;
-  max-width: 42rem;
   border-top: 1px solid rgb(255 255 255 / 12%);
 }
 
@@ -336,6 +347,30 @@ async function copyLoadout(): Promise<void> {
 .key-signals {
   display: grid;
   gap: var(--space-4);
+}
+
+.boost-banner {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
+  cursor: pointer;
+  border: 1px solid var(--color-danger-500);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-danger-500) 18%, transparent);
+  color: var(--color-danger-500);
+  padding: 0.55rem 1.1rem;
+}
+
+.boost-banner__label {
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .key-signals__col {

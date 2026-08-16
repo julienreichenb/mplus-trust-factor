@@ -22,10 +22,12 @@ import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import BoostSuspicionSection from "../components/profile/BoostSuspicionSection.vue";
+import BoostSuspicionAlertDialog from "../components/profile/BoostSuspicionAlertDialog.vue";
+import RunDetailsDrawer from "../components/profile/RunDetailsDrawer.vue";
+import type { RunDrawerModel } from "../components/profile/RunDetailsDrawer.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
-import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
-import DataProvenancePanel from "../components/character/DataProvenancePanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
+import { isHighBoostSuspicionAlert } from "@mplus/contracts";
 import { resolveDataConfidence } from "../lib/characterViewModel";
 import { gradeThemeCssVars } from "../lib/gradeTheme";
 import { filterDimensionsForModel } from "../lib/format";
@@ -83,6 +85,25 @@ const displayedCharacterIsMain = ref(false);
 const repairing = ref(false);
 /** Latest refresh-status poll payload (ETA). Cleared when idle. */
 const lastRefreshStatus = ref<RefreshStatusResponse | null>(null);
+const boostAlertOpen = ref(false);
+const boostAlertAutoOpened = ref(false);
+const selectedDrawerRun = ref<RunDrawerModel | null>(null);
+
+function maybeAutoOpenBoostAlert(): void {
+  if (boostAlertAutoOpened.value) return;
+  if (isHighBoostSuspicionAlert(profile.value?.boostAssessment)) {
+    boostAlertOpen.value = true;
+    boostAlertAutoOpened.value = true;
+  }
+}
+
+function closeBoostAlert(): void {
+  boostAlertOpen.value = false;
+}
+
+function openBoostAlert(): void {
+  boostAlertOpen.value = true;
+}
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -222,6 +243,7 @@ async function load(): Promise<void> {
     await fetchAuthMe();
     const data = withBootstrapRepairSignal(await api.getCharacterProfile(identity, signal));
     profile.value = data;
+    maybeAutoOpenBoostAlert();
     recent.add({
       ...identity,
       classSlug: data.classSlug ?? null,
@@ -477,6 +499,9 @@ async function refresh(): Promise<void> {
 watch(
   () => [props.region, props.realm, props.name],
   () => {
+    boostAlertAutoOpened.value = false;
+    boostAlertOpen.value = false;
+    selectedDrawerRun.value = null;
     void load();
   },
   { immediate: true },
@@ -606,6 +631,7 @@ watch(
           :profile="profile"
           :active-rerolls="activeRerolls"
           :displayed-character-is-main="displayedCharacterIsMain"
+          @open-boost-alert="openBoostAlert"
         />
       </div>
 
@@ -616,16 +642,13 @@ watch(
         :locked="!entitlements.detailsUnlocked"
         :performance-summary="profile.performanceSummary"
         :run-selection="profile.scoringRunSelection ?? null"
+        :selected-run-details="profile.selectedRuns"
+        :canonical-dungeon-evidence="profile.canonicalDungeonEvidence"
+        :survival-summary="profile.survivalSummary"
+        :boost-run-evidence="profile.boostAssessment?.runEvidence"
         :runs-locked="!entitlements.runsUnlocked"
+        @open-run="selectedDrawerRun = $event"
       />
-
-      <!-- Score explanation authority is ScoreExplainabilityV1 on DimensionCards.
-           Legacy ExplainabilityV2 (EvidenceManifest forensics) is admin/debug only. -->
-      <KeySignalsPanel
-        :dimensions="profile.score?.dimensions ?? []"
-        :flags="profile.redFlags"
-      />
-      <DataProvenancePanel :profile="profile" />
 
       <BoostSuspicionSection
         :assessment="profile.boostAssessment ?? null"
@@ -634,6 +657,18 @@ watch(
 
       <MethodologyPanel :profile="profile" />
     </template>
+
+    <BoostSuspicionAlertDialog
+      :open="boostAlertOpen"
+      :assessment="profile?.boostAssessment ?? null"
+      @close="closeBoostAlert"
+    />
+    <RunDetailsDrawer
+      :open="Boolean(selectedDrawerRun)"
+      :run="selectedDrawerRun"
+      :grade="grade"
+      @close="selectedDrawerRun = null"
+    />
 
     <AppToast
       :open="Boolean(refreshNotice)"

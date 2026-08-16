@@ -18,6 +18,8 @@ export * from "./evidence-v2.js";
 export * from "./evidence-audit-v2.js";
 export * from "./explainability-v2.js";
 export * from "./score-explainability-v1.js";
+export * from "./score-presentation.js";
+export * from "./score-calculation-public.js";
 export * from "./score-context.js";
 export * from "./public-scoring-context.js";
 export * from "./scoring-control-center.js";
