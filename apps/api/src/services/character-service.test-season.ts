@@ -63,6 +63,12 @@ export function scoringSeasonPrismaStubs(season = fixtureReadySeasonRow()) {
     runtimeSetting: {
       findUnique: vi.fn(async () => null),
     },
+    evidenceManifest: {
+      findFirst: vi.fn(async () => null),
+    },
+    characterRunDigest: {
+      findMany: vi.fn(async () => []),
+    },
     seasonDungeon: {
       findMany: vi.fn(async () =>
         FIXTURE_DUNGEON_SLUGS.map((slug, i) => ({
