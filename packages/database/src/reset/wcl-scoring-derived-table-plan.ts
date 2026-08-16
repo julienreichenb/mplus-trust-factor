@@ -82,11 +82,14 @@ export const ALL_PRISMA_MAPPED_TABLES = [
   "wcl_run_raw",
   "character_run_digests",
   "run_ranking_facts",
+  "wcl_fight_ranking_snapshots",
+  "wcl_fight_ranking_entries",
   "character_scores",
   "character_performance_aggregates",
   "character_experience_evidence",
   "capability_evidence_package_records",
   "participant_scoring_digests",
+  "character_boost_assessments",
 ] as const;
 
 export type PrismaMappedTable = (typeof ALL_PRISMA_MAPPED_TABLES)[number];
@@ -112,9 +115,12 @@ export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   "character_performance_aggregates",
   "character_experience_evidence",
   "run_ranking_facts",
+  "wcl_fight_ranking_entries",
+  "wcl_fight_ranking_snapshots",
   "character_run_digests",
   "wcl_run_raw",
   "character_scores",
+  "character_boost_assessments",
   "capability_evidence_package_records",
   "participant_scoring_digests",
   // V1 score / analysis

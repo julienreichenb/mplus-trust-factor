@@ -90,6 +90,7 @@ function baseResult(
       aggregateRowId: null,
       contentHash: null,
     },
+    boostAssessment: null,
   };
 
   if (overrides?.characterScoreId !== undefined) {

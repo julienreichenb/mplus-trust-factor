@@ -8,28 +8,13 @@ import {
 
 const props = defineProps<{
   job?: JobStatusDTO | null;
-  /** Coarse profile refresh status for distinguishing QUEUED vs PROCESSING. */
-  refreshStatus?: string | null;
-  failed?: boolean;
 }>();
 
 const eta = computed(() => extractRefreshEta(props.job ?? null));
 const summary = computed(() => presentRefreshEtaSummary(eta.value));
 
-const phaseLabel = computed(() => {
-  if (props.failed || props.job?.status === "failed") return "Refresh failed";
-  if (props.job?.status === "active" || props.refreshStatus === "IN_PROGRESS" || props.refreshStatus === "REFRESHING") {
-    return "Processing";
-  }
-  if (props.job?.status === "queued" || props.refreshStatus === "QUEUED") {
-    return "Queued";
-  }
-  return null;
-});
-
 const visible = computed(
   () =>
-    Boolean(phaseLabel.value) ||
     Boolean(summary.value.jobsAhead) ||
     Boolean(summary.value.waitRange) ||
     Boolean(summary.value.explanation),
@@ -44,9 +29,6 @@ const visible = computed(
     role="status"
     aria-live="polite"
   >
-    <p v-if="phaseLabel" class="refresh-eta__phase" data-testid="refresh-eta-phase">
-      {{ phaseLabel }}
-    </p>
     <p v-if="summary.jobsAhead" class="refresh-eta__line" data-testid="refresh-eta-jobs-ahead">
       {{ summary.jobsAhead }}
     </p>
@@ -72,12 +54,6 @@ const visible = computed(
   font-size: 0.875rem;
   line-height: 1.4;
   color: var(--color-text-secondary, #9aa3b2);
-}
-
-.refresh-eta__phase {
-  margin: 0 0 0.25rem;
-  font-weight: 600;
-  color: var(--color-text-primary, #e8ecf4);
 }
 
 .refresh-eta__line {

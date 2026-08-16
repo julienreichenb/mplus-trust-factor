@@ -4,6 +4,7 @@ import type { JobStatusDTO } from "./jobs.js";
 import type { WclContributionType, WclDataState, WclVisibilityState } from "./warcraftlogs.js";
 import type { CharacterProviderStateDTO, SourceDisagreementDTO } from "./fusion.js";
 import type { ScoreExplainabilityV2PublicDTO } from "./explainability-v2.js";
+import type { BoostAssessmentPublicDTO } from "./boost-assessment.js";
 
 export interface ApiErrorEnvelope {
   error: {
@@ -547,6 +548,11 @@ export interface CharacterProfileResponse {
    * Absent/null while V2 is shadow-only or unpublished — never includes report codes.
    */
   explainabilityV2?: ScoreExplainabilityV2PublicDTO | null;
+  /**
+   * Boost suspicion assessment (independent of Trust Score).
+   * Null when no assessment has been persisted for the effective season.
+   */
+  boostAssessment?: BoostAssessmentPublicDTO | null;
 }
 
 export interface CharacterComparisonRequest {

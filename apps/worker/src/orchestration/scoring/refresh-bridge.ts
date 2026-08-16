@@ -17,6 +17,7 @@ import { recordProviderResult } from "../provider-recording.js";
 import { scoreCharacter, type ScoreCharacterResult } from "./score-character.js";
 import { scoreCharacterResultToSnapshotDto } from "./snapshot-from-character-score.js";
 import { createLiveCapabilityAcquireHook, observeAuthoritativeReportRevision } from "./run-orchestration/live-capability-adapter.js";
+import { createEnsureRankingSnapshotsHook } from "../../wcl-fight-rankings/ensure-ranking-snapshots.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import type { RunOrchestrationPorts } from "./run-orchestration/orchestrator.js";
@@ -198,6 +199,7 @@ export async function runAuthoritativeScoring(
   let liveAcquire:
     | Parameters<typeof scoreCharacter>[0]["liveAcquire"]
     | undefined;
+  let ensureRankingSnapshots: Parameters<typeof scoreCharacter>[0]["ensureRankingSnapshots"];
   let resolveReportRevision: RunOrchestrationPorts["resolveReportRevision"];
   if (allowProviderCalls && !input.portsOverride) {
     const wcl = input.container.providers.warcraftlogs as
@@ -206,6 +208,11 @@ export async function runAuthoritativeScoring(
       | undefined;
     if (wcl && typeof wcl.getGraphQlClient === "function") {
       const client = wcl.getGraphQlClient();
+      ensureRankingSnapshots = createEnsureRankingSnapshotsHook({
+        prisma: input.container.prisma,
+        client,
+        region: input.region,
+      });
       liveAcquire = createLiveCapabilityAcquireHook({
         env: input.container.env,
         prisma: input.container.prisma,
@@ -479,6 +486,7 @@ export async function runAuthoritativeScoring(
       artifacts: input.container.repositories.artifacts,
       evidence: input.container.repositories.evidence,
       liveAcquire,
+      ensureRankingSnapshots,
       zoneId,
       partition,
       performanceAggregateTtlSeconds: ttlSeconds,

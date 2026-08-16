@@ -343,6 +343,8 @@ export const reportFightSchema = z.object({
           })
           .nullable()
           .optional(),
+        // JSON scalar. Optional: missing/malformed rankings must not fail report parse.
+        rankings: z.unknown().nullable().optional(),
       })
       .nullable(),
   }),

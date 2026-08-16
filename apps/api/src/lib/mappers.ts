@@ -232,6 +232,7 @@ export function mapCharacterProfile(input: CharacterProfileMapInput): CharacterP
     highestAnalyzedRunId: input.highestRunId,
     sources: input.sources,
     refreshStatus: input.refreshStatus,
+    boostAssessment: null,
   };
 }
 

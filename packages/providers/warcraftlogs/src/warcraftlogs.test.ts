@@ -305,6 +305,11 @@ describe("RateLimitData live GraphQL selection", () => {
     }
     expect(OPERATIONS.ResolveCharacter.query).not.toMatch(/\bfaction\b/);
     expect(OPERATIONS.ReportWithFightAndMasterData.query).toMatch(/\bfriendlyPlayers\b/);
+    expect(OPERATIONS.ReportWithFightAndMasterData.query).toMatch(
+      /rankings\(\s*fightIDs:\s*\$fightIDs\s*,\s*compare:\s*Rankings\s*,\s*playerMetric:\s*dps\s*,\s*timeframe:\s*Today\s*\)/,
+    );
+    expect(OPERATIONS.ReportWithFightAndMasterData.query).not.toMatch(/compare:\s*Parses/);
+    expect(OPERATIONS.ReportEvents.query).not.toMatch(/\brankings\s*\(/);
   });
 
   it("live-smoke-wcl.mjs rateLimitData selection matches OPERATIONS (no stale fields)", () => {

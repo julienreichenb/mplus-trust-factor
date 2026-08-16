@@ -29,6 +29,7 @@ import {
 } from "./orchestrator.js";
 import { WclRunRawRepository } from "@mplus/database";
 import type { PrismaClient } from "@mplus/database";
+import { persistWclFightRankingsFromReport } from "../../../wcl-fight-rankings/persist-from-report.js";
 
 export type LiveCapabilityCostSource =
   | "MEASURED_RATE_LIMIT_DELTA"
@@ -131,6 +132,8 @@ export interface ResolveFightMetadataResult {
   dungeonSlug: string;
   masterData: unknown;
   friendlyPlayerActorIds: number[];
+  friendlyPlayers: unknown;
+  rankings: unknown;
   providerCalls: number;
 }
 
@@ -147,6 +150,7 @@ type ReportFightMasterDataResponse = {
         friendlyPlayers?: Array<number | { id?: number }> | null;
       }>;
       masterData?: unknown;
+      rankings?: unknown;
     } | null;
   };
 };
@@ -239,6 +243,8 @@ export async function resolveAuthoritativeFightMetadata(input: {
       : "unknown",
     masterData: report.masterData ?? null,
     friendlyPlayerActorIds,
+    friendlyPlayers: fight.friendlyPlayers ?? friendlyPlayerActorIds,
+    rankings: report.rankings ?? null,
     providerCalls,
   };
 }
@@ -396,6 +402,20 @@ export function createLiveCapabilityAcquireHook(
       combatantInfoEvents: acquired.combatantInfoEvents ?? null,
       acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
+
+    try {
+      await persistWclFightRankingsFromReport({
+        prisma: deps.prisma,
+        rawRunId: persisted.packageArtifactId,
+        rankings: meta.rankings,
+        masterData: meta.masterData,
+        friendlyPlayers: meta.friendlyPlayers,
+        fightId: input.sourceFight.fightId,
+        fetchedAt: new Date(),
+      });
+    } catch {
+      // Rankings are auxiliary Boost Suspicion evidence — never fail scoring persist.
+    }
 
     // Reload verification (provider-free) — exact source identity only.
     const reloadedRow = await rawRuns.find({

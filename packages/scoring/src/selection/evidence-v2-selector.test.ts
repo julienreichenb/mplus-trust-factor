@@ -16,6 +16,7 @@ import {
   computeEvidenceManifestContentHash,
   buildEvidenceManifestContentHashInput,
   finalizeEvidenceManifestV2,
+  orderEvidenceCandidatesV2,
 } from "./evidence-v2-selector.js";
 import { scoringRunCandidateToEvidenceMetadata } from "./evidence-v2-adapters.js";
 
@@ -198,6 +199,34 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
         });
         expect(attempt).not.toHaveProperty("reportRevision");
       }
+    }
+  });
+
+  it("slotIndex 0 is comparator-best and slotIndex 1 is comparator-second when acquisition succeeds", () => {
+    const candidates = fullEightPoolCandidates();
+    const { plan, manifest } = planAndFinalize(candidates);
+    const byDungeon = new Map<string, EvidenceCandidateMetadataV2[]>();
+    for (const c of candidates) {
+      const list = byDungeon.get(c.dungeonSlug) ?? [];
+      list.push(c);
+      byDungeon.set(c.dungeonSlug, list);
+    }
+    for (const [dungeon, pool] of byDungeon) {
+      const ordered = orderEvidenceCandidatesV2(pool);
+      const slot0 = manifest.slots.find((s) => s.dungeonSlug === dungeon && s.slotIndex === 0);
+      const slot1 = manifest.slots.find((s) => s.dungeonSlug === dungeon && s.slotIndex === 1);
+      expect(slot0?.identity?.reportCode).toBe(ordered[0]?.discoveryIdentity.reportCode);
+      expect(slot0?.identity?.fightId).toBe(ordered[0]?.discoveryIdentity.fightId);
+      expect(slot1?.identity?.reportCode).toBe(ordered[1]?.discoveryIdentity.reportCode);
+      expect(slot1?.identity?.fightId).toBe(ordered[1]?.discoveryIdentity.fightId);
+      const plan0 = plan.slots.find((s) => s.dungeonSlug === dungeon && s.slotIndex === 1);
+      expect(
+        plan.slots.find((s) => s.dungeonSlug === dungeon && s.slotIndex === 0)?.orderedCandidates[0]
+          ?.discoveryIdentity.reportCode,
+      ).toBe(ordered[0]?.discoveryIdentity.reportCode);
+      expect(plan0?.orderedCandidates[1]?.discoveryIdentity.reportCode).toBe(
+        ordered[1]?.discoveryIdentity.reportCode,
+      );
     }
   });
 

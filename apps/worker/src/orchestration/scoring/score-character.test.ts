@@ -313,3 +313,62 @@ describe("scoreCharacter Experience Phase 1 optional input", () => {
     expect(saved[0]!.composite).not.toBe(withoutExpSaved[0]!.composite);
   });
 });
+
+describe("scoreCharacter Boost sibling", () => {
+  it("passes the same selected slot identities to Boost as the scoring manifest", async () => {
+    const result = await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(),
+    });
+    const scoringIds = result.orchestration.characterDigests.map((d) => d.slotId).sort();
+    const boostIds = result.boostAssessment?.sample.analyzedRuns.map((r) => r.runId).sort() ?? [];
+    const selectedSlotIds = result.orchestration.manifest.slots.map((s) => s.slotId).sort();
+    expect(result.boostAssessment).not.toBeNull();
+    expect(boostIds).toEqual(selectedSlotIds);
+    expect(scoringIds.every((id) => boostIds.includes(id))).toBe(true);
+    const byDungeon = new Map<string, number>();
+    for (const slot of result.orchestration.manifest.slots) {
+      byDungeon.set(slot.dungeonSlug, (byDungeon.get(slot.dungeonSlug) ?? 0) + 1);
+    }
+    expect(result.orchestration.expectedSlotCount).toBe(16);
+    expect([...byDungeon.values()].every((n) => n === 2)).toBe(true);
+  });
+
+  it("does not change Trust Score columns when Boost is calculated", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const result = await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(saved),
+    });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.performance).toBe(result.orchestration.dimensions.performance?.score ?? null);
+    expect(saved[0]!.survival).toBe(result.orchestration.dimensions.survival?.score ?? null);
+    expect(saved[0]!.utility).toBe(result.orchestration.dimensions.utility?.score ?? null);
+  });
+
+  it("does not invoke ranking enrichment when CharacterScore persist is disabled", async () => {
+    let called = 0;
+    await scoreCharacter({
+      ...baseScoreInput({ persistCharacterScore: false }),
+      prisma: fakePrisma(),
+      ensureRankingSnapshots: async () => {
+        called += 1;
+      },
+    });
+    expect(called).toBe(0);
+  });
+
+  it("keeps CharacterScore persist when ranking enrichment throws", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const result = await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(saved),
+      ensureRankingSnapshots: async () => {
+        throw new Error("wcl ranking unavailable");
+      },
+    });
+    expect(result.characterScoreId).toBe("score-1");
+    expect(saved).toHaveLength(1);
+    expect(result.boostAssessment).not.toBeNull();
+  });
+});

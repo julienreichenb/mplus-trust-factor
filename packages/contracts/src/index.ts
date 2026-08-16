@@ -1,4 +1,5 @@
 export * from "./identity.js";
+export * from "./boost-assessment.js";
 export * from "./runs.js";
 export * from "./raiderio.js";
 export * from "./warcraftlogs.js";
@@ -29,6 +30,13 @@ export * from "./utility-action-timeline-v1.js";
 export * from "./survival-action-timeline-v1.js";
 export * from "./participant-scoring-digest-v1.js";
 export * from "./canonical-json.js";
+export {
+  WCL_FIGHT_RANKING_SEMANTIC_V1,
+  WCL_FIGHT_RANKING_SEMANTIC_V2_UI_KEY_PERCENT,
+  WCL_FIGHT_RANKING_ACQUISITION_VERSION,
+  WCL_FIGHT_RANKING_LEGACY_ACQUISITION_VERSION,
+} from "./wcl-fight-ranking-semantic.js";
+export type { WclFightRankingSemanticV2 } from "./wcl-fight-ranking-semantic.js";
 export {
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION_V1,
   CHARACTER_PERFORMANCE_AGGREGATE_METRIC_V1,

@@ -1,4 +1,5 @@
 import type { Character, IngestionJob } from "@mplus/database";
+import { CharacterBoostAssessmentRepository } from "@mplus/database";
 import type {
   CanonicalCharacter,
   CharacterIdentityInput,
@@ -59,6 +60,7 @@ import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
+import { mapPersistedBoostAssessment } from "../lib/map-boost-assessment.js";
 import { ExplainabilityV2Service } from "./explainability-v2-service.js";
 import {
   CHARACTER_BOOTSTRAP_INCOMPLETE,
@@ -1365,7 +1367,32 @@ export class CharacterService {
       );
     }
 
-    return { ...base, ...enrichments, explainabilityV2 };
+    let boostAssessment = null;
+    try {
+      const seasonId =
+        snapshot?.seasonId ??
+        (
+          await this.container.worker.prisma.characterScore.findFirst({
+            where: { characterId: character.id },
+            orderBy: { calculatedAt: "desc" },
+            select: { seasonId: true },
+          })
+        )?.seasonId ??
+        null;
+      if (seasonId) {
+        const row = await new CharacterBoostAssessmentRepository(
+          this.container.worker.prisma,
+        ).findLatestForCharacterSeason(character.id, seasonId);
+        if (row) boostAssessment = mapPersistedBoostAssessment(row);
+      }
+    } catch (error) {
+      this.container.logger.warn(
+        { err: error, characterId: character.id },
+        "boost_assessment_public_attach_failed",
+      );
+    }
+
+    return { ...base, ...enrichments, explainabilityV2, boostAssessment };
   }
 
   /** SWR profile read. 200 fresh/stale (background refresh enqueued when stale), 202 queued, 404 confirmed absent. */

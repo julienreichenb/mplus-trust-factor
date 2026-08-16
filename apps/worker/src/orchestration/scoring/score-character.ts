@@ -18,6 +18,7 @@ import type {
   SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import {
+  CharacterBoostAssessmentRepository,
   CharacterScoreRepository,
   SeasonScoreContextRepository,
   type PrismaClient,
@@ -45,6 +46,7 @@ import {
   requirePositivePerformanceAggregateTtlSeconds,
   requireScoringZoneId,
 } from "./scoring-zone.js";
+import { buildBoostRunsFromOrchestration } from "../../boost-assessment/from-orchestration.js";
 import {
   buildScoreExplainabilityV1,
   computePartialComposite,
@@ -55,6 +57,8 @@ import {
   extractPersistedRoleAwarePerformanceEvidence,
   applyScoreContext,
   gradeScore,
+  assessBoostSuspicionV1,
+  type BoostAssessmentResult,
   type ExperiencePhase1Result,
   type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
@@ -162,6 +166,17 @@ export interface ScoreCharacterInput {
   rankingParseProvider?: FetchCharacterZoneRankingsParseProvider | null;
   /** Canonical 8-run selection produced once by selectScoringRuns for this calculation. */
   canonicalRunSelection?: ScoringRunSelection | null;
+  /**
+   * Optional post-persist ranking-v2 enrichment for frozen canonical identities.
+   * Live refresh wires this; provider-free tests omit it (no-op).
+   */
+  ensureRankingSnapshots?: (
+    identities: Array<{
+      reportCode: string;
+      fightId: number;
+      reportRevision: number | null;
+    }>,
+  ) => Promise<{ providerCalls?: number } | void>;
   /** Optional frozen published context revision (tests). When omitted, loaded from DB. */
   seasonContextRevision?: SeasonScoreContextRevisionDoc | null;
   /** Test override for ensure port. */
@@ -207,6 +222,11 @@ export interface ScoreCharacterResult {
   performanceAggregate: ScoreCharacterPerformanceAggregateExposure;
   /** Post-composite key/meta context. Never mutates P/S/U/E. */
   appliedContext: AppliedScoreContext;
+  /**
+   * Sibling Boost Suspicion from the same orchestration evidence.
+   * Null when Boost mapping/assessment is skipped.
+   */
+  boostAssessment: BoostAssessmentResult | null;
 }
 
 export async function scoreCharacter(
@@ -341,6 +361,9 @@ export async function scoreCharacter(
     fightId: row.digest.fightId,
     reportRevision: row.digest.reportRevision,
     participantActorId: row.digest.participantActorId,
+    keyLevel: row.digest.keyLevel,
+    timed: row.digest.timed,
+    completedAt: row.digest.completedAt,
   }));
 
   const performance = orchestration.dimensions.performance;
@@ -611,12 +634,78 @@ export async function scoreCharacter(
     characterScoreId = saved.id;
   }
 
+  let rankingEnrichmentProviderCalls = 0;
+  if (persistCharacterScore && characterScoreId && input.ensureRankingSnapshots) {
+    try {
+      const enrichment = await input.ensureRankingSnapshots(
+        selectedRuns.map((row) => ({
+          reportCode: row.reportCode,
+          fightId: row.fightId,
+          reportRevision: row.reportRevision,
+        })),
+      );
+      rankingEnrichmentProviderCalls =
+        typeof enrichment?.providerCalls === "number" && Number.isFinite(enrichment.providerCalls)
+          ? enrichment.providerCalls
+          : 0;
+    } catch (err) {
+      // Ranking-v2 is sibling Boost evidence — never fail a successful CharacterScore persist.
+      console.warn(
+        JSON.stringify({
+          event: "wcl_ranking_snapshot_enrichment_failed",
+          characterId: input.identity.characterId,
+          seasonId: input.seasonId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
+  const boostEvidence = await buildBoostRunsFromOrchestration({
+    prisma: input.prisma,
+    seasonId: input.seasonId,
+    characterId: input.identity.characterId,
+    manifest: orchestration.manifest,
+    characterDigests: orchestration.characterDigests,
+    appliedContext,
+    canonicalRunSelection: input.canonicalRunSelection,
+  });
+  const boostAssessment = assessBoostSuspicionV1({
+    subjectCharacterId: input.identity.characterId,
+    seasonId: input.seasonId,
+    calculatedAt: now.toISOString(),
+    runs: boostEvidence.runs,
+    seasonHighKeyContext: boostEvidence.seasonHighKeyContext,
+    dungeonContexts: boostEvidence.dungeonContexts,
+  });
+  if (persistCharacterScore) {
+    const boostRepo = new CharacterBoostAssessmentRepository(input.prisma);
+    await boostRepo.save({
+      characterId: input.identity.characterId,
+      seasonId: input.seasonId,
+      detectorVersion: boostAssessment.detectorVersion,
+      policyVersion: boostAssessment.policyVersion,
+      contextRevisionKey: boostAssessment.contextRevisionKey,
+      contextRevisionId: boostAssessment.contextRevisionId,
+      suspicionScore: boostAssessment.suspicionScore,
+      suspicionBand: boostAssessment.suspicionBand,
+      confidence: boostAssessment.confidence,
+      status: boostAssessment.status,
+      signals: JSON.parse(JSON.stringify(boostAssessment.signals)) as object,
+      sample: JSON.parse(JSON.stringify(boostAssessment.sample)) as object,
+      evidenceFingerprint: boostAssessment.evidenceFingerprint,
+      calculatedAt: now,
+    });
+  }
+
   const aggregateProviderCalls = performanceAggregate.providerCalls;
   return {
     orchestration,
     characterScoreId,
     providerCalls:
-      orchestration.accounting.providerCalls + aggregateProviderCalls,
+      orchestration.accounting.providerCalls +
+      aggregateProviderCalls +
+      rankingEnrichmentProviderCalls,
     scoringVersion,
     publicationEnabled: input.publicationEnabled === true,
     experience: experienceResult,
@@ -633,5 +722,6 @@ export async function scoreCharacter(
       contentHash: performanceAggregate.contentHash,
     },
     appliedContext,
+    boostAssessment,
   };
 }

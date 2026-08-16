@@ -1,3 +1,5 @@
+import { REPORT_FIGHT_RANKINGS_FIELD } from "../rankings/report-fight-rankings-field.js";
+
 export const OPERATIONS = {
   RateLimitData: {
     operationName: "RateLimitData",
@@ -183,6 +185,35 @@ export const OPERATIONS = {
 }`,
   },
 
+  /**
+   * Discovery-only: report fight rankings JSON (WCL UI Parse % / Key %).
+   * Same rankings arguments as production ReportWithFightAndMasterData.
+   */
+  ReportFightRankingsProbe: {
+    operationName: "ReportFightRankingsProbe",
+    query: `query ReportFightRankingsProbe($code: String!, $fightIDs: [Int!]) {
+  reportData {
+    report(code: $code) {
+      code
+      revision
+      visibility
+      fights(fightIDs: $fightIDs, translate: false) {
+        id
+        encounterID
+        name
+        difficulty
+        keystoneLevel
+        friendlyPlayers
+      }
+      masterData(translate: false) {
+        actors { id name type subType server }
+      }
+      ${REPORT_FIGHT_RANKINGS_FIELD}
+    }
+  }
+}`,
+  },
+
   ReportWithFightAndMasterData: {
     operationName: "ReportWithFightAndMasterData",
     query: `query ReportWithFightAndMasterData($code: String!, $fightIDs: [Int!]) {
@@ -213,6 +244,7 @@ export const OPERATIONS = {
         actors { id name type subType server petOwner }
         abilities { gameID type }
       }
+      ${REPORT_FIGHT_RANKINGS_FIELD}
     }
   }
 }`,
