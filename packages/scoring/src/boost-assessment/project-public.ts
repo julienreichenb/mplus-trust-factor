@@ -132,6 +132,10 @@ function factsFor(code: BoostSignalCode, evidence: Record<string, unknown>): Boo
         extremePrimaryCount: num(evidence.extremePrimaryCount),
         weightedRedSeverity: num(evidence.weightedRedSeverity),
         weightedGreenSeverity: num(evidence.weightedGreenSeverity),
+        materiallyNegativePrimaryCount: num(evidence.materiallyNegativePrimaryCount ?? evidence.redPrimaryCount),
+        severeNegativePrimaryCount: num(evidence.severeNegativePrimaryCount ?? evidence.veryStrongPrimaryCount),
+        medianPrimaryPerformanceDelta: num(evidence.medianPrimaryPerformanceDelta),
+        severePrimaryRatio: num(evidence.severePrimaryRatio),
       };
     case "RECURRENT_STRONG_PEER_COHORT": {
       const identitiesRaw = Array.isArray(evidence.identities) ? evidence.identities : [];

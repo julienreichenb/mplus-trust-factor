@@ -5,8 +5,8 @@
 
 import { PERCENTILE_BPS_P99, PERCENTILE_BPS_P99_9 } from "@mplus/contracts";
 
-export const BOOST_DETECTOR_VERSION = "boost-assessment-v2.0.0";
-export const BOOST_POLICY_VERSION = "boost-policy-v2.0.0";
+export const BOOST_DETECTOR_VERSION = "boost-assessment-v2.1.0";
+export const BOOST_POLICY_VERSION = "boost-policy-v2.1.0";
 export const BOOST_ASSESSMENT_SCHEMA_VERSION = 3 as const;
 
 export const PRIMARY_DUNGEON_RUN_WEIGHT = 1.0;
@@ -38,17 +38,25 @@ export const BOOST_ASSESSMENT_POLICY = Object.freeze({
   signedDeadZone: 15,
   /** |delta| at/above this is a material red or green gap. */
   materialAbsDelta: 25,
+  /** Recurrent strong red; between material and extreme. */
+  veryStrongAbsDelta: 40,
+  /** Signed extreme: subject Key % minus peer median. No absolute subject/peer parse gates. */
   extremeAbsDelta: 50,
-  extremeGapRequiresSubjectMax: 20,
-  extremeGapRequiresPeerMin: 80,
   gapSeveritySaturation: 70,
   severityExponent: 1.35,
   greenCounterEvidenceGain: 0.5,
-  /** Distinct-dungeon EXTREME PRIMARY red gaps that floor peer-gap to near-conclusive. */
+  /** Distinct-dungeon EXTREME PRIMARY gaps that floor peer-gap *value* (not suspicion). */
   extremePrimaryDungeonFloor: 4,
   extremePrimaryValueFloor: 0.9,
+  veryStrongPrimaryFourValueFloor: 0.85,
+  materialPrimaryFiveValueFloor: 0.82,
   extremePrimarySuspicionFloor: 72,
   extremePrimaryFiveSuspicionFloor: 82,
+  veryStrongPrimaryFourSuspicionFloor: 74,
+  recurrentMaterialSixSuspicionFloor: 70,
+  medianHighFloorDelta: 40,
+  materialRecurrentMedianFloorDelta: 35,
+  recurrentMaterialMedianFloorDelta: 30,
   materialGapRateOnset: 0.2,
   materialGapRateSaturation: 0.65,
   extremeGapRateOnset: 0.2,
@@ -137,13 +145,7 @@ export function classifyPeerGap(input: {
     return "UNAVAILABLE";
   }
   const delta = performanceDelta(input.subjectKeyParse, input.peerMedianKeyParse);
-  if (
-    delta <= -policy.extremeAbsDelta &&
-    input.subjectKeyParse <= policy.extremeGapRequiresSubjectMax &&
-    input.peerMedianKeyParse >= policy.extremeGapRequiresPeerMin
-  ) {
-    return "RED_EXTREME";
-  }
+  if (delta <= -policy.extremeAbsDelta) return "RED_EXTREME";
   if (delta <= -policy.materialAbsDelta) return "RED_MATERIAL";
   if (delta >= policy.extremeAbsDelta) return "GREEN_EXTREME";
   if (delta >= policy.materialAbsDelta) return "GREEN_MATERIAL";
@@ -167,6 +169,61 @@ export function normalizeRate(rate: number, onset: number, saturation: number): 
   if (rate <= onset) return 0;
   if (rate >= saturation) return 1;
   return (rate - onset) / (saturation - onset);
+}
+
+export function isVeryStrongNegativeDelta(delta: number): boolean {
+  return Number.isFinite(delta) && delta <= -BOOST_ASSESSMENT_POLICY.veryStrongAbsDelta;
+}
+
+/**
+ * Monotonic HIGH-range floor from recurrent PRIMARY signed gaps.
+ * SECONDARY runs must not participate — they corroborate but do not set this floor.
+ * Four extreme PRIMARY gaps are not a separate suspicion floor: extreme implies
+ * very-strong, so the four very-strong rule already covers that case at 74.
+ */
+export function peerMismatchSuspicionFloor(input: {
+  analyzablePrimaryRunCount: number;
+  redPrimaryCount: number;
+  veryStrongPrimaryCount: number;
+  extremePrimaryDungeonCount: number;
+  medianPrimaryPerformanceDelta: number | null;
+}): number {
+  const policy = BOOST_ASSESSMENT_POLICY;
+  const n = input.analyzablePrimaryRunCount;
+  const median = input.medianPrimaryPerformanceDelta;
+  let floor = 0;
+  if (input.extremePrimaryDungeonCount >= 5) {
+    floor = Math.max(floor, policy.extremePrimaryFiveSuspicionFloor);
+  }
+  if (n >= 4 && input.veryStrongPrimaryCount >= 4) {
+    floor = Math.max(floor, policy.veryStrongPrimaryFourSuspicionFloor);
+  }
+  if (
+    n >= 4 &&
+    input.extremePrimaryDungeonCount >= 3 &&
+    median != null &&
+    median <= -policy.medianHighFloorDelta
+  ) {
+    floor = Math.max(floor, policy.extremePrimarySuspicionFloor);
+  }
+  if (
+    n >= 5 &&
+    input.redPrimaryCount >= 5 &&
+    median != null &&
+    median <= -policy.materialRecurrentMedianFloorDelta
+  ) {
+    floor = Math.max(floor, policy.extremePrimarySuspicionFloor);
+  }
+  if (
+    n >= 6 &&
+    input.redPrimaryCount >= 4 &&
+    input.veryStrongPrimaryCount >= 3 &&
+    median != null &&
+    median <= -policy.recurrentMaterialMedianFloorDelta
+  ) {
+    floor = Math.max(floor, policy.recurrentMaterialSixSuspicionFloor);
+  }
+  return floor;
 }
 
 export function exceptionalSignalScale(percentileBps: number | null | undefined): number {

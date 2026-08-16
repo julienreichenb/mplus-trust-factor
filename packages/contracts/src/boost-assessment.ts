@@ -82,6 +82,10 @@ export type BoostSignalFactsDTO =
       extremePrimaryCount: number | null;
       weightedRedSeverity: number | null;
       weightedGreenSeverity: number | null;
+      materiallyNegativePrimaryCount: number | null;
+      severeNegativePrimaryCount: number | null;
+      medianPrimaryPerformanceDelta: number | null;
+      severePrimaryRatio: number | null;
     }
   | {
       code: "RECURRENT_STRONG_PEER_COHORT";

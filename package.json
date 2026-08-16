@@ -107,6 +107,7 @@
     "utility:trace-character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run utility:trace-character --",
     "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --",
     "boost:probe": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run boost:probe --",
+    "boost:population-audit": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run boost:population-audit",
     "wcl:hydrate:rankings": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run wcl:hydrate:rankings --"
   },
   "dependencies": {

@@ -10,11 +10,13 @@ export {
   dungeonRunSlotRole,
   dungeonRunSlotWeight,
   peerGapSeverityFromRawGap,
+  peerMismatchSuspicionFloor,
   performanceDelta,
   signedDeltaSeverity,
   isRedPeerClass,
   isExtremeRedPeerClass,
   isGreenPeerClass,
+  isVeryStrongNegativeDelta,
   exceptionalSignalScale,
 } from "./policy.js";
 export { resolveCanonicalTeammateIdentity, isUsableTeammateIdentity } from "./identity.js";

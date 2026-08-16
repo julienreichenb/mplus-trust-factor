@@ -287,3 +287,203 @@ describe("boost assessment V2 synthetic matrix", () => {
     expect(a.evidenceFingerprint).not.toBe(b.evidenceFingerprint);
   });
 });
+
+describe("boost assessment V2.1 recurrent peer-gap matrix", () => {
+  it("A: one extreme PRIMARY gap among neutrals is not automatically HIGH", () => {
+    const runs = sixteen((i) =>
+      i === 0
+        ? { parse: 8, peerParses: peerParses(["a", "b"], 92) }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("B: three moderate negative PRIMARY gaps stay below HIGH", () => {
+    const runs = sixteen((i) =>
+      i < 3
+        ? { parse: 55, peerParses: peerParses(["a", "b"], 85) }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs);
+    expect(result.suspicionBand).not.toBe("HIGH");
+    expect(result.suspicionScore ?? 0).toBeLessThan(BOOST_ASSESSMENT_POLICY.bands.highMin);
+  });
+
+  it("C: five severe negative PRIMARY gaps across distinct dungeons are HIGH", () => {
+    const runs = sixteen((i) =>
+      i < 5
+        ? { parse: 35, peerParses: peerParses(["a", "b"], 80) }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs);
+    expect(result.suspicionBand).toBe("HIGH");
+  });
+
+  it("D: six very severe negative PRIMARY gaps are HIGH", () => {
+    const runs = sixteen((i) =>
+      i < 6
+        ? { parse: 20, peerParses: peerParses(["a", "b"], 85) }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs);
+    expect(result.suspicionBand).toBe("HIGH");
+    expect(result.suspicionScore ?? 0).toBeGreaterThanOrEqual(BOOST_ASSESSMENT_POLICY.bands.highMin);
+  });
+
+  it("E: strong player matching peers stays LOW", () => {
+    const result = assess(sixteen(() => ({ parse: 88, peerParses: peerParses(["a", "b"], 86) })));
+    expect(result.suspicionBand).toBe("LOW");
+  });
+
+  it("F: subject outperforming peers does not red-escalate", () => {
+    const result = assess(sixteen(() => ({ parse: 92, peerParses: peerParses(["a", "b"], 60) })));
+    const gap = result.signals.find((s) => s.code === "STRONG_PEER_PERFORMANCE_GAP")!;
+    expect(gap.contribution).toBe(0);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("G: recurrent same cohort with equal performance is not HIGH", () => {
+    const mates = CARRY_PEERS.map(teammate);
+    const runs = sixteen(() => ({
+      parse: 88,
+      peerParses: peerParses(CARRY_PEERS, 87),
+      mates,
+    }));
+    const result = assess(runs);
+    expect(result.suspicionBand).not.toBe("HIGH");
+    const cohort = result.signals.find((s) => s.code === "RECURRENT_STRONG_PEER_COHORT")!;
+    expect(cohort.contribution).toBe(0);
+  });
+
+  it("H: missing top evidence only is not HIGH", () => {
+    const runs = sixteen((_i) => ({ parse: 90, peerParses: peerParses(["a", "b"], 88), deaths: 0 }));
+    const result = assess(runs, EXCEPTIONAL, dungeonContexts({ unverifiable: ["d0", "d1", "d2"] }));
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("I: severe recurring peer gaps with no deaths can still be HIGH", () => {
+    const runs = sixteen((i) =>
+      i < 5
+        ? { parse: 12, peerParses: peerParses(["a", "b"], 70), deaths: 0 }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78), deaths: 0 },
+    );
+    const result = assess(runs);
+    expect(result.suspicionBand).toBe("HIGH");
+    const survival = result.signals.find((s) => s.code === "HIGH_KEY_SURVIVAL_MISMATCH")!;
+    expect(survival.contribution).toBeLessThan(2);
+  });
+
+  it("J: severe recurring peer gaps with no temporal burst can still be HIGH", () => {
+    const contexts = dungeonContexts();
+    for (let i = 0; i < contexts.length; i++) {
+      contexts[i]!.blizzardBestCompletedAt = `2026-07-${String(i + 1).padStart(2, "0")}T12:00:00.000Z`;
+    }
+    const runs = sixteen((i) =>
+      i < 5 ? { parse: 18, peerParses: peerParses(["a", "b"], 75) } : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs, EXCEPTIONAL, contexts);
+    expect(result.suspicionBand).toBe("HIGH");
+    const temporal = result.signals.find((s) => s.code === "HIGHEST_RUN_TEMPORAL_CLUSTER")!;
+    expect(temporal.contribution).toBe(0);
+  });
+
+  it("signed extreme does not require subject<=20 and peers>=80", () => {
+    const runs = sixteen((i) =>
+      i < 4
+        ? { parse: 35, peerParses: peerParses(["a", "b"], 88) }
+        : { parse: 80, peerParses: peerParses(["a", "b"], 78) },
+    );
+    const result = assess(runs);
+    const gap = result.signals.find((s) => s.code === "STRONG_PEER_PERFORMANCE_GAP")!;
+    expect(gap.evidence.extremePrimaryCount).toBe(4);
+    expect(result.suspicionBand).toBe("HIGH");
+  });
+});
+
+function sixDungeonContexts(): BoostDungeonContext[] {
+  return Array.from({ length: 6 }, (_, i) => ({
+    dungeonSlug: `d${i}`,
+    blizzardBestKeyLevel: 21,
+    blizzardBestCompletedAt: `2026-07-${String(i + 1).padStart(2, "0")}T12:00:00.000Z`,
+    blizzardBestMythicRunId: `m${i}`,
+    publicAnalysableBestKeyLevel: 21,
+    publicAnalysableCode: `code${i}`,
+    publicAnalysableFightId: 1,
+    topPublicEvidenceAvailable: true,
+    keyLevelVerificationGap: 0,
+  }));
+}
+
+function fromPrimaryDeltas(deltas: number[]): ReturnType<typeof assess> {
+  const runs: BoostRunInput[] = [];
+  for (let i = 0; i < deltas.length; i++) {
+    const peer = 80;
+    const subject = peer + deltas[i]!;
+    runs.push(
+      run({
+        id: `p${i}`,
+        parse: subject,
+        peerParses: peerParses(["a", "b"], peer),
+        dungeon: `d${i}`,
+        slotIndex: 0,
+      }),
+    );
+    runs.push(
+      run({
+        id: `s${i}`,
+        parse: peer,
+        peerParses: peerParses(["a", "b"], peer),
+        dungeon: `d${i}`,
+        slotIndex: 1,
+      }),
+    );
+  }
+  return assess(runs, EXCEPTIONAL, sixDungeonContexts());
+}
+
+describe("boost assessment legitimate-shape false-positive audit", () => {
+  it("A: near-median deltas must not HIGH", () => {
+    const result = fromPrimaryDeltas([-10, 8, -4, 2, -7, 5]);
+    expect(result.suspicionBand).not.toBe("HIGH");
+    expect(result.suspicionBand).toBe("LOW");
+  });
+
+  it("B: one catastrophic outlier must not HIGH", () => {
+    const result = fromPrimaryDeltas([-65, -5, 2, -8, 3, -4]);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("C: two very bad runs otherwise normal must not HIGH", () => {
+    const result = fromPrimaryDeltas([-55, -45, -5, 5, -8, 0]);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("D: four modest deficits must not automatically HIGH", () => {
+    const result = fromPrimaryDeltas([-25, -27, -28, -26, -5, 0]);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("E: three severe + three normal must not HIGH from count=3 alone", () => {
+    const result = fromPrimaryDeltas([-45, -44, -42, -5, 0, 5]);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+
+  it("F: systematic severe PRIMARY gaps are HIGH", () => {
+    const result = fromPrimaryDeltas([-45, -48, -50, -42, -35, -5]);
+    expect(result.suspicionBand).toBe("HIGH");
+  });
+
+  it("G: systematic extreme PRIMARY gaps are HIGH", () => {
+    const result = fromPrimaryDeltas([-60, -55, -70, -50, -65, -40]);
+    expect(result.suspicionBand).toBe("HIGH");
+  });
+
+  it("H: consistent outperformance does not red-escalate", () => {
+    const result = fromPrimaryDeltas([25, 18, 30, 12, 22, 40]);
+    const gap = result.signals.find((s) => s.code === "STRONG_PEER_PERFORMANCE_GAP")!;
+    expect(gap.contribution).toBe(0);
+    expect(result.suspicionBand).not.toBe("HIGH");
+  });
+});
+
