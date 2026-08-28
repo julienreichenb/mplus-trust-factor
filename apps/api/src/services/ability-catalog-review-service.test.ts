@@ -481,15 +481,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         {
           expectedVersion: ve.version,
           action: "ACCEPT",
-          draft: {
-            canonicalKey: `priest.defensive-minor.vampiric-embrace-${randomUUID().slice(0, 8)}`,
-            name: "Vampiric Embrace",
-            spellIds: [15286],
-            bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-            classSlug: "priest",
-            specSlugs: ["shadow"],
-            availability: "TALENT",
-          },
+          businessMetadata: { availability: "TALENT" },
         },
         audit,
       ),
@@ -498,28 +490,14 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       message: expect.stringMatching(/Category is required/),
     });
 
-    const key = `priest.defensive-minor.vampiric-embrace-${randomUUID().slice(0, 8)}`;
     const accepted = await service.decideItem(
       ve.id,
       {
         expectedVersion: ve.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
-          cooldownSeconds: 120,
           availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -553,22 +531,9 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       {
         expectedVersion: rejected.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
-          cooldownSeconds: 120,
           availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -642,7 +607,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
     const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
       (i) => i.primarySpellId === 15286,
     )!;
-    const key = `priest.defensive-minor.ve-${randomUUID().slice(0, 8)}`;
     const ensured = await service.ensureDraft(ve.id, {}, audit);
     expect(ensured.decisionAction).toBeNull();
     expect(ensured.draftRule).toBeTruthy();
@@ -663,24 +627,9 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       ve.id,
       {
         expectedVersion: draft.version,
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          dimensionTags: ["SURVIVAL_RECOVERY"],
           availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          cooldownSeconds: 120,
-          validFromBuild: "69299",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -692,23 +641,9 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       {
         expectedVersion: ready.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          dimensionTags: ["SURVIVAL_RECOVERY"],
           availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          cooldownSeconds: 120,
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -720,20 +655,9 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       ve.id,
       {
         expectedVersion: readyDraft.version,
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: null,
           availability: "TALENT",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -751,11 +675,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         ve.id,
         {
           expectedVersion: draft.version,
-          draft: {
-            name: "stale",
-            spellIds: [15286],
-            bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          },
+          businessMetadata: { category: "DEFENSIVE_MINOR" },
         },
         audit,
       ),
@@ -868,12 +788,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       {
         expectedVersion: binding.version,
         action: "KEEP_CURRENT",
-        draft: {
-          category: null,
-          availability: null,
-          dimensionTags: [],
-          name: "Wrong external name",
-        },
       },
       audit,
     );
@@ -980,6 +894,99 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         audit,
       ),
     ).rejects.toMatchObject({ code: "KEEP_CURRENT_NO_CATALOG_RULE" });
+  });
+
+  it("rejects admin attempts to submit source-owned review fields", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (i) => i.primarySpellId === 15286,
+    )!;
+
+    await expect(
+      service.decideItem(
+        ve.id,
+        {
+          expectedVersion: ve.version,
+          action: "ACCEPT",
+          businessMetadata: { category: "DEFENSIVE_MINOR", cooldownSeconds: 1 } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await service.ensureDraft(ve.id, {}, {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    });
+    const withDraft = await service.getItem(ve.id);
+    const draftVersion = (withDraft.draftRule as { version: number }).version;
+
+    await expect(
+      service.updateDraft(
+        ve.id,
+        {
+          expectedVersion: draftVersion,
+          businessMetadata: { category: "DEFENSIVE_MINOR", spellIds: [1] } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(
+      service.validateDraft(ve.id, {
+        businessMetadata: { category: "DEFENSIVE_MINOR", bindings: [] } as never,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects removed CUSTOMIZE binding decision", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const binding = (await service.listItems(batch.id, { kind: "SPELL_BINDING_REVIEW" })).items[0]!;
+
+    await expect(
+      service.decideItem(
+        binding.id,
+        { expectedVersion: binding.version, action: "CUSTOMIZE" },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_DECISION_ACTION" });
   });
 
   it("requires admin authorization on decide route", async () => {

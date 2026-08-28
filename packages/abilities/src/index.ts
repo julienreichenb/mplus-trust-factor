@@ -272,7 +272,9 @@ export {
 } from "./refresh/review/draft-prefill.js";
 export {
   applyBusinessMetadataToCuratedDraft,
+  applyBusinessMetadataToReviewDraft,
   dimensionTagsForBusinessMetadataEdit,
+  dimensionTagsForReviewDraftEdit,
   type AbilityBusinessMetadataPatch,
 } from "./refresh/review/business-metadata.js";
 export {

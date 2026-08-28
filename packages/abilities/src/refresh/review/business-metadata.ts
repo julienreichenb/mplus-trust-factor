@@ -39,3 +39,34 @@ export function applyBusinessMetadataToCuratedDraft(
     dimensionTags: dimensionTagsForBusinessMetadataEdit(activeRule, category),
   };
 }
+
+/** Preserve explicit multi-tag drafts when category is unchanged; derive on category change. */
+export function dimensionTagsForReviewDraftEdit(
+  prefill: CuratedDraftRuleInput,
+  patch: AbilityBusinessMetadataPatch,
+): AbilityDimensionTag[] {
+  const category = patch.category !== undefined ? patch.category : prefill.category;
+  if (category == null) return prefill.dimensionTags ?? [];
+  if (category === prefill.category && prefill.dimensionTags?.length) {
+    return [...prefill.dimensionTags];
+  }
+  return defaultDimensionTagsForCategory(category);
+}
+
+/**
+ * Merge admin business metadata onto a server-side review draft prefill.
+ * Source-owned fields always come from `prefill`, never from the patch.
+ */
+export function applyBusinessMetadataToReviewDraft(
+  prefill: CuratedDraftRuleInput,
+  patch: AbilityBusinessMetadataPatch,
+): CuratedDraftRuleInput {
+  const category = patch.category !== undefined ? patch.category : prefill.category;
+  const availability = patch.availability !== undefined ? patch.availability : prefill.availability;
+  return {
+    ...prefill,
+    category,
+    availability,
+    dimensionTags: dimensionTagsForReviewDraftEdit(prefill, patch),
+  };
+}

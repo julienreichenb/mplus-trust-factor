@@ -67,10 +67,24 @@ const veItem = {
   evidence: { cooldownSeconds: 120 },
   sourceProvenance: { source: "SIMULATIONCRAFT" },
   matchedCanonicalKey: null,
-  draftRule: null,
+  draftRule: {
+    version: 1,
+    canonicalKey: "priest.shadow.vampiric-embrace",
+    name: "Vampiric Embrace",
+    spellIds: [15286],
+    bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
+    cooldownSeconds: 120,
+    provenance: { source: "SIMC_ADVISORY", validFromBuild: "69299" },
+  },
   draftTopology: null,
-  draftStatus: null,
-  draftValidation: null,
+  draftStatus: "NEEDS_METADATA",
+  draftValidation: {
+    status: "NEEDS_METADATA",
+    readyForPublishReview: false,
+    reasonCodes: ["MISSING_CATEGORY"],
+    errors: [],
+    warnings: [],
+  },
   decisionEvents: [],
   wowheadUrl: "https://www.wowhead.com/spell=15286",
 };
@@ -160,10 +174,19 @@ describe("AdminAbilityCatalogReviewPage", () => {
         },
       ],
     }));
-    updateDraft.mockResolvedValue({
+    updateDraft.mockImplementation(async (_id, body) => ({
       ...veItem,
       draftStatus: "READY_FOR_PUBLISH_REVIEW",
-      draftRule: { version: 2, status: "READY_FOR_PUBLISH_REVIEW" },
+      draftRule: {
+        version: 2,
+        status: "READY_FOR_PUBLISH_REVIEW",
+        canonicalKey: "priest.shadow.vampiric-embrace",
+        name: "Vampiric Embrace",
+        spellIds: [15286],
+        bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
+        category: body.businessMetadata?.category ?? null,
+        availability: body.businessMetadata?.availability ?? null,
+      },
       draftValidation: {
         status: "READY_FOR_PUBLISH_REVIEW",
         readyForPublishReview: true,
@@ -172,17 +195,20 @@ describe("AdminAbilityCatalogReviewPage", () => {
         warnings: [],
       },
       decisionEvents: [],
-    });
-    validateDraft.mockResolvedValue({
-      itemId: veItem.id,
-      validation: {
-        status: "NEEDS_METADATA",
-        readyForPublishReview: false,
-        reasonCodes: ["MISSING_CATEGORY"],
-        errors: [],
-        warnings: [],
-      },
-      draft: null,
+    }));
+    validateDraft.mockImplementation(async (_id, body?: { businessMetadata?: { category?: string | null } }) => {
+      const ready = Boolean(body?.businessMetadata?.category);
+      return {
+        itemId: veItem.id,
+        validation: {
+          status: ready ? "READY_FOR_PUBLISH_REVIEW" : "NEEDS_METADATA",
+          readyForPublishReview: ready,
+          reasonCodes: ready ? [] : ["MISSING_CATEGORY"],
+          errors: [],
+          warnings: [],
+        },
+        draft: null,
+      };
     });
     ensureDraft.mockImplementation(async () => {
       const next = {
@@ -306,7 +332,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
       }),
     );
     const call = decideItem.mock.calls.find((c) => c[1]?.action === "KEEP_CURRENT");
-    expect(call?.[1]?.draft).toBeUndefined();
+    expect(call?.[1]?.businessMetadata).toBeUndefined();
     wrapper.unmount();
   });
 
@@ -316,7 +342,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
     const wrapper = await mountPage();
     expect(wrapper.find("[data-testid='draft-editor']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='category-required-hint']").exists()).toBe(true);
-    expect((wrapper.get("[data-testid='draft-canonical-key']").element as HTMLInputElement).value).toContain(
+    expect(wrapper.get("[data-testid='draft-canonical-key']").text()).toContain(
       "priest.shadow.vampiric-embrace",
     );
     expect(validateDraft).toHaveBeenCalled();
@@ -351,6 +377,8 @@ describe("AdminAbilityCatalogReviewPage", () => {
     decideItem.mockClear();
     await wrapper.get("[data-testid='decide-accept']").trigger("click");
     await flushPromises();
+    await flushPromises();
+    await flushPromises();
     expect(decideItem).toHaveBeenCalledWith(
       "item-ve",
       expect.objectContaining({ action: "ACCEPT" }),
@@ -358,19 +386,14 @@ describe("AdminAbilityCatalogReviewPage", () => {
     wrapper.unmount();
   });
 
-  it("blocks Accept when canonicalKey is cleared", async () => {
+  it("does not expose editable source fact inputs in the review form", async () => {
     listItems.mockResolvedValue({ items: [veItem], total: 1, page: 1, pageSize: 200 });
     getItem.mockResolvedValue(veItem);
     const wrapper = await mountPage();
-    await wrapper.get("[data-testid='draft-canonical-key']").setValue("");
-    await wrapper.get("[data-testid='draft-category']").setValue("DEFENSIVE_MINOR");
-    await wrapper.get("[data-testid='draft-availability']").setValue("BASELINE");
-    await flushPromises();
-    expect((wrapper.get("[data-testid='decide-accept']").element as HTMLButtonElement).disabled).toBe(true);
-    decideItem.mockClear();
-    await wrapper.get("[data-testid='decide-accept']").trigger("click");
-    await flushPromises();
-    expect(decideItem).not.toHaveBeenCalled();
+    const editor = wrapper.get("[data-testid='draft-editor']");
+    expect(wrapper.find("[data-testid='binding-editor']").exists()).toBe(false);
+    expect(editor.find("input[type='number']").exists()).toBe(false);
+    expect(editor.text()).toContain("15286");
     wrapper.unmount();
   });
 
@@ -380,7 +403,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
     const wrapper = await mountPage();
     await wrapper.get("[data-testid='save-review']").trigger("click");
     await flushPromises();
-    expect(ensureDraft).toHaveBeenCalled();
+    expect(updateDraft).toHaveBeenCalled();
     expect(decideItem).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -462,7 +485,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
   });
 
   it("surfaces 409 concurrency conflicts explicitly on save", async () => {
-    ensureDraft.mockRejectedValueOnce(
+    updateDraft.mockRejectedValueOnce(
       new ApiClientError("stale", 409, "REVIEW_ITEM_VERSION_CONFLICT"),
     );
     const wrapper = await mountPage();

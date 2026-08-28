@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getAllRegisteredRules } from "../../registry.js";
 import {
   applyBusinessMetadataToCuratedDraft,
+  applyBusinessMetadataToReviewDraft,
   dimensionTagsForBusinessMetadataEdit,
 } from "./business-metadata.js";
 import { projectCurrentRuleBindings } from "../bindings.js";
@@ -64,6 +65,23 @@ describe("business metadata ownership", () => {
       { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
       stormkeeper!,
     );
+    expect(merged.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
+    expect(merged.name).toBe(stormkeeper!.name);
+    expect(merged.spellIds).toEqual(stormkeeper!.spellIds);
+    expect(merged.classSlug).toBe(stormkeeper!.classSlug);
+    expect(merged.provenance).toEqual(prefill.provenance);
+    expect(merged.dimensionTags).toEqual(["PERFORMANCE_OFFENSIVE_COOLDOWN"]);
+  });
+
+  it("keeps source facts from review prefill when applying business metadata", () => {
+    const stormkeeper = getAllRegisteredRules().find(
+      (r) => r.canonicalKey === "shaman.offensive.stormkeeper",
+    )!;
+    const prefill = draftFromRule(stormkeeper!.canonicalKey);
+    const merged = applyBusinessMetadataToReviewDraft(prefill, {
+      category: "OFFENSIVE_MAJOR",
+      availability: "BASELINE",
+    });
     expect(merged.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
     expect(merged.name).toBe(stormkeeper!.name);
     expect(merged.spellIds).toEqual(stormkeeper!.spellIds);

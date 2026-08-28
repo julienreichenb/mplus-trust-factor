@@ -852,8 +852,8 @@ export class AbilityCatalogReleaseService {
       const action = draft.reviewItem.decisionAction;
       const allowed =
         kind === "NEW_ABILITY_CANDIDATE"
-          ? action === "ACCEPT" || action === "CUSTOMIZE"
-          : action === "ACCEPT_PROPOSED" || action === "CUSTOMIZE" || action === "KEEP_CURRENT";
+          ? action === "ACCEPT"
+          : action === "ACCEPT_PROPOSED" || action === "KEEP_CURRENT";
       if (!allowed) {
         throw HttpError.badRequest(
           "DRAFT_DECISION_NOT_ALLOWED",

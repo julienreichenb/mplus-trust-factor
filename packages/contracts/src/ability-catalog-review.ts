@@ -11,7 +11,7 @@ export const ABILITY_CATALOG_REVIEW_ITEM_KINDS = [
 export const abilityCatalogReviewItemKindSchema = z.enum(ABILITY_CATALOG_REVIEW_ITEM_KINDS);
 
 export const NEW_ABILITY_DECISIONS = ["ACCEPT", "REJECT", "DEFER"] as const;
-export const BINDING_DECISIONS = ["ACCEPT_PROPOSED", "KEEP_CURRENT", "CUSTOMIZE", "DEFER"] as const;
+export const BINDING_DECISIONS = ["ACCEPT_PROPOSED", "KEEP_CURRENT", "DEFER"] as const;
 export const TOPOLOGY_DECISIONS = ["ACCEPT", "REJECT", "DEFER"] as const;
 export const REMOVAL_DECISIONS = ["CONFIRM_REMOVAL", "KEEP_CURRENT", "DEFER"] as const;
 
@@ -105,12 +105,22 @@ export const curatedDraftFieldsSchema = z
   })
   .strict();
 
+/** Admin business metadata — category and availability only (strict; source fields rejected). */
+export const abilityBusinessMetadataPatchSchema = z
+  .object({
+    category: draftAbilityCategorySchema.nullable().optional(),
+    availability: draftAbilityAvailabilitySchema.nullable().optional(),
+  })
+  .strict();
+
+export type AbilityBusinessMetadataPatch = z.infer<typeof abilityBusinessMetadataPatchSchema>;
+
 export const decideAbilityCatalogReviewItemRequestSchema = z
   .object({
     expectedVersion: z.number().int().positive(),
     action: z.string().min(1),
     note: z.string().max(4000).optional(),
-    draft: curatedDraftFieldsSchema.optional(),
+    businessMetadata: abilityBusinessMetadataPatchSchema.optional(),
   })
   .strict();
 
@@ -121,7 +131,7 @@ export type DecideAbilityCatalogReviewItemRequest = z.infer<
 export const updateAbilityCatalogDraftRequestSchema = z
   .object({
     expectedVersion: z.number().int().positive(),
-    draft: curatedDraftFieldsSchema,
+    businessMetadata: abilityBusinessMetadataPatchSchema,
     note: z.string().max(4000).optional(),
   })
   .strict();
@@ -130,7 +140,7 @@ export type UpdateAbilityCatalogDraftRequest = z.infer<typeof updateAbilityCatal
 
 export const validateAbilityCatalogDraftRequestSchema = z
   .object({
-    draft: curatedDraftFieldsSchema.optional(),
+    businessMetadata: abilityBusinessMetadataPatchSchema.optional(),
   })
   .strict();
 
@@ -230,16 +240,6 @@ export interface AbilityCatalogReviewItemDTO {
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
-
-/** Admin manual edit — business/scoring metadata only (strict; source fields rejected). */
-export const abilityBusinessMetadataPatchSchema = z
-  .object({
-    category: draftAbilityCategorySchema.nullable().optional(),
-    availability: draftAbilityAvailabilitySchema.nullable().optional(),
-  })
-  .strict();
-
-export type AbilityBusinessMetadataPatch = z.infer<typeof abilityBusinessMetadataPatchSchema>;
 
 export const saveManualCatalogEditRequestSchema = z
   .object({

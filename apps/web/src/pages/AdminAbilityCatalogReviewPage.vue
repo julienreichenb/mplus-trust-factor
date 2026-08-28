@@ -3,16 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   DRAFT_ABILITY_CATEGORIES,
   DRAFT_AVAILABILITIES,
-  DRAFT_BINDING_ROLES,
-  DRAFT_DIMENSION_TAGS,
-  DRAFT_SOURCE_OWNERSHIPS,
   RETAIL_CLASS_MATRIX,
   getAllRegisteredRules,
   dimensionTagsForRule,
   projectCurrentRuleBindings,
-  suggestCuratedCanonicalKey,
-  validateCuratedDraftRule,
-  type CuratedDraftRuleInput,
   type AbilityRule,
 } from "@mplus/abilities";
 import { api } from "../api/client";
@@ -65,26 +59,8 @@ const filters = ref({
 });
 
 const draftForm = ref({
-  canonicalKey: "",
-  name: "",
-  primarySpellId: "" as string,
-  spellIdsText: "",
-  classSlug: "",
-  specSlugsText: "",
-  raceSlugsText: "",
   category: "",
-  dimensionTags: [] as string[],
   availability: "",
-  cooldownSeconds: "" as string,
-  charges: "" as string,
-  sourceOwnership: "",
-  notes: "",
-  validFromBuild: "",
-  validToBuild: "",
-  provenanceSource: "CURATED_OVERRIDE",
-  provenanceVerifiedAt: "",
-  provenanceGameVersion: "",
-  bindings: [] as BindingRow[],
 });
 
 const KIND_LABELS: Record<string, string> = {
@@ -110,7 +86,6 @@ const DECISION_LABELS: Record<string, string> = {
   ACCEPT: "Accepted",
   ACCEPT_PROPOSED: "Accepted proposed",
   KEEP_CURRENT: "Kept current",
-  CUSTOMIZE: "Customized",
   REJECT: "Rejected",
   DEFER: "Deferred",
   CONFIRM_REMOVAL: "Removal confirmed",
@@ -133,18 +108,8 @@ const selectedIndex = computed(() =>
 const classOptions = computed(() =>
   RETAIL_CLASS_MATRIX.map((c) => ({ value: c.slug, label: c.name ?? c.slug })),
 );
-const specOptions = computed(() => {
-  const cls = RETAIL_CLASS_MATRIX.find((c) => c.slug === draftForm.value.classSlug);
-  return (cls?.specs ?? []).map((s) => ({ value: s.slug, label: s.name ?? s.slug }));
-});
-
 const categoryOptions = DRAFT_ABILITY_CATEGORIES.map((v) => ({ value: v, label: v }));
 const availabilityOptions = DRAFT_AVAILABILITIES.map((v) => ({ value: v, label: v }));
-const ownershipOptions = DRAFT_SOURCE_OWNERSHIPS.map((v) => ({ value: v, label: v }));
-const bindingRoleOptions = DRAFT_BINDING_ROLES.map((v) => ({
-  value: v,
-  label: BINDING_ROLE_LABELS[v] ?? v,
-}));
 
 const showReviewForm = computed(() => {
   const kind = selectedItem.value?.kind;
@@ -428,34 +393,9 @@ const draftIncomplete = computed(
   () => selectedItem.value?.draftStatus === "NEEDS_METADATA",
 );
 
-const draftAcceptValidation = computed(() => {
-  if (!showReviewForm.value) return null;
-  return validateCuratedDraftRule(buildDraftInputFromForm(), {
-    existingCanonicalKeys: new Set(getAllRegisteredRules().map((rule) => rule.canonicalKey)),
-  });
-});
-
-const draftFieldErrors = computed(() => {
-  const validation = draftAcceptValidation.value;
-  if (!validation) return {} as Record<string, string>;
-  const out: Record<string, string> = {};
-  for (const issue of [...validation.errors, ...validation.warnings]) {
-    if (!issue.field || out[issue.field]) continue;
-    if (
-      issue.severity === "error" ||
-      issue.code === "MISSING_CANONICAL_KEY" ||
-      issue.code === "MISSING_CATEGORY" ||
-      issue.code === "MISSING_AVAILABILITY" ||
-      issue.code === "MISSING_PROVENANCE" ||
-      issue.code === "MISSING_PRIMARY_BINDING"
-    ) {
-      out[issue.field] = issue.message;
-    }
-  }
-  return out;
-});
-
-const canAcceptReview = computed(() => draftAcceptValidation.value?.readyForPublishReview === true);
+const canAcceptReview = computed(
+  () => selectedItem.value?.draftValidation?.readyForPublishReview === true,
+);
 
 const sourceLines = computed(() => {
   const batch = selectedBatch.value;
@@ -475,18 +415,55 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function splitCsv(text: string): string[] {
-  return text
-    .split(/[,\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function parseSpellIds(text: string): number[] {
-  return splitCsv(text)
-    .map((s) => Number(s))
-    .filter((n) => Number.isInteger(n) && n > 0);
-}
+const reviewSourceFacts = computed(() => {
+  const item = selectedItem.value;
+  if (!item) return null;
+  const draft = asRecord(item.draftRule);
+  const evidence = asRecord(item.evidence);
+  const provenance = asRecord(draft.provenance);
+  const spellIds = Array.isArray(draft.spellIds)
+    ? (draft.spellIds as number[])
+    : item.primarySpellId != null
+      ? [item.primarySpellId]
+      : [];
+  const bindings = Array.isArray(draft.bindings)
+    ? (draft.bindings as BindingRow[])
+    : item.kind === "SPELL_BINDING_REVIEW" && proposedBindingsFromEvidence(item).length > 0
+      ? proposedBindingsFromEvidence(item)
+      : item.primarySpellId != null
+        ? [{ spellId: item.primarySpellId, role: "PRIMARY_ACTIVATION" }]
+        : [];
+  return {
+    canonicalKey: String(draft.canonicalKey ?? item.matchedCanonicalKey ?? ""),
+    name: String(draft.name ?? item.name),
+    spellIds,
+    bindings,
+    classSlug: (draft.classSlug ?? item.classSlug) as string | null,
+    specSlugs: (Array.isArray(draft.specSlugs) ? draft.specSlugs : item.specSlugs) as string[],
+    raceSlugs: (Array.isArray(draft.raceSlugs) ? draft.raceSlugs : item.raceSlugs) as string[],
+    category: draft.category ? String(draft.category) : null,
+    dimensionTags: Array.isArray(draft.dimensionTags) ? (draft.dimensionTags as string[]) : [],
+    availability: draft.availability ? String(draft.availability) : null,
+    cooldownSeconds:
+      draft.cooldownSeconds != null
+        ? Number(draft.cooldownSeconds)
+        : evidence.cooldownSeconds != null
+          ? Number(evidence.cooldownSeconds)
+          : null,
+    charges:
+      draft.charges != null
+        ? Number(draft.charges)
+        : evidence.charges != null
+          ? Number(evidence.charges)
+          : null,
+    sourceOwnership: draft.sourceOwnership ? String(draft.sourceOwnership) : null,
+    provenanceSource: provenance.source ? String(provenance.source) : null,
+    validFromBuild: String(
+      draft.validityBuild ?? provenance.validFromBuild ?? selectedBatch.value?.wowBuild ?? "",
+    ),
+    validToBuild: provenance.validToBuild ? String(provenance.validToBuild) : null,
+  };
+});
 
 function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? humanizeToken(kind);
@@ -700,46 +677,11 @@ function onDecisionKeydown(event: KeyboardEvent): void {
   }
 }
 
-function suggestedCanonicalKeyForItem(item: AbilityCatalogReviewItemSummary): string {
-  const draft = asRecord(item.draftRule);
-  if (draft.canonicalKey) return String(draft.canonicalKey);
-  if (item.matchedCanonicalKey) return item.matchedCanonicalKey;
-  return suggestCuratedCanonicalKey(
-    {
-      classSlug: item.classSlug,
-      specSlugs: item.specSlugs,
-      raceSlugs: item.raceSlugs,
-      name: item.name,
-      primarySpellId: item.primarySpellId,
-    },
-    {
-      reservedKeys: new Set(getAllRegisteredRules().map((rule) => rule.canonicalKey)),
-    },
-  );
-}
-
 function populateDraftForm(item: AbilityCatalogReviewItemSummary) {
   const draft = asRecord(item.draftRule);
   const evidence = asRecord(item.evidence);
-  const provenance = asRecord(draft.provenance);
-  const bindingsRaw = Array.isArray(draft.bindings) ? draft.bindings : [];
-  const spellIds = Array.isArray(draft.spellIds)
-    ? (draft.spellIds as number[])
-    : item.primarySpellId != null
-      ? [item.primarySpellId]
-      : [];
   draftForm.value = {
-    canonicalKey: suggestedCanonicalKeyForItem(item),
-    name: String(draft.name ?? item.name),
-    primarySpellId: String(item.primarySpellId ?? spellIds[0] ?? ""),
-    spellIdsText: spellIds.join(", "),
-    classSlug: String(draft.classSlug ?? item.classSlug ?? ""),
-    specSlugsText: (Array.isArray(draft.specSlugs) ? draft.specSlugs : item.specSlugs).join(", "),
-    raceSlugsText: (Array.isArray(draft.raceSlugs) ? draft.raceSlugs : item.raceSlugs).join(", "),
     category: String(draft.category ?? ""),
-    dimensionTags: Array.isArray(draft.dimensionTags)
-      ? (draft.dimensionTags as string[])
-      : [],
     availability: String(
       draft.availability ??
         (item.raceSlugs.length > 0 && !item.classSlug
@@ -748,59 +690,16 @@ function populateDraftForm(item: AbilityCatalogReviewItemSummary) {
             ? "PET_DEPENDENT"
             : ""),
     ),
-    cooldownSeconds:
-      draft.cooldownSeconds != null
-        ? String(draft.cooldownSeconds)
-        : evidence.cooldownSeconds != null
-          ? String(evidence.cooldownSeconds)
-          : "",
-    charges:
-      draft.charges != null
-        ? String(draft.charges)
-        : evidence.charges != null
-          ? String(evidence.charges)
-          : "",
-    sourceOwnership: String(
-      draft.sourceOwnership ??
-        (evidence.ownershipKind === "PET_TALENT_TREE"
-          ? "PET"
-          : evidence.ownershipKind === "PLAYABLE_PLAYER" ||
-              evidence.ownershipKind === "PLAYABLE_RACE"
-            ? "PLAYER"
-            : ""),
-    ),
-    notes: String(draft.notes ?? ""),
-    validFromBuild: String(
-      draft.validityBuild ?? provenance.validFromBuild ?? selectedBatch.value?.wowBuild ?? "",
-    ),
-    validToBuild: String(provenance.validToBuild ?? ""),
-    provenanceSource: String(
-      provenance.source ??
-        (Array.isArray(evidence.sourceObservations) &&
-        (evidence.sourceObservations as Array<{ source?: string }>).some(
-          (o) => o.source === "SIMULATIONCRAFT",
-        )
-          ? "SIMC_ADVISORY"
-          : Array.isArray(evidence.sourceObservations) &&
-              (evidence.sourceObservations as Array<{ source?: string }>).some(
-                (o) => o.source === "BLIZZARD",
-              )
-            ? "BLIZZARD_API"
-            : "CURATED_OVERRIDE"),
-    ),
-    provenanceVerifiedAt: String(provenance.verifiedAt ?? new Date().toISOString()),
-    provenanceGameVersion: String(provenance.gameVersion ?? selectedBatch.value?.wowBuild ?? ""),
-    bindings:
-      bindingsRaw.length > 0
-        ? (bindingsRaw as BindingRow[]).map((b) => ({
-            spellId: Number(b.spellId),
-            role: String(b.role),
-          }))
-        : item.kind === "SPELL_BINDING_REVIEW" && proposedBindingsFromEvidence(item).length > 0
-          ? proposedBindingsFromEvidence(item)
-          : item.primarySpellId != null
-            ? [{ spellId: item.primarySpellId, role: "PRIMARY_ACTIVATION" }]
-            : [],
+  };
+}
+
+function businessMetadataPayload(): {
+  category: string | null;
+  availability: string | null;
+} {
+  return {
+    category: draftForm.value.category || null,
+    availability: draftForm.value.availability || null,
   };
 }
 
@@ -810,9 +709,10 @@ async function saveReview() {
   error.value = null;
   try {
     let updated: AbilityCatalogReviewItemSummary;
+    const businessMetadata = businessMetadataPayload();
     if (!selectedItem.value.draftRule) {
       updated = await api.ensureAbilityCatalogDraft(selectedItem.value.id, {
-        draft: draftPayload(),
+        businessMetadata,
       });
     } else {
       const version = Number(
@@ -820,14 +720,13 @@ async function saveReview() {
       );
       updated = await api.updateAbilityCatalogDraft(selectedItem.value.id, {
         expectedVersion: version,
-        draft: draftPayload(),
+        businessMetadata,
       });
     }
     selectedItem.value = updated;
     populateDraftForm(updated);
     await refreshDraftValidation();
     await loadBatches();
-    await loadItems({ preserveSelection: true });
   } catch (e) {
     error.value = formatError(e);
     await refreshDraftValidation();
@@ -838,8 +737,14 @@ async function saveReview() {
 
 async function acceptReview() {
   if (!selectedItem.value) return;
-  const validation = validateDraftForAccept();
-  if (!validation.readyForPublishReview) {
+  if (showReviewForm.value) {
+    await refreshDraftValidation();
+    if (!selectedItem.value?.draftValidation?.readyForPublishReview) {
+      await saveReview();
+      await refreshDraftValidation();
+    }
+  }
+  if (!selectedItem.value?.draftValidation?.readyForPublishReview) {
     error.value = "Complete required fields before accepting.";
     return;
   }
@@ -856,7 +761,7 @@ async function refreshDraftValidation() {
   if (!selectedItem.value || !showReviewForm.value) return;
   try {
     const res = await api.validateAbilityCatalogDraft(selectedItem.value.id, {
-      draft: draftPayload(),
+      businessMetadata: businessMetadataPayload(),
     });
     if (selectedItem.value) {
       selectedItem.value = {
@@ -868,53 +773,6 @@ async function refreshDraftValidation() {
   } catch {
     // Validation preview is best-effort; accept/save still enforce server rules.
   }
-}
-
-function buildDraftInputFromForm(): CuratedDraftRuleInput {
-  return draftPayload() as unknown as CuratedDraftRuleInput;
-}
-
-function validateDraftForAccept() {
-  return validateCuratedDraftRule(buildDraftInputFromForm(), {
-    existingCanonicalKeys: new Set(getAllRegisteredRules().map((rule) => rule.canonicalKey)),
-  });
-}
-
-function draftPayload(): Record<string, unknown> {
-  const spellIds = parseSpellIds(draftForm.value.spellIdsText);
-  const primary = Number(draftForm.value.primarySpellId);
-  if (Number.isInteger(primary) && primary > 0 && !spellIds.includes(primary)) {
-    spellIds.unshift(primary);
-  }
-  const payload: Record<string, unknown> = {
-    name: draftForm.value.name.trim(),
-    spellIds,
-    bindings: draftForm.value.bindings.map((b) => ({
-      spellId: Number(b.spellId),
-      role: b.role,
-    })),
-    classSlug: draftForm.value.classSlug || null,
-    specSlugs: splitCsv(draftForm.value.specSlugsText),
-    raceSlugs: splitCsv(draftForm.value.raceSlugsText),
-    category: draftForm.value.category || null,
-    dimensionTags: [...draftForm.value.dimensionTags],
-    availability: draftForm.value.availability || null,
-    cooldownSeconds:
-      draftForm.value.cooldownSeconds === "" ? null : Number(draftForm.value.cooldownSeconds),
-    charges: draftForm.value.charges === "" ? null : Number(draftForm.value.charges),
-    sourceOwnership: draftForm.value.sourceOwnership || null,
-    notes: draftForm.value.notes || null,
-    validFromBuild: draftForm.value.validFromBuild || null,
-    validToBuild: draftForm.value.validToBuild || null,
-    provenance: {
-      source: draftForm.value.provenanceSource || null,
-      verifiedAt: draftForm.value.provenanceVerifiedAt || null,
-      gameVersion: draftForm.value.provenanceGameVersion || null,
-    },
-  };
-  const canonicalKey = draftForm.value.canonicalKey.trim();
-  if (canonicalKey) payload.canonicalKey = canonicalKey;
-  return payload;
 }
 
 function formatError(e: unknown): string {
@@ -1019,8 +877,8 @@ async function decide(action: string) {
     (action === "ACCEPT" && selectedItem.value.kind === "NEW_ABILITY_CANDIDATE") ||
     action === "ACCEPT_PROPOSED";
   if (needsDraftAcceptValidation) {
-    const validation = validateDraftForAccept();
-    if (!validation.readyForPublishReview) {
+    await refreshDraftValidation();
+    if (!selectedItem.value?.draftValidation?.readyForPublishReview) {
       error.value = "Complete required fields before accepting.";
       return;
     }
@@ -1028,15 +886,14 @@ async function decide(action: string) {
   saving.value = true;
   error.value = null;
   try {
-    const needsDraft =
+    const needsBusinessMetadata =
       action === "ACCEPT" ||
-      action === "ACCEPT_PROPOSED" ||
-      action === "CUSTOMIZE";
+      action === "ACCEPT_PROPOSED";
     const updated = await api.decideAbilityCatalogReviewItem(selectedItem.value.id, {
       expectedVersion: selectedItem.value.version,
       action,
       note: decisionNote.value || undefined,
-      draft: needsDraft ? draftPayload() : undefined,
+      businessMetadata: needsBusinessMetadata ? businessMetadataPayload() : undefined,
     });
     selectedItem.value = updated;
     populateDraftForm(updated);
@@ -1058,33 +915,19 @@ async function decide(action: string) {
   }
 }
 
-function addBinding() {
-  const spellId = Number(draftForm.value.primarySpellId) || 1;
-  draftForm.value.bindings.push({ spellId, role: "CAST_ALIAS" });
-}
-
-function removeBinding(index: number) {
-  draftForm.value.bindings.splice(index, 1);
-}
-
-function toggleDimensionTag(tag: string) {
-  const set = new Set(draftForm.value.dimensionTags);
-  if (set.has(tag)) set.delete(tag);
-  else set.add(tag);
-  draftForm.value.dimensionTags = [...set];
-}
-
-function seedProposedBindings() {
-  const proposed = proposedBindingsFromEvidence(selectedItem.value!);
-  if (proposed.length) draftForm.value.bindings = proposed;
-}
-
 watch(
   () => filters.value,
   () => {
     void loadItems({ preserveSelection: true });
   },
   { deep: true },
+);
+
+watch(
+  () => [draftForm.value.category, draftForm.value.availability],
+  () => {
+    void refreshDraftValidation();
+  },
 );
 
 onMounted(() => {
@@ -1495,64 +1338,77 @@ onUnmounted(() => {
                 </ul>
 
                 <div class="draft-editor" data-testid="draft-editor">
-                  <label>
-                    Canonical key
-                    <input
-                      v-model="draftForm.canonicalKey"
-                      class="admin-control"
-                      type="text"
-                      data-testid="draft-canonical-key"
-                    />
-                  </label>
-                  <p
-                    v-if="draftFieldErrors.canonicalKey"
-                    class="field-hint field-hint--warn"
-                    data-testid="draft-canonical-key-error"
-                  >
-                    {{ draftFieldErrors.canonicalKey }}
-                  </p>
-                  <label>
-                    Display name
-                    <input v-model="draftForm.name" class="admin-control" type="text" />
-                  </label>
-                  <label>
-                    Primary spell ID
-                    <input
-                      v-model="draftForm.primarySpellId"
-                      class="admin-control"
-                      type="number"
-                      min="1"
-                    />
-                  </label>
-                  <label>
-                    Spell IDs
-                    <input v-model="draftForm.spellIdsText" class="admin-control" type="text" />
-                  </label>
-                  <label>
-                    Class
-                    <select v-model="draftForm.classSlug" class="admin-control">
-                      <option value="">—</option>
-                      <option v-for="c in classOptions" :key="c.value" :value="c.value">
-                        {{ c.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    Specs (csv)
-                    <input
-                      v-model="draftForm.specSlugsText"
-                      class="admin-control"
-                      type="text"
-                      list="spec-options"
-                    />
-                  </label>
-                  <datalist id="spec-options">
-                    <option v-for="s in specOptions" :key="s.value" :value="s.value" />
-                  </datalist>
-                  <label>
-                    Races (csv)
-                    <input v-model="draftForm.raceSlugsText" class="admin-control" type="text" />
-                  </label>
+                  <dl v-if="reviewSourceFacts" class="ability-dl ability-dl--readonly">
+                    <div v-if="reviewSourceFacts.canonicalKey">
+                      <dt>Canonical key</dt>
+                      <dd data-testid="draft-canonical-key">{{ reviewSourceFacts.canonicalKey }}</dd>
+                    </div>
+                    <div>
+                      <dt>Display name</dt>
+                      <dd>{{ reviewSourceFacts.name }}</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.spellIds.length">
+                      <dt>Spell IDs</dt>
+                      <dd>{{ reviewSourceFacts.spellIds.join(", ") }}</dd>
+                    </div>
+                    <div
+                      v-if="reviewSourceFacts.classSlug || reviewSourceFacts.specSlugs.length || reviewSourceFacts.raceSlugs.length"
+                    >
+                      <dt>Applicability</dt>
+                      <dd>
+                        {{
+                          [
+                            reviewSourceFacts.classSlug
+                              ? classLabel(reviewSourceFacts.classSlug)
+                              : null,
+                            reviewSourceFacts.specSlugs.length
+                              ? reviewSourceFacts.specSlugs
+                                  .map((s) => specLabel(reviewSourceFacts!.classSlug, s))
+                                  .join(", ")
+                              : null,
+                            reviewSourceFacts.raceSlugs.length
+                              ? reviewSourceFacts.raceSlugs.map(raceLabel).join(", ")
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "—"
+                        }}
+                      </dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.cooldownSeconds != null">
+                      <dt>Cooldown</dt>
+                      <dd>{{ reviewSourceFacts.cooldownSeconds }}s</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.charges != null">
+                      <dt>Charges</dt>
+                      <dd>{{ reviewSourceFacts.charges }}</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.sourceOwnership">
+                      <dt>Source ownership</dt>
+                      <dd>{{ reviewSourceFacts.sourceOwnership }}</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.bindings.length">
+                      <dt>Bindings</dt>
+                      <dd>{{ formatBindings(reviewSourceFacts.bindings) }}</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.dimensionTags.length">
+                      <dt>Dimensions</dt>
+                      <dd>{{ reviewSourceFacts.dimensionTags.map(dimensionTagLabel).join(", ") }}</dd>
+                    </div>
+                    <div v-if="reviewSourceFacts.provenanceSource">
+                      <dt>Provenance</dt>
+                      <dd>
+                        {{ reviewSourceFacts.provenanceSource }}
+                        <span v-if="reviewSourceFacts.validFromBuild">
+                          · from build {{ reviewSourceFacts.validFromBuild }}
+                        </span>
+                        <span v-if="reviewSourceFacts.validToBuild">
+                          · to build {{ reviewSourceFacts.validToBuild }}
+                        </span>
+                      </dd>
+                    </div>
+                  </dl>
+
                   <label>
                     Category *
                     <select
@@ -1568,32 +1424,12 @@ onUnmounted(() => {
                     </select>
                   </label>
                   <p
-                    v-if="draftFieldErrors.category || !draftForm.category"
+                    v-if="!draftForm.category"
                     class="field-hint field-hint--warn"
                     data-testid="category-required-hint"
                   >
-                    {{ draftFieldErrors.category || "Category is required before this ability can be accepted." }}
+                    Category is required before this ability can be accepted.
                   </p>
-                  <fieldset class="tag-fieldset">
-                    <legend>Dimensions</legend>
-                    <div class="tag-fieldset__grid">
-                      <label
-                        v-for="tag in DRAFT_DIMENSION_TAGS"
-                        :key="tag"
-                        class="tag-toggle"
-                        :class="{ 'tag-toggle--active': draftForm.dimensionTags.includes(tag) }"
-                      >
-                        <input
-                          type="checkbox"
-                          class="tag-toggle__input"
-                          :checked="draftForm.dimensionTags.includes(tag)"
-                          @change="toggleDimensionTag(tag)"
-                        />
-                        <span class="tag-toggle__label">{{ dimensionTagLabel(tag) }}</span>
-                        <span class="sr-only">{{ tag }}</span>
-                      </label>
-                    </div>
-                  </fieldset>
                   <label>
                     Availability
                     <select
@@ -1607,123 +1443,6 @@ onUnmounted(() => {
                       </option>
                     </select>
                   </label>
-                  <p
-                    v-if="draftFieldErrors.availability"
-                    class="field-hint field-hint--warn"
-                    data-testid="draft-availability-error"
-                  >
-                    {{ draftFieldErrors.availability }}
-                  </p>
-                  <label>
-                    Cooldown (seconds)
-                    <input
-                      v-model="draftForm.cooldownSeconds"
-                      class="admin-control"
-                      type="number"
-                      min="0"
-                    />
-                  </label>
-                  <label>
-                    Charges
-                    <input v-model="draftForm.charges" class="admin-control" type="number" min="0" />
-                  </label>
-                  <label>
-                    Source ownership
-                    <select v-model="draftForm.sourceOwnership" class="admin-control">
-                      <option value="">—</option>
-                      <option v-for="o in ownershipOptions" :key="o.value" :value="o.value">
-                        {{ o.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    Valid from build
-                    <input v-model="draftForm.validFromBuild" class="admin-control" type="text" />
-                  </label>
-                  <label>
-                    Valid to build
-                    <input v-model="draftForm.validToBuild" class="admin-control" type="text" />
-                  </label>
-                  <label>
-                    Provenance source
-                    <input v-model="draftForm.provenanceSource" class="admin-control" type="text" />
-                  </label>
-                  <label>
-                    Provenance verified at
-                    <input
-                      v-model="draftForm.provenanceVerifiedAt"
-                      class="admin-control"
-                      type="text"
-                    />
-                  </label>
-                  <label>
-                    Provenance game version
-                    <input
-                      v-model="draftForm.provenanceGameVersion"
-                      class="admin-control"
-                      type="text"
-                    />
-                  </label>
-                  <p
-                    v-if="draftFieldErrors.provenance"
-                    class="field-hint field-hint--warn"
-                    data-testid="draft-provenance-error"
-                  >
-                    {{ draftFieldErrors.provenance }}
-                  </p>
-                  <label>
-                    Notes
-                    <textarea v-model="draftForm.notes" class="admin-control" rows="3" />
-                  </label>
-
-                  <div class="bindings" data-testid="binding-editor">
-                    <div class="bindings__header">
-                      <h4>Spell bindings</h4>
-                      <button
-                        type="button"
-                        class="btn secondary"
-                        @click="seedProposedBindings"
-                      >
-                        Load source roles
-                      </button>
-                      <button type="button" class="btn secondary" @click="addBinding">
-                        Add binding
-                      </button>
-                    </div>
-                    <p
-                      v-if="draftFieldErrors.bindings"
-                      class="field-hint field-hint--warn"
-                      data-testid="draft-bindings-error"
-                    >
-                      {{ draftFieldErrors.bindings }}
-                    </p>
-                    <div
-                      v-for="(row, index) in draftForm.bindings"
-                      :key="`${row.spellId}-${row.role}-${index}`"
-                      class="binding-row"
-                    >
-                      <label>
-                        Spell ID
-                        <input
-                          v-model.number="row.spellId"
-                          class="admin-control"
-                          type="number"
-                          min="1"
-                        />
-                      </label>
-                      <label>
-                        Role
-                        <select v-model="row.role" class="admin-control">
-                          <option v-for="r in bindingRoleOptions" :key="r.value" :value="r.value">
-                            {{ r.label }}
-                          </option>
-                        </select>
-                      </label>
-                      <button type="button" class="btn secondary" @click="removeBinding(index)">
-                        Remove
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </template>
               <p v-else-if="selectedItem.kind === 'TOPOLOGY_REVIEW'" class="muted">

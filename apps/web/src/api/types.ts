@@ -294,7 +294,10 @@ export interface MplusApiClient {
     body: {
       expectedVersion: number;
       action: string;
-      draft?: Record<string, unknown>;
+      businessMetadata?: {
+        category?: string | null;
+        availability?: string | null;
+      };
       note?: string;
     },
     signal?: AbortSignal,
@@ -344,19 +347,32 @@ export interface MplusApiClient {
     itemId: string,
     body: {
       expectedVersion: number;
-      draft: Record<string, unknown>;
+      businessMetadata: {
+        category?: string | null;
+        availability?: string | null;
+      };
       note?: string;
     },
     signal?: AbortSignal,
   ): Promise<AbilityCatalogReviewItemSummary>;
   ensureAbilityCatalogDraft(
     itemId: string,
-    body?: { draft?: Record<string, unknown> },
+    body?: {
+      businessMetadata?: {
+        category?: string | null;
+        availability?: string | null;
+      };
+    },
     signal?: AbortSignal,
   ): Promise<AbilityCatalogReviewItemSummary>;
   validateAbilityCatalogDraft(
     itemId: string,
-    body?: { draft?: Record<string, unknown> },
+    body?: {
+      businessMetadata?: {
+        category?: string | null;
+        availability?: string | null;
+      };
+    },
     signal?: AbortSignal,
   ): Promise<{
     itemId: string;
