@@ -396,7 +396,7 @@ async function main() {
       }
       console.log("run-tests-isolated: activating Bootstrap ability catalog release for tests");
       const bootstrapCode = await runCommand(
-        ["pnpm", "exec", "tsx", "apps/api/src/cli/seed-active-bootstrap.ts"],
+        ["pnpm", "--filter", "@mplus/api", "exec", "tsx", "src/cli/seed-active-bootstrap.ts"],
         childEnv,
       );
       if (bootstrapCode !== 0) {
