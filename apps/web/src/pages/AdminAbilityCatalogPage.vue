@@ -1,36 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import { useRoute, useRouter } from "vue-router";
-import type { AdminAbilityEntry } from "@mplus/abilities";
+import { DRAFT_ABILITY_CATEGORIES, type AdminAbilityEntry } from "@mplus/abilities";
 import { api } from "../api/client";
 import type { AdminAbilityCatalogResponse } from "../api/types";
+import type { ManualCatalogEditSummary } from "../api/types";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import DisclosureChevron from "../components/ability-catalog/DisclosureChevron.vue";
 import IconSelect from "../components/ability-catalog/IconSelect.vue";
 import type { IconSelectOption } from "../components/ability-catalog/IconSelect.vue";
 import ValidationIssuesPanel from "../components/ability-catalog/ValidationIssuesPanel.vue";
 import AbilityCard from "../components/ability-catalog/AbilityCard.vue";
+import AbilityCatalogManualEditModal from "../components/ability-catalog/AbilityCatalogManualEditModal.vue";
 import WowIcon from "../components/ability-catalog/WowIcon.vue";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../integrations/wowhead/tooltips";
 import { classIconName, filterOptionIconName, specIconName } from "../lib/wowIcons";
 
-const CATEGORY_OPTIONS = [
-  "INTERRUPT",
-  "HARD_CC",
-  "SOFT_CC",
-  "DISPEL",
-  "PURGE",
-  "DEFENSIVE_MAJOR",
-  "DEFENSIVE_MINOR",
-  "IMMUNITY",
-  "SELF_HEAL",
-  "EXTERNAL_DEFENSIVE",
-  "GROUP_UTILITY",
-  "MOVEMENT_UTILITY",
-  "BATTLE_REZ",
-  "BLOODLUST",
-  "CONSUMABLE",
-] as const;
+const CATEGORY_OPTIONS = DRAFT_ABILITY_CATEGORIES;
 
 const ROLE_OPTIONS = ["DPS", "TANK", "HEALER"] as const;
 const OWNERSHIP_OPTIONS = ["PLAYER", "PET", "GUARDIAN", "ANY_OWNED"] as const;
@@ -75,8 +62,21 @@ interface SharedSection {
   entries: AdminAbilityEntry[];
 }
 
+const props = withDefaults(
+  defineProps<{
+    /** When true, hide page chrome (used inside Ability catalog console tabs). */
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
+
 // TODO before production: protect `/admin/ability-catalog` with the future admin auth system.
 const catalog = ref<AdminAbilityCatalogResponse | null>(null);
+const workflow = ref<Record<string, unknown> | null>(null);
+const workflowLoading = ref(false);
+const workflowError = ref<string | null>(null);
+const workflowNotice = ref<string | null>(null);
+const refreshBusy = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const searchInput = ref("");
@@ -93,6 +93,43 @@ const limit = ref(50);
 const expandedClasses = ref<Set<string>>(new Set());
 const expandedSpecs = ref<Set<string>>(new Set());
 const expandedShared = ref<Set<string>>(new Set());
+const manualEdits = ref<ManualCatalogEditSummary[]>([]);
+const manualEditOpen = ref(false);
+const manualEditCanonicalKey = ref("");
+
+const manualEditsByKey = computed(() => {
+  const map: Record<string, ManualCatalogEditSummary> = {};
+  for (const edit of manualEdits.value) map[edit.canonicalKey] = edit;
+  return map;
+});
+
+async function loadManualEdits(): Promise<void> {
+  try {
+    const result = await api.listManualCatalogEdits();
+    manualEdits.value = result.edits;
+  } catch {
+    manualEdits.value = [];
+  }
+}
+
+function openManualEdit(canonicalKey: string): void {
+  manualEditCanonicalKey.value = canonicalKey;
+  manualEditOpen.value = true;
+}
+
+async function discardManualEdit(canonicalKey: string): Promise<void> {
+  if (!window.confirm("Discard pending manual edit for this rule?")) return;
+  try {
+    await api.discardManualCatalogEdit(canonicalKey);
+    await loadManualEdits();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Failed to discard manual edit";
+  }
+}
+
+async function onManualEditSaved(): Promise<void> {
+  await loadManualEdits();
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -367,9 +404,51 @@ watch(
   },
 );
 
+async function loadWorkflow(): Promise<void> {
+  workflowLoading.value = true;
+  workflowError.value = null;
+  try {
+    workflow.value = await api.getAbilityCatalogWorkflow();
+  } catch (err) {
+    workflowError.value = err instanceof Error ? err.message : "Failed to load workflow status";
+  } finally {
+    workflowLoading.value = false;
+  }
+}
+
+async function refreshCatalog(): Promise<void> {
+  if (refreshBusy.value) return;
+  if (!window.confirm("Run pinned SimC + Blizzard catalog refresh? ACTIVE release stays unchanged until you activate.")) {
+    return;
+  }
+  refreshBusy.value = true;
+  workflowNotice.value = null;
+  workflowError.value = null;
+  try {
+    const result = await api.refreshAbilityCatalog();
+    workflowNotice.value =
+      typeof result.notice === "string"
+        ? result.notice
+        : "Refresh complete — see review batch for actionable items.";
+    await loadWorkflow();
+  } catch (err) {
+    workflowError.value = err instanceof Error ? err.message : "Catalog refresh failed";
+  } finally {
+    refreshBusy.value = false;
+  }
+}
+
+const workflowState = computed(() => String(workflow.value?.state ?? "IDLE"));
+const workflowActive = computed(() => workflow.value?.active as Record<string, unknown> | null);
+const workflowRefresh = computed(() => workflow.value?.refresh as Record<string, unknown> | null);
+const workflowReview = computed(() => workflow.value?.review as Record<string, unknown> | null);
+const workflowRelease = computed(() => workflow.value?.release as Record<string, unknown> | null);
+
 onMounted(() => {
   applyRouteQuery();
   void loadCatalog();
+  void loadWorkflow();
+  void loadManualEdits();
   void loadWowheadTooltipScript().catch(() => {
     /* progressive enhancement */
   });
@@ -378,14 +457,93 @@ onMounted(() => {
 
 <template>
   <!-- TODO before production: protect this page with the future admin authentication/authorization system. -->
-  <section data-testid="ability-catalog-page">
-    <h1>Ability catalog explorer</h1>
-    <p class="muted">
-      Read-only development view of the canonical retail ability registry — search, filter, and inspect
-      validation coverage. Currently unprotected.
-    </p>
+  <section
+    class="catalog-page"
+    :class="{ 'catalog-page--embedded': props.embedded }"
+    data-testid="ability-catalog-page"
+  >
+    <header v-if="!props.embedded" class="catalog-page__header">
+      <h1>Ability catalog</h1>
+      <p class="muted">
+        Catalog control center — active release, refresh, review, and activation. New analyses always
+        pin the ACTIVE immutable release.
+      </p>
+    </header>
 
+    <StatusBanner v-if="workflowError" tone="error">{{ workflowError }}</StatusBanner>
+    <StatusBanner v-if="workflowNotice" tone="info">{{ workflowNotice }}</StatusBanner>
     <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
+
+    <section v-if="!workflowLoading" class="workflow-panel" data-testid="catalog-workflow">
+      <div class="workflow-header">
+        <strong>State: {{ workflowState }}</strong>
+        <button type="button" class="btn" :disabled="refreshBusy" @click="refreshCatalog">
+          {{ refreshBusy ? "Refreshing…" : "Refresh catalog" }}
+        </button>
+      </div>
+      <div class="workflow-grid">
+        <div>
+          <h2>Active catalog</h2>
+          <p v-if="workflowActive">
+            <code>{{ workflowActive.releaseKey }}</code>
+            <span class="muted"> · build {{ workflowActive.wowBuild ?? "—" }}</span><br />
+            <span class="muted">digest {{ workflowActive.contentDigestShort }} · {{ workflowActive.ruleCount }} rules</span>
+          </p>
+          <p v-else class="muted">No ACTIVE release — activate Bootstrap before running analyses.</p>
+        </div>
+        <div>
+          <h2>Refresh</h2>
+          <p class="muted">
+            SimC {{ workflowRefresh?.simcApplicationVersion ?? "—" }} · rev
+            {{
+              typeof workflowRefresh?.simcRevision === "string"
+                ? String(workflowRefresh.simcRevision).slice(0, 12)
+                : "—"
+            }}
+            <span v-if="workflowRefresh?.simcRevisionPrecision" class="muted">
+              ({{ workflowRefresh.simcRevisionPrecision }})
+            </span>
+            · build {{ workflowRefresh?.wowBuild ?? "—" }} ·
+            {{ workflowRefresh?.simcDataMode ?? "—" }} · changes
+            {{ workflowRefresh?.changesDetected ?? 0 }} · pending
+            {{ workflowRefresh?.pendingReviewCount ?? 0 }}
+          </p>
+        </div>
+        <div>
+          <h2>Review</h2>
+          <p>
+            <RouterLink
+              :to="
+                typeof workflowReview?.reviewUrl === 'string'
+                  ? workflowReview.reviewUrl
+                  : { name: 'admin-ability-catalog', params: { tab: 'review' } }
+              "
+            >
+              Open review queue
+            </RouterLink>
+            <span class="muted"> · pending {{ workflowReview?.pendingItems ?? 0 }}</span>
+          </p>
+        </div>
+        <div>
+          <h2>Release</h2>
+          <p v-if="workflowRelease?.candidateReleaseKey">
+            Candidate <code>{{ workflowRelease.candidateReleaseKey }}</code>
+            <span class="muted">
+              · validation {{ workflowRelease.validationStatus ?? "—" }} · replay
+              {{ workflowRelease.replayStatus ?? "—" }}
+            </span>
+          </p>
+          <p v-else class="muted">No validated candidate ready.</p>
+          <p v-if="workflowRelease?.canActivate">
+            <RouterLink :to="{ name: 'admin-ability-catalog', params: { tab: 'releases' } }">
+              Activate catalog →
+            </RouterLink>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <h2 class="explorer-heading">Catalog explorer</h2>
 
     <ValidationIssuesPanel
       v-if="catalog && catalog.validationSummary.issues.length"
@@ -531,7 +689,13 @@ onMounted(() => {
                 data-testid="ability-row"
                 tabindex="-1"
               >
-                <AbilityCard :entry="entry" />
+                <AbilityCard
+                  :entry="entry"
+                  :pending-manual-edit="manualEditsByKey[entry.rule.canonicalKey] ?? null"
+                  @edit="openManualEdit(entry.rule.canonicalKey)"
+                  @edit-draft="openManualEdit(entry.rule.canonicalKey)"
+                  @discard-edit="discardManualEdit(entry.rule.canonicalKey)"
+                />
               </article>
             </div>
           </div>
@@ -568,7 +732,13 @@ onMounted(() => {
             data-testid="ability-row"
             tabindex="-1"
           >
-            <AbilityCard :entry="entry" />
+            <AbilityCard
+              :entry="entry"
+              :pending-manual-edit="manualEditsByKey[entry.rule.canonicalKey] ?? null"
+              @edit="openManualEdit(entry.rule.canonicalKey)"
+              @edit-draft="openManualEdit(entry.rule.canonicalKey)"
+              @discard-edit="discardManualEdit(entry.rule.canonicalKey)"
+            />
           </article>
         </div>
       </section>
@@ -596,6 +766,13 @@ onMounted(() => {
         </button>
       </nav>
     </div>
+
+    <AbilityCatalogManualEditModal
+      :open="manualEditOpen"
+      :canonical-key="manualEditCanonicalKey"
+      @close="manualEditOpen = false"
+      @saved="onManualEditSaved"
+    />
   </section>
 </template>
 
@@ -735,6 +912,49 @@ select:focus-visible {
   gap: 0.45rem;
   flex: 1;
   min-width: 0;
+}
+
+.workflow-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.workflow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3);
+}
+
+.workflow-grid h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.35rem;
+}
+
+.explorer-heading {
+  margin-top: var(--space-4);
+}
+
+.btn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .section-title {

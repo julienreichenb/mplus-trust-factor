@@ -25,6 +25,7 @@ import {
 } from "./bulk-checkpoint.js";
 import { evaluateRecalculateCompatibility } from "./bulk-recalculate-compatibility.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "./ability-catalog-enqueue-pin.js";
 import { requireEffectiveScoringSeasonRow } from "./active-mplus-season/effective-season-peek.js";
 
 export type BulkChildProducers = Pick<
@@ -134,6 +135,9 @@ async function enqueueChildForItem(
   const characterId = item.characterId;
 
   if (mode === "FULL_REFRESH") {
+    const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+      prisma: container.prisma,
+    });
     const result = await producers.enqueueRefreshCharacter({
       characterId,
       region: item.region,
@@ -142,6 +146,7 @@ async function enqueueChildForItem(
       priority: "low",
       forceRefresh: false,
       triggerSource: "BULK_REFRESH",
+      abilityCatalogExecutionPin,
     });
     return { ...result, childJobType: QUEUE_NAMES.refreshCharacter };
   }
@@ -166,12 +171,16 @@ async function enqueueChildForItem(
   return { ...result, childJobType: QUEUE_NAMES.recalculateScore };
 }
 
-function toSelectableCharacters(
+async function toSelectableCharacters(
   container: WorkerContainer,
   scoreModel: { key: string; version: number },
   rows: Awaited<ReturnType<WorkerContainer["repositories"]["bulkOperation"]["listSelectableCharacters"]>>,
   mode: BulkMode,
-): BulkSelectableCharacter[] {
+): Promise<BulkSelectableCharacter[]> {
+  const abilityCatalogExecutionPin =
+    mode === "RECALCULATE_ONLY"
+      ? await resolveEnqueueAbilityCatalogExecutionPin({ prisma: container.prisma })
+      : null;
   return rows.map((row) => {
     if (mode !== "RECALCULATE_ONLY") {
       return {
@@ -204,6 +213,7 @@ function toSelectableCharacters(
       activeSeasonId: row.seasonSlug,
       providerMode: container.env.PROVIDER_MODE,
       zoneId: row.wclZoneId,
+      abilityCatalogExecutionPin: abilityCatalogExecutionPin!,
     });
     const verdict = evaluateRecalculateCompatibility({
       hasSeasonObservations: row.hasSeasonObservations,
@@ -279,7 +289,7 @@ export async function runBulkCharacterProcessing(
     const characterIds = readCharacterIdsFromSnapshot(operation.configSnapshot);
     const pinnedSeasonId = readPinnedSeasonIdFromSnapshot(operation.configSnapshot);
     const rows = await repo.listSelectableCharacters(characterIds, pinnedSeasonId);
-    const characters = toSelectableCharacters(container, scoreModel, rows, operation.mode);
+    const characters = await toSelectableCharacters(container, scoreModel, rows, operation.mode);
     const selection = selectBulkCharacters({
       mode: operation.mode,
       minMythicPlusScore: operation.minMythicPlusScore,

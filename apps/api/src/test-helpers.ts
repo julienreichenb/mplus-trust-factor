@@ -4,10 +4,13 @@ import { checkDatabaseHealth, createPrismaClient, type PrismaClient } from "@mpl
 import type { ScoreModelConfig } from "@mplus/contracts";
 import {
   assertTestDatabaseAllowed,
+  BOOTSTRAP_TEST_RELEASE_PIN,
   isCanonicalScoreModelKey,
   isTestOwnedScoreModelKey,
   sanitizeDatabaseUrl,
 } from "@mplus/test-utils";
+import { AbilityCatalogReleaseService } from "./services/ability-catalog-release-service.js";
+import { AbilityCatalogReleaseActivationService } from "./services/ability-catalog-release-activation-service.js";
 
 /** Shared test fixtures for API route inject tests (`*.test.ts`), not itself a test suite. */
 
@@ -34,6 +37,141 @@ export function buildTestEnv(overrides: Record<string, string> = {}): AppEnv {
 
 export function uniqueName(prefix: string): string {
   return `${prefix}-${randomUUID().slice(0, 8)}`;
+}
+
+const testCatalogAudit = {
+  userId: null as string | null,
+  actorType: "system" as const,
+  sessionSecret: "test-session-secret-at-least-32-chars",
+};
+
+const CATALOG_ACTIVE_TEST_LOCK_KEY = 0x4d50_4c53; // "MPLS"
+
+let catalogActiveLockPrisma: PrismaClient | null = null;
+
+function catalogActiveLockClient(): PrismaClient {
+  if (!catalogActiveLockPrisma) {
+    // connection_limit=1 keeps lock+unlock on the same Postgres session.
+    const url = new URL(TEST_DATABASE_URL);
+    url.searchParams.set("connection_limit", "1");
+    catalogActiveLockPrisma = createPrismaClient(url.toString());
+  }
+  return catalogActiveLockPrisma;
+}
+
+/**
+ * Serializes ACTIVE-catalog mutations across parallel integration tests.
+ * Uses a Postgres session advisory lock on a dedicated single-connection client so
+ * Vitest worker processes sharing the isolated DB cannot flip ACTIVE under each other.
+ * (In-memory Promise locks do not span workers.)
+ */
+export async function withCatalogActiveTestLock<T>(
+  _prisma: PrismaClient,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const lockPrisma = catalogActiveLockClient();
+  await lockPrisma.$executeRaw`SELECT pg_advisory_lock(${CATALOG_ACTIVE_TEST_LOCK_KEY})`;
+  try {
+    return await fn();
+  } finally {
+    await lockPrisma.$executeRaw`SELECT pg_advisory_unlock(${CATALOG_ACTIVE_TEST_LOCK_KEY})`;
+  }
+}
+
+/** Clears ACTIVE for activation failure tests — always pair with ensureActive in finally. */
+export async function resetActiveCatalogReleaseForTests(prisma: PrismaClient): Promise<void> {
+  await withCatalogActiveTestLock(prisma, async () => {
+    await prisma.abilityCatalogRelease.updateMany({
+      where: { status: "ACTIVE" },
+      data: { status: "SUPERSEDED" },
+    });
+  });
+}
+
+/**
+ * Ensures Bootstrap Release 0 is ACTIVE for integration tests.
+ * Safe to call repeatedly; restores singleton ACTIVE state after tests that reset it.
+ */
+export async function ensureActiveBootstrapCatalogReleaseForTests(
+  prisma: PrismaClient,
+): Promise<void> {
+  await withCatalogActiveTestLock(prisma, async () => {
+    await ensureActiveBootstrapCatalogReleaseUnlocked(prisma);
+  });
+}
+
+/** Caller must already hold `withCatalogActiveTestLock`. */
+export async function ensureActiveBootstrapCatalogReleaseUnlocked(
+  prisma: PrismaClient,
+): Promise<void> {
+  const releases = new AbilityCatalogReleaseService(prisma);
+  const activation = new AbilityCatalogReleaseActivationService(prisma);
+  const boot = await releases.persistBootstrapRelease0(testCatalogAudit);
+
+  const existing = await prisma.abilityCatalogRelease.findFirst({
+    where: { status: "ACTIVE" },
+  });
+  // Require Bootstrap specifically — a non-Bootstrap ACTIVE still fails closed for suites
+  // that pin verifiedContractHash to Bootstrap (shared DB across parallel workers).
+  if (existing?.id === boot.release.id) return;
+
+  const replay = await prisma.abilityCatalogReleaseReplay.findFirst({
+    where: { candidateReleaseId: boot.release.id, status: "PASSED" },
+  });
+  if (!replay) {
+    await prisma.abilityCatalogReleaseReplay.create({
+      data: {
+        idempotencyKey: `test-ensure-active|${boot.release.id}|${randomUUID()}`,
+        baseKind: "STATIC",
+        baseReleaseId: null,
+        candidateReleaseId: boot.release.id,
+        corpusDigest: "0".repeat(64),
+        replayInputDigest: "1".repeat(64),
+        replayEngineVersion: "test",
+        status: "PASSED",
+        summary: { changedAnalyses: 0, unresolvedFailures: 0 },
+        startedAt: new Date(),
+        completedAt: new Date(),
+      },
+    });
+  }
+
+  await prisma.abilityCatalogRelease.update({
+    where: { id: boot.release.id },
+    data: { contentDigest: BOOTSTRAP_TEST_RELEASE_PIN.contentDigest, status: "VALIDATED" },
+  });
+  await activation.activate(
+    {
+      releaseId: boot.release.id,
+      confirmationDigest: BOOTSTRAP_TEST_RELEASE_PIN.contentDigest,
+      confirm: true,
+      reason: existing ? "restore Bootstrap ACTIVE for tests" : undefined,
+      expectedPreviousActiveId: existing?.id ?? null,
+    },
+    testCatalogAudit,
+    { type: existing ? "ROLLBACK" : "PUBLISH" },
+  );
+}
+
+/**
+ * Runs fn while no ACTIVE catalog exists, then restores Bootstrap ACTIVE before releasing the lock.
+ * Use for activation failure tests so parallel suites never observe a missing ACTIVE release.
+ */
+export async function withInactiveCatalogReleaseForTests<T>(
+  prisma: PrismaClient,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withCatalogActiveTestLock(prisma, async () => {
+    await prisma.abilityCatalogRelease.updateMany({
+      where: { status: "ACTIVE" },
+      data: { status: "SUPERSEDED" },
+    });
+    try {
+      return await fn();
+    } finally {
+      await ensureActiveBootstrapCatalogReleaseUnlocked(prisma);
+    }
+  });
 }
 
 /** Mirrors the DB-availability guard pattern used by `apps/worker/src/refresh-pipeline.test.ts`. */

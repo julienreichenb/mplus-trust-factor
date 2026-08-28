@@ -4,6 +4,7 @@
  */
 import {
   resolveAbilityRuleBySpellId,
+  type AbilityCatalogContext,
 } from "@mplus/abilities";
 import type {
   ParticipantScoringDigestV1,
@@ -128,6 +129,7 @@ function capabilityStatus(
 export function survivalFactDocumentFromDigest(
   digest: ParticipantScoringDigestV1,
   slotIndex: number,
+  options?: { catalog?: AbilityCatalogContext },
 ): SurvivalFactDocumentV2 {
   if (digest.survival.completeness === "UNAVAILABLE") {
     throw new DigestDimensionIncompleteError(
@@ -188,6 +190,7 @@ export function survivalFactDocumentFromDigest(
     classSlug: digest.classSlug,
     specSlug: digest.specSlug,
     availabilityEvidence,
+    catalog: options?.catalog,
   });
 
   const deathsCapability = capabilityStatus(
@@ -476,12 +479,19 @@ function resolveFamilyFromDigestAction(
   action: UtilityCanonicalAction,
   classSlug: string | null,
   specSlug: string | null,
+  catalog?: AbilityCatalogContext,
 ): UtilityV2FamilyKey | null {
-  const resolved = resolveAbilityRuleBySpellId({
-    spellId: action.primarySpellId,
-    classSlug,
-    specSlug,
-  });
+  const resolved = catalog
+    ? catalog.resolveBySpellId({
+        spellId: action.primarySpellId,
+        classSlug,
+        specSlug,
+      })
+    : resolveAbilityRuleBySpellId({
+        spellId: action.primarySpellId,
+        classSlug,
+        specSlug,
+      });
   if (resolved.status === "matched") {
     return utilityFamilyFromCatalogRule(resolved.rule);
   }
@@ -494,6 +504,7 @@ function resolveFamilyFromDigestAction(
 function resolveToolkitFromDigest(
   digest: ParticipantScoringDigestV1,
   observedFamilies: Partial<Record<UtilityV2FamilyKey, boolean>>,
+  catalog?: AbilityCatalogContext,
 ): ReturnType<typeof resolveUtilityToolkitFromCatalog> {
   const talentPresent = digest.loadoutEvidence.evidenceState === "PRESENT";
   if (!talentPresent) {
@@ -525,12 +536,18 @@ function resolveToolkitFromDigest(
         : null,
     observedSpellIds: digest.utility.actions.map((a) => a.primarySpellId),
     observedFamilies,
+    catalog,
   });
 }
 
 export function utilityRunFactSetFromDigest(
   digest: ParticipantScoringDigestV1,
-  input: { slotId: string; slotIndex: 0 | 1; runId?: string },
+  input: {
+    slotId: string;
+    slotIndex: 0 | 1;
+    runId?: string;
+    catalog?: AbilityCatalogContext;
+  },
 ): UtilityV2RunFactSet {
   if (digest.utility.completeness === "UNAVAILABLE") {
     throw new DigestDimensionIncompleteError(
@@ -549,7 +566,7 @@ export function utilityRunFactSetFromDigest(
   const classSlug = digest.classSlug;
   const specSlug = digest.specSlug;
   const familyOf = (action: UtilityCanonicalAction) =>
-    resolveFamilyFromDigestAction(action, classSlug, specSlug);
+    resolveFamilyFromDigestAction(action, classSlug, specSlug, input.catalog);
 
   const interruptAttempts: ClassifiedInterruptAttempt[] = actions
     .filter((a) => familyOf(a) === "interrupt" || a.utilityCategory === "INTERRUPT")
@@ -650,7 +667,11 @@ export function utilityRunFactSetFromDigest(
     combatRes: supportActions.some((a) => a.semantic === "EMERGENCY_SUPPORT"),
     bloodlust: bloodlustSuccessCount > 0,
   };
-  const resolvedToolkit = resolveToolkitFromDigest(digest, observedFamilies);
+  const resolvedToolkit = resolveToolkitFromDigest(
+    digest,
+    observedFamilies,
+    input.catalog,
+  );
 
   const limitations = [
     ...digest.utility.limitations,

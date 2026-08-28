@@ -19,6 +19,8 @@ const baseContract: RefreshContractVersions = {
   raiderIoAdapterVersion: "0.62.5",
   runSelectionVersion: RUN_SELECTION_VERSION,
   abilityCatalogVersion: "12.0.0/midnight-season-1",
+
+  abilityCatalogExecutionKey: "static:12.0.0/midnight-season-1",
   mechanicCatalogVersion: "0.1.0-seed",
   activeSeasonId: "midnight-season-1",
   zoneId: 47,

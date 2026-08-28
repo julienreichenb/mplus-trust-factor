@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./digest-build": {
+      "types": "./dist/extractors/digest/build-participant-scoring-digest.d.ts",
+      "import": "./dist/extractors/digest/build-participant-scoring-digest.js"
     }
   },
   "scripts": {

@@ -685,6 +685,148 @@ export function createMockApiClient(): MplusApiClient {
       return queryAdminAbilityCatalog(mapAbilityCatalogParams(params)) as AdminAbilityCatalogResponse;
     },
 
+    async listAbilityCatalogReviewBatches(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { batches: [] };
+    },
+
+    async listAbilityCatalogReviewItems(_batchId, _params, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { items: [] };
+    },
+
+    async decideAbilityCatalogReviewItem(_itemId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client does not persist ability-catalog review decisions");
+    },
+
+    async getAbilityCatalogReviewItem(_itemId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client has no ability-catalog review items");
+    },
+
+    async listAbilityCatalogReleases(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { releases: [] };
+    },
+
+    async getAbilityCatalogActiveRelease(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        active: null,
+        limitations: {
+          racialReplayCoverage: "INCOMPLETE",
+          trustReplay: "TRUST_REPLAY_UNAVAILABLE",
+        },
+        notice:
+          "New analyses always pin the ACTIVE release. Activation affects future jobs immediately.",
+      };
+    },
+
+    async getAbilityCatalogWorkflow(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { state: "IDLE" };
+    },
+
+    async refreshAbilityCatalog(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { state: "REVIEW_REQUIRED" };
+    },
+
+    async listManualCatalogEdits(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { edits: [] };
+    },
+
+    async getManualCatalogEdit(canonicalKey, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        canonicalKey,
+        activeRule: { canonicalKey, name: canonicalKey },
+        draft: { canonicalKey, name: canonicalKey, spellIds: [], bindings: [] },
+        draftRuleId: null,
+        draftVersion: null,
+        draftStatus: null,
+        draftValidation: null,
+      };
+    },
+
+    async saveManualCatalogEdit(canonicalKey, body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        canonicalKey,
+        activeRule: { canonicalKey, name: canonicalKey },
+        draft: body.draft,
+        draftRuleId: "mock-manual-draft",
+        draftVersion: 1,
+        draftStatus: "READY_FOR_PUBLISH_REVIEW",
+        draftValidation: {
+          status: "READY_FOR_PUBLISH_REVIEW",
+          readyForPublishReview: true,
+          reasonCodes: [],
+          errors: [],
+          warnings: [],
+        },
+      };
+    },
+
+    async discardManualCatalogEdit(_canonicalKey, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { discarded: true as const };
+    },
+
+    async activateAbilityCatalogRelease(_releaseId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client does not activate ability-catalog releases");
+    },
+
+    async rollbackAbilityCatalogRelease(_releaseId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client does not rollback ability-catalog releases");
+    },
+
+    async updateAbilityCatalogDraft(_itemId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client does not persist ability-catalog drafts");
+    },
+
+    async ensureAbilityCatalogDraft(_itemId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client does not ensure ability-catalog drafts");
+    },
+
+    async validateAbilityCatalogDraft(_itemId, _body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        itemId: _itemId,
+        validation: {
+          status: "NEEDS_METADATA",
+          readyForPublishReview: false,
+          reasonCodes: ["MISSING_CATEGORY"],
+          errors: [],
+          warnings: [],
+        },
+        draft: null,
+      };
+    },
+
     async syncRealmCatalog(input, signal) {
       await delay(40);
       assertNotAborted(signal);

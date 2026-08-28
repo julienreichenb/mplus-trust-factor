@@ -8,6 +8,7 @@ import type {
 } from "./types.js";
 import { raceCompatible, normalizeRaceSlug } from "./race.js";
 import { resolveAbilityCatalog } from "./registry.js";
+import type { AbilityCatalogContext } from "./catalog-context.js";
 
 const ALL_CATEGORIES: AbilityCategory[] = [
   "INTERRUPT",
@@ -41,6 +42,8 @@ export interface GetApplicableOptions {
   raceSlug?: string | null;
   gameVersion?: string;
   includeRacials?: boolean;
+  /** Optional catalog context (replay). Default = static registry. */
+  catalog?: AbilityCatalogContext;
 }
 
 /**
@@ -219,17 +222,24 @@ function aggregateCapabilityStates(
  * Resolve run-scoped capabilities for every Utility-relevant catalog rule matching
  * class/spec/role. Spec restrictions are applied by the catalog filter before this.
  */
-export function resolveUtilityAbilityCapabilities(
-  options: GetApplicableOptions,
-): AbilityCapabilityResolution[] {
-  const resolved = resolveAbilityCatalog({
+function resolveCatalogForApplicability(options: GetApplicableOptions) {
+  const lookup = {
     classSlug: options.classSlug,
     specSlug: options.specSlug,
     role: options.role,
     gameVersion: options.gameVersion,
     includeShared: true,
     includeRacials: options.includeRacials ?? false,
-  });
+  };
+  return options.catalog
+    ? options.catalog.resolveCatalog(lookup)
+    : resolveAbilityCatalog(lookup);
+}
+
+export function resolveUtilityAbilityCapabilities(
+  options: GetApplicableOptions,
+): AbilityCapabilityResolution[] {
+  const resolved = resolveCatalogForApplicability(options);
   if (!resolved.ok) return [];
 
   return resolved.catalog.rules.map((rule) =>
@@ -250,14 +260,7 @@ export function resolveUtilityAbilityCapabilities(
 export function getApplicableAbilityCategories(
   options: GetApplicableOptions,
 ): ApplicableCategoryResult[] {
-  const resolved = resolveAbilityCatalog({
-    classSlug: options.classSlug,
-    specSlug: options.specSlug,
-    role: options.role,
-    gameVersion: options.gameVersion,
-    includeShared: true,
-    includeRacials: options.includeRacials ?? false,
-  });
+  const resolved = resolveCatalogForApplicability(options);
 
   if (!resolved.ok) {
     return ALL_CATEGORIES.map((category) => ({

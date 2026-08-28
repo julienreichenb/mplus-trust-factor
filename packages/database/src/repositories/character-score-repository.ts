@@ -9,6 +9,8 @@ export interface CharacterScoreIdentity {
   seasonId: string;
   scoringVersion: string;
   contextRevisionKey?: string;
+  /** Defaults to product STATIC lane (`static`). */
+  abilityCatalogExecutionKey?: string;
 }
 
 export interface SaveCharacterScoreInput extends CharacterScoreIdentity {
@@ -25,6 +27,11 @@ export interface SaveCharacterScoreInput extends CharacterScoreIdentity {
   dimensionDetails?: Prisma.InputJsonValue | null;
   selectedRuns: Prisma.InputJsonValue;
   calculatedAt?: Date;
+  abilityCatalogExecutionMode?: "STATIC" | "RELEASE";
+  abilityCatalogVersionId?: string | null;
+  abilityCatalogReleaseId?: string | null;
+  abilityCatalogContentDigest?: string | null;
+  abilityCatalogReleaseKey?: string | null;
 }
 
 export class CharacterScoreRepository {
@@ -33,11 +40,12 @@ export class CharacterScoreRepository {
   async find(identity: CharacterScoreIdentity) {
     return this.prisma.characterScore.findUnique({
       where: {
-        characterId_seasonId_scoringVersion_contextRevisionKey: {
+        characterId_seasonId_scoringVersion_contextRevisionKey_abilityCatalogExecutionKey: {
           characterId: identity.characterId,
           seasonId: identity.seasonId,
           scoringVersion: identity.scoringVersion,
           contextRevisionKey: identity.contextRevisionKey ?? NONE_CONTEXT_REVISION_KEY,
+          abilityCatalogExecutionKey: identity.abilityCatalogExecutionKey ?? "static",
         },
       },
     });
@@ -49,7 +57,10 @@ export class CharacterScoreRepository {
    */
   async findLatestForCharacter(characterId: string) {
     return this.prisma.characterScore.findFirst({
-      where: { characterId },
+      where: {
+        characterId,
+        abilityCatalogExecutionMode: "STATIC",
+      },
       orderBy: { calculatedAt: "desc" },
       include: { season: { select: { slug: true } } },
     });
@@ -58,8 +69,7 @@ export class CharacterScoreRepository {
   /**
    * Product authority: pick the season from the latest-calculated CharacterScore,
    * then prefer the row matching that season's published context revision.
-   * While N+1 is published but not yet recalculated, keep the latest existing
-   * row for that season + scoringVersion (typically N). Historical N rows remain.
+   * RELEASE-pinned scores are excluded from product authority.
    */
   async findAuthoritativeForCharacter(characterId: string) {
     const latest = await this.findLatestForCharacter(characterId);
@@ -71,11 +81,12 @@ export class CharacterScoreRepository {
     const contextRevisionKey = published?.id ?? NONE_CONTEXT_REVISION_KEY;
     const preferred = await this.prisma.characterScore.findUnique({
       where: {
-        characterId_seasonId_scoringVersion_contextRevisionKey: {
+        characterId_seasonId_scoringVersion_contextRevisionKey_abilityCatalogExecutionKey: {
           characterId: latest.characterId,
           seasonId: latest.seasonId,
           scoringVersion: latest.scoringVersion,
           contextRevisionKey,
+          abilityCatalogExecutionKey: latest.abilityCatalogExecutionKey ?? "static",
         },
       },
       include: { season: { select: { slug: true } } },
@@ -87,6 +98,7 @@ export class CharacterScoreRepository {
         characterId: latest.characterId,
         seasonId: latest.seasonId,
         scoringVersion: latest.scoringVersion,
+        abilityCatalogExecutionMode: "STATIC",
       },
       orderBy: { calculatedAt: "desc" },
       include: { season: { select: { slug: true } } },
@@ -96,13 +108,16 @@ export class CharacterScoreRepository {
   async save(input: SaveCharacterScoreInput) {
     const calculatedAt = input.calculatedAt ?? new Date();
     const contextRevisionKey = input.contextRevisionKey ?? NONE_CONTEXT_REVISION_KEY;
+    const abilityCatalogExecutionKey = input.abilityCatalogExecutionKey ?? "static";
+    const abilityCatalogExecutionMode = input.abilityCatalogExecutionMode ?? "STATIC";
     return this.prisma.characterScore.upsert({
       where: {
-        characterId_seasonId_scoringVersion_contextRevisionKey: {
+        characterId_seasonId_scoringVersion_contextRevisionKey_abilityCatalogExecutionKey: {
           characterId: input.characterId,
           seasonId: input.seasonId,
           scoringVersion: input.scoringVersion,
           contextRevisionKey,
+          abilityCatalogExecutionKey,
         },
       },
       create: {
@@ -123,6 +138,12 @@ export class CharacterScoreRepository {
         dimensionDetails: input.dimensionDetails ?? undefined,
         selectedRuns: input.selectedRuns,
         calculatedAt,
+        abilityCatalogExecutionMode,
+        abilityCatalogExecutionKey,
+        abilityCatalogVersionId: input.abilityCatalogVersionId ?? null,
+        abilityCatalogReleaseId: input.abilityCatalogReleaseId ?? null,
+        abilityCatalogContentDigest: input.abilityCatalogContentDigest ?? null,
+        abilityCatalogReleaseKey: input.abilityCatalogReleaseKey ?? null,
       },
       update: {
         contextRevisionId: input.contextRevisionId ?? null,
@@ -138,6 +159,11 @@ export class CharacterScoreRepository {
         dimensionDetails: input.dimensionDetails ?? undefined,
         selectedRuns: input.selectedRuns,
         calculatedAt,
+        abilityCatalogExecutionMode,
+        abilityCatalogVersionId: input.abilityCatalogVersionId ?? null,
+        abilityCatalogReleaseId: input.abilityCatalogReleaseId ?? null,
+        abilityCatalogContentDigest: input.abilityCatalogContentDigest ?? null,
+        abilityCatalogReleaseKey: input.abilityCatalogReleaseKey ?? null,
       },
     });
   }

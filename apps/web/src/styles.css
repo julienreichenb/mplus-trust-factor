@@ -173,6 +173,18 @@ main p.eyebrow {
   border-color: var(--color-gold-300);
 }
 
+.btn.danger {
+  background: color-mix(in srgb, #b35a5a 14%, var(--color-surface-hover));
+  border-color: color-mix(in srgb, #b35a5a 55%, var(--color-border));
+  color: #f0c7c7;
+}
+
+.btn.danger:hover:not(:disabled),
+.btn.danger:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, #b35a5a 24%, var(--color-surface-hover));
+  border-color: color-mix(in srgb, #b35a5a 75%, var(--color-border));
+}
+
 .btn.link {
   background: transparent;
   border: none;

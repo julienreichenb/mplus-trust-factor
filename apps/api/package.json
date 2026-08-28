@@ -9,7 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "openapi:generate": "tsx src/openapi-generate.ts",
-    "e2e:fixture-api": "tsx src/e2e-fixture-server.ts"
+    "e2e:fixture-api": "tsx src/e2e-fixture-server.ts",
+    "ability-catalog:review:import": "tsx src/cli/review-import.ts",
+    "ability-catalog:dev:reset": "tsx src/cli/dev-reset-ability-catalog.ts",
+    "ability-catalog:baseline:export": "tsx src/cli/baseline-export.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -24,6 +27,7 @@
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
     "@mplus/provider-blizzard": "workspace:*",
+    "@mplus/provider-warcraftlogs": "workspace:*",
     "@mplus/scoring": "workspace:*",
     "@mplus/test-utils": "workspace:*",
     "@mplus/worker": "workspace:*",

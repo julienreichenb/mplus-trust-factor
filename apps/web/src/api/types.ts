@@ -114,6 +114,100 @@ export type { ModelConfigFormState as EditableModelConfig } from "./model-config
 
 export type ApiMode = "mock" | "live";
 
+export interface AbilityCatalogReviewBatchSummary {
+  id: string;
+  reportDigest: string;
+  reviewPlanDigest?: string;
+  datasetKind: string;
+  wowBuild: string | null;
+  simcRevision: string | null;
+  blizzardNamespace: string | null;
+  status: string;
+  summaryCounts: Record<string, number>;
+  decisionCounts: {
+    total: number;
+    pending: number;
+    decided: number;
+    accepted: number;
+    rejected: number;
+    deferred: number;
+    draftsNeedsMetadata: number;
+    draftsReadyForPublishReview: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AbilityCatalogDraftValidation {
+  status: "NEEDS_METADATA" | "READY_FOR_PUBLISH_REVIEW";
+  readyForPublishReview: boolean;
+  reasonCodes: string[];
+  errors: Array<{ severity: string; code: string; message: string; field?: string }>;
+  warnings: Array<{ severity: string; code: string; message: string; field?: string }>;
+}
+
+export interface ManualCatalogEditSummary {
+  canonicalKey: string;
+  draftRuleId: string;
+  version: number;
+  status: "NEEDS_METADATA" | "READY_FOR_PUBLISH_REVIEW";
+  name: string;
+}
+
+export interface ManualCatalogEditDetail {
+  canonicalKey: string;
+  activeRule: unknown;
+  draft: unknown | null;
+  draftRuleId: string | null;
+  draftVersion: number | null;
+  draftStatus: "NEEDS_METADATA" | "READY_FOR_PUBLISH_REVIEW" | null;
+  draftValidation: AbilityCatalogDraftValidation | null;
+}
+
+export interface AbilityCatalogReleaseSummary {
+  id: string;
+  releaseKey: string;
+  contentDigest: string;
+  status: string;
+  publishedAt?: string | null;
+  createdAt?: string;
+  validatedAt?: string | null;
+}
+
+export interface AbilityCatalogReviewDecisionEvent {
+  id: string;
+  actorUserId: string | null;
+  actorType: string;
+  previousState: unknown;
+  newState: unknown;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface AbilityCatalogReviewItemSummary {
+  id: string;
+  batchId: string;
+  kind: string;
+  name: string;
+  primarySpellId: number | null;
+  classSlug: string | null;
+  specSlugs: string[];
+  raceSlugs: string[];
+  decisionAction: string | null;
+  version: number;
+  reviewReason: string;
+  eligibilityState: string | null;
+  evidence: unknown;
+  sourceProvenance: unknown;
+  matchedCanonicalKey: string | null;
+  draftRule: Record<string, unknown> | null;
+  draftTopology: Record<string, unknown> | null;
+  draftStatus: string | null;
+  draftValidation: AbilityCatalogDraftValidation | null;
+  decisionEvents: AbilityCatalogReviewDecisionEvent[];
+  wowheadUrl: string | null;
+}
+
 export type SearchUiState =
   | "IDLE"
   | "VALIDATING"
@@ -187,6 +281,103 @@ export interface MplusApiClient {
     params?: Record<string, string | number | undefined>,
     signal?: AbortSignal,
   ): Promise<AdminAbilityCatalogResponse>;
+  listAbilityCatalogReviewBatches(signal?: AbortSignal): Promise<{
+    batches: AbilityCatalogReviewBatchSummary[];
+  }>;
+  listAbilityCatalogReviewItems(
+    batchId: string,
+    params?: Record<string, string | undefined>,
+    signal?: AbortSignal,
+  ): Promise<{ items: AbilityCatalogReviewItemSummary[] }>;
+  decideAbilityCatalogReviewItem(
+    itemId: string,
+    body: {
+      expectedVersion: number;
+      action: string;
+      draft?: Record<string, unknown>;
+      note?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<AbilityCatalogReviewItemSummary>;
+  getAbilityCatalogReviewItem(
+    itemId: string,
+    signal?: AbortSignal,
+  ): Promise<AbilityCatalogReviewItemSummary>;
+  listAbilityCatalogReleases(signal?: AbortSignal): Promise<{
+    releases: AbilityCatalogReleaseSummary[];
+  }>;
+  getAbilityCatalogActiveRelease(signal?: AbortSignal): Promise<{
+    active: AbilityCatalogReleaseSummary | null;
+    limitations?: { racialReplayCoverage?: string; trustReplay?: string };
+    notice?: string;
+  }>;
+  getAbilityCatalogWorkflow(signal?: AbortSignal): Promise<Record<string, unknown>>;
+  refreshAbilityCatalog(signal?: AbortSignal): Promise<Record<string, unknown>>;
+  activateAbilityCatalogRelease(
+    releaseId: string,
+    body: {
+      confirmationDigest: string;
+      confirm: true;
+      expectedPreviousActiveId?: string | null;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
+    release: AbilityCatalogReleaseSummary;
+    activation: { id: string };
+    notice?: string;
+  }>;
+  rollbackAbilityCatalogRelease(
+    releaseId: string,
+    body: {
+      confirmationDigest: string;
+      confirm: true;
+      reason: string;
+      expectedPreviousActiveId?: string | null;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
+    release: AbilityCatalogReleaseSummary;
+    activation: { id: string };
+    notice?: string;
+  }>;
+  updateAbilityCatalogDraft(
+    itemId: string,
+    body: {
+      expectedVersion: number;
+      draft: Record<string, unknown>;
+      note?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<AbilityCatalogReviewItemSummary>;
+  ensureAbilityCatalogDraft(
+    itemId: string,
+    body?: { draft?: Record<string, unknown> },
+    signal?: AbortSignal,
+  ): Promise<AbilityCatalogReviewItemSummary>;
+  validateAbilityCatalogDraft(
+    itemId: string,
+    body?: { draft?: Record<string, unknown> },
+    signal?: AbortSignal,
+  ): Promise<{
+    itemId: string;
+    validation: AbilityCatalogDraftValidation;
+    draft: unknown | null;
+  }>;
+  listManualCatalogEdits(signal?: AbortSignal): Promise<{ edits: ManualCatalogEditSummary[] }>;
+  getManualCatalogEdit(canonicalKey: string, signal?: AbortSignal): Promise<ManualCatalogEditDetail>;
+  saveManualCatalogEdit(
+    canonicalKey: string,
+    body: {
+      expectedVersion?: number;
+      draft: Record<string, unknown>;
+      note?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ManualCatalogEditDetail>;
+  discardManualCatalogEdit(
+    canonicalKey: string,
+    signal?: AbortSignal,
+  ): Promise<{ discarded: true }>;
   syncRealmCatalog(
     input?: {
       regions?: RegionCode[];

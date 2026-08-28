@@ -9,8 +9,15 @@ import type {
   ProviderFetchContext,
   RaiderIoCharacterProfile,
   ScoreSnapshotDTO,
+  AbilityCatalogExecutionPin,
+  SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
-import { hashRefreshContract } from "@mplus/contracts";
+import {
+  abilityCatalogExecutionKey,
+  decodeAbilityCatalogExecutionPin,
+  hashRefreshContract,
+} from "@mplus/contracts";
+import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import type { ExperiencePhase1Result, ScoringRunSelection } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import { recordProviderResult } from "../provider-recording.js";
@@ -40,6 +47,7 @@ import {
 } from "./experience-blizzard-season-history.js";
 import { resolveCanonicalPreviousSeasonBinding } from "./experience-previous-season-evidence.js";
 import { createCharacterExperienceEvidenceRepository } from "@mplus/database";
+import { resolveAbilityCatalogExecution } from "./ability-catalog-pin-loader.js";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -94,9 +102,12 @@ export interface AuthoritativeScoringInput {
    */
   experienceOverride?: ExperiencePhase1Result | null;
   /**
-   * Already-fetched Raider.IO profile from refresh enrichment. Used only for
-   * previous-season regional class rank — does not trigger an extra RIO call.
+   * Optional frozen published context revision (tests). When omitted, loaded from DB.
    */
+  seasonContextRevision?: SeasonScoreContextRevisionDoc | null;
+  /** Explicit ability catalog pin (defaults to STATIC at scoreCharacter entry). */
+  abilityCatalogExecutionPin?: AbilityCatalogExecutionPin;
+  /** Already-fetched Raider.IO profile from refresh enrichment. */
   raiderIoProfile?: RaiderIoCharacterProfile | null;
   /** Canonical 8-run selection for this calculation (selectScoringRuns). */
   canonicalRunSelection?: ScoringRunSelection | null;
@@ -148,7 +159,16 @@ function resolveRankingParseProvider(
 export async function runAuthoritativeScoring(
   input: AuthoritativeScoringInput,
 ): Promise<AuthoritativeScoringResult> {
-  const fingerprint = `scoring:${input.characterId}:${input.seasonId}:${hashRefreshContract(input.refreshContract)}`;
+  const pin = decodeAbilityCatalogExecutionPin(
+    input.abilityCatalogExecutionPin ?? null,
+    CURRENT_CATALOG_VERSION_ID,
+  );
+  // Fail-closed RELEASE load before scoring starts (pin frozen at enqueue).
+  const resolvedCatalog = await resolveAbilityCatalogExecution({
+    prisma: input.container.prisma,
+    pin,
+  });
+  const fingerprint = `scoring:${input.characterId}:${input.seasonId}:${hashRefreshContract(input.refreshContract)}:${abilityCatalogExecutionKey(resolvedCatalog.pin)}`;
 
   input.container.logger.info(
     {
@@ -220,6 +240,7 @@ export async function runAuthoritativeScoring(
         wclSource: input.container.repositories.wclSource,
         client,
         region: input.region,
+        catalogVersion: resolvedCatalog.catalogVersionStamp,
         permission: {
           providerMode: input.container.env.PROVIDER_MODE,
           wclEnabled: input.container.env.WCL_ENABLED,
@@ -493,6 +514,7 @@ export async function runAuthoritativeScoring(
       performanceAggregateProvider,
       experience,
       canonicalRunSelection: input.canonicalRunSelection ?? null,
+      abilityCatalogExecutionPin: resolvedCatalog.pin,
     });
 
     return {

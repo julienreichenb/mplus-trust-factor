@@ -10,6 +10,7 @@ import {
   buildTestEnv,
   cleanupTrackedScoreModels,
   createTestPrismaClient,
+  ensureActiveBootstrapCatalogReleaseForTests,
   uniqueName,
 } from "./test-helpers.js";
 
@@ -27,6 +28,7 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
   let container: ApiContainer;
 
   beforeAll(async () => {
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
     const env = buildTestEnv({ ADMIN_API_KEY: ADMIN_KEY });
     container = createApiContainer(env, {
       workerOverrides: { prisma: prisma as PrismaClient },

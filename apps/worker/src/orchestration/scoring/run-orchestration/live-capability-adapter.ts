@@ -259,6 +259,11 @@ export interface CreateLiveCapabilityAcquireHookInput {
   permission: LiveCapabilityPermissionInput;
   /** Optional measured points for this acquisition (rate-limit delta). */
   measurePointsConsumed?: () => Promise<number | null>;
+  /**
+   * Catalog stamp for capability package identity (STATIC version id or releaseKey).
+   * Defaults to CURRENT_CATALOG_VERSION_ID. Does not change raw WclRunRaw reuse.
+   */
+  catalogVersion?: string;
 }
 
 export function createLiveCapabilityAcquireHook(
@@ -377,7 +382,7 @@ export function createLiveCapabilityAcquireHook(
       ownedPetActorIds: [
         ...new Set(input.participants.flatMap((p) => p.ownedPetActorIds)),
       ],
-      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      catalogVersion: deps.catalogVersion ?? CURRENT_CATALOG_VERSION_ID,
       forceRefetch: false,
     });
 

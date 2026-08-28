@@ -19,6 +19,12 @@ export interface RefreshContractVersions {
   raiderIoAdapterVersion: string;
   runSelectionVersion: string;
   abilityCatalogVersion: string;
+  /**
+   * Explicit catalog execution identity for scoring semantics.
+   * Format: `static:<catalogVersionId>` | `release:<releaseId>:<contentDigest>`
+   * Absent on legacy stored contracts → treated as `static:${abilityCatalogVersion}`.
+   */
+  abilityCatalogExecutionKey: string;
   mechanicCatalogVersion: string;
   /** Active season slug (or stable id string). */
   activeSeasonId: string;
@@ -56,6 +62,7 @@ const FIELD_REASONS: Array<{
   { key: "raiderIoAdapterVersion", reason: "RAIDERIO_ADAPTER_CHANGED" },
   { key: "runSelectionVersion", reason: "RUN_SELECTION_CHANGED" },
   { key: "abilityCatalogVersion", reason: "ABILITY_CATALOG_CHANGED" },
+  { key: "abilityCatalogExecutionKey", reason: "ABILITY_CATALOG_CHANGED" },
   { key: "mechanicCatalogVersion", reason: "MECHANIC_CATALOG_CHANGED" },
   { key: "activeSeasonId", reason: "ACTIVE_SEASON_CHANGED" },
   { key: "zoneId", reason: "ZONE_OR_PARTITION_CHANGED" },
@@ -72,6 +79,7 @@ export function normalizeRefreshContract(input: RefreshContractVersions): Refres
     raiderIoAdapterVersion: input.raiderIoAdapterVersion,
     runSelectionVersion: input.runSelectionVersion,
     abilityCatalogVersion: input.abilityCatalogVersion,
+    abilityCatalogExecutionKey: input.abilityCatalogExecutionKey,
     mechanicCatalogVersion: input.mechanicCatalogVersion,
     activeSeasonId: input.activeSeasonId,
     zoneId: input.zoneId,
@@ -91,6 +99,7 @@ export function refreshContractMaterial(input: RefreshContractVersions): string 
     `raiderIoAdapterVersion=${v.raiderIoAdapterVersion}`,
     `runSelectionVersion=${v.runSelectionVersion}`,
     `abilityCatalogVersion=${v.abilityCatalogVersion}`,
+    `abilityCatalogExecutionKey=${v.abilityCatalogExecutionKey}`,
     `mechanicCatalogVersion=${v.mechanicCatalogVersion}`,
     `activeSeasonId=${v.activeSeasonId}`,
     `zoneId=${v.zoneId ?? "null"}`,
@@ -132,6 +141,13 @@ export function parseRefreshContract(value: unknown): RefreshContractVersions | 
   if (row.zoneId != null && zoneId == null) return null;
   if (row.partition != null && partition == null) return null;
 
+  // Legacy contracts omit abilityCatalogExecutionKey → STATIC derived from abilityCatalogVersion.
+  const abilityCatalogExecutionKey =
+    typeof row.abilityCatalogExecutionKey === "string" &&
+    row.abilityCatalogExecutionKey.length > 0
+      ? row.abilityCatalogExecutionKey
+      : `static:${row.abilityCatalogVersion}`;
+
   return normalizeRefreshContract({
     scoringModelKey: row.scoringModelKey,
     scoringModelVersion: row.scoringModelVersion,
@@ -141,6 +157,7 @@ export function parseRefreshContract(value: unknown): RefreshContractVersions | 
     raiderIoAdapterVersion: row.raiderIoAdapterVersion,
     runSelectionVersion: row.runSelectionVersion,
     abilityCatalogVersion: row.abilityCatalogVersion,
+    abilityCatalogExecutionKey,
     mechanicCatalogVersion: row.mechanicCatalogVersion,
     activeSeasonId: row.activeSeasonId,
     zoneId,

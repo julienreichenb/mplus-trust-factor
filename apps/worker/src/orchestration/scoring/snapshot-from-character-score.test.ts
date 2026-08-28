@@ -91,6 +91,10 @@ function baseResult(
       contentHash: null,
     },
     boostAssessment: null,
+    abilityCatalogExecutionPin: {
+      kind: "STATIC",
+      catalogVersionId: "12.0.0/midnight-season-1",
+    },
   };
 
   if (overrides?.characterScoreId !== undefined) {

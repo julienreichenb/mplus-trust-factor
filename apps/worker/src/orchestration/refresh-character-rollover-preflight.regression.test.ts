@@ -18,6 +18,7 @@ import {
   updateScoringSeasonSelection,
   type PersistedActiveMplusCatalogMetadata,
 } from "./active-mplus-season/index.js";
+import { BOOTSTRAP_TEST_RELEASE_PIN } from "@mplus/test-utils";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import {
   assertPublicationContractMatchesJob,
@@ -312,6 +313,7 @@ function buildJob(hash: string, seasonId: number, slug: string): RefreshCharacte
     triggerSource: "PROFILE_READ",
     authoritativeSeasonId: seasonId,
     authoritativeSeasonSlug: slug,
+    abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
   } as RefreshCharacterJob;
 }
 
@@ -371,6 +373,7 @@ describe("refresh-character rollover preflight (real queue path)", () => {
       scoringModelVersion: 6,
       activeSeasonId: "blizzard-season-99",
       providerMode: "live",
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       zoneId: 200,
     }).hash;
 
@@ -482,6 +485,7 @@ describe("refresh-character rollover preflight (real queue path)", () => {
       scoringModelVersion: 6,
       activeSeasonId: "blizzard-season-17",
       providerMode: "live",
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       zoneId: 47,
     }).hash;
 
@@ -606,6 +610,7 @@ describe("refresh-character rollover preflight (real queue path)", () => {
         activeSeasonId: "blizzard-season-99",
         providerMode: "live",
         zoneId: undefined,
+        abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       }),
     ).toThrow(ZONE_MISSING_MSG);
   });
@@ -715,6 +720,7 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
       scoringModelVersion: 6,
       activeSeasonId: "blizzard-season-17",
       providerMode: "live",
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       zoneId: Z17,
     }).hash;
 
@@ -757,6 +763,7 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
       scoringModelVersion: 6,
       activeSeasonId: "blizzard-season-18",
       providerMode: "live",
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       zoneId: Z18,
     }).hash;
 
@@ -802,6 +809,7 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
       scoringModelVersion: 6,
       activeSeasonId: "blizzard-season-17",
       providerMode: "live",
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       zoneId: Z17,
     }).hash;
 
@@ -941,6 +949,7 @@ describe("CharacterScore persist barrier after publication TOCTOU", () => {
         activeSeasonId: "blizzard-season-17",
         providerMode: "live",
         zoneId: Z17,
+        abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       }).hash,
       17,
       "blizzard-season-17",
@@ -983,6 +992,7 @@ describe("CharacterScore persist barrier after publication TOCTOU", () => {
         activeSeasonId: "blizzard-season-18",
         providerMode: "live",
         zoneId: Z18,
+        abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       }).hash,
       18,
       "blizzard-season-18",
@@ -1029,6 +1039,7 @@ describe("CharacterScore persist barrier after publication TOCTOU", () => {
         activeSeasonId: "blizzard-season-17",
         providerMode: "live",
         zoneId: Z17,
+        abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
       }).hash,
       17,
       "blizzard-season-17",

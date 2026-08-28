@@ -1,9 +1,11 @@
-import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
   OBSERVATION_SCHEMA_VERSION,
   RUN_SELECTION_VERSION,
+  AbilityCatalogPinError,
+  abilityCatalogExecutionKey,
   hashRefreshContract,
   normalizeRefreshContract,
+  type AbilityCatalogExecutionPin,
   type RefreshContractVersions,
 } from "@mplus/contracts";
 import { MINIMAL_SEED_CATALOG } from "@mplus/mechanics";
@@ -32,6 +34,8 @@ export interface BuildRefreshContractInput {
   raiderIoAdapterVersion?: string;
   runSelectionVersion?: string;
   abilityCatalogVersion?: string;
+  /** Required catalog pin — ACTIVE release at enqueue; never inferred from static registry. */
+  abilityCatalogExecutionPin: AbilityCatalogExecutionPin;
   mechanicCatalogVersion?: string;
   env?: NodeJS.ProcessEnv;
   /**
@@ -70,6 +74,7 @@ export interface ResolveActiveRefreshContractInput {
   raiderIoAdapterVersion?: string;
   runSelectionVersion?: string;
   abilityCatalogVersion?: string;
+  abilityCatalogExecutionPin: AbilityCatalogExecutionPin;
   mechanicCatalogVersion?: string;
 }
 
@@ -125,6 +130,7 @@ export function resolveActiveRefreshContract(
     raiderIoAdapterVersion: input.raiderIoAdapterVersion,
     runSelectionVersion: input.runSelectionVersion,
     abilityCatalogVersion: input.abilityCatalogVersion,
+    abilityCatalogExecutionPin: input.abilityCatalogExecutionPin,
     mechanicCatalogVersion: input.mechanicCatalogVersion,
     allowFixtureZoneDefault,
   });
@@ -144,6 +150,17 @@ export function buildRefreshContract(input: BuildRefreshContractInput): RefreshC
     allowFixtureZoneDefault: allowFixtureDefault,
   });
 
+  const pin = input.abilityCatalogExecutionPin;
+  if (!pin) {
+    throw new AbilityCatalogPinError(
+      "ABILITY_CATALOG_RELEASE_NOT_FOUND",
+      "abilityCatalogExecutionPin is required — resolve ACTIVE release at enqueue (no static runtime fallback)",
+    );
+  }
+  const abilityCatalogVersion =
+    input.abilityCatalogVersion ??
+    (pin.kind === "STATIC" ? pin.catalogVersionId : pin.releaseKey);
+
   return normalizeRefreshContract({
     scoringModelKey: input.scoringModelKey,
     scoringModelVersion: input.scoringModelVersion,
@@ -152,7 +169,8 @@ export function buildRefreshContract(input: BuildRefreshContractInput): RefreshC
     blizzardAdapterVersion: input.blizzardAdapterVersion ?? BLIZZARD_ADAPTER_VERSION,
     raiderIoAdapterVersion: input.raiderIoAdapterVersion ?? RAIDERIO_SCHEMA_VERSION,
     runSelectionVersion: input.runSelectionVersion ?? RUN_SELECTION_VERSION,
-    abilityCatalogVersion: input.abilityCatalogVersion ?? CURRENT_CATALOG_VERSION_ID,
+    abilityCatalogVersion,
+    abilityCatalogExecutionKey: abilityCatalogExecutionKey(pin),
     mechanicCatalogVersion:
       input.mechanicCatalogVersion ?? MINIMAL_SEED_CATALOG.catalogVersion,
     activeSeasonId: input.activeSeasonId,

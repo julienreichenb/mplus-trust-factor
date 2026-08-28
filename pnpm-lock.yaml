@@ -99,6 +99,9 @@ importers:
       '@mplus/provider-blizzard':
         specifier: workspace:*
         version: link:../../packages/providers/blizzard
+      '@mplus/provider-warcraftlogs':
+        specifier: workspace:*
+        version: link:../../packages/providers/warcraftlogs
       '@mplus/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
@@ -242,6 +245,10 @@ importers:
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(jsdom@26.1.0)(tsx@4.23.1)(yaml@2.9.0)
 
   packages/abilities:
+    dependencies:
+      '@mplus/provider-blizzard':
+        specifier: workspace:*
+        version: link:../providers/blizzard
     devDependencies:
       tsx:
         specifier: ^4.20.3

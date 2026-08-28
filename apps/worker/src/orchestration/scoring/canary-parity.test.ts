@@ -467,6 +467,8 @@ describe("Agent 03 canary authoritative parity", () => {
         raiderIoAdapterVersion: "raiderio-v1",
         runSelectionVersion: "active-season-eight-v1",
         abilityCatalogVersion: "abilities-v1",
+
+        abilityCatalogExecutionKey: "static:abilities-v1",
         mechanicCatalogVersion: "mechanics-v1",
         activeSeasonId: "blizzard-season-17",
         zoneId: 47,
@@ -519,6 +521,8 @@ describe("Agent 03 canary authoritative parity", () => {
         raiderIoAdapterVersion: "raiderio-v1",
         runSelectionVersion: "active-season-eight-v1",
         abilityCatalogVersion: "abilities-v1",
+
+        abilityCatalogExecutionKey: "static:abilities-v1",
         mechanicCatalogVersion: "mechanics-v1",
         activeSeasonId: "blizzard-season-17",
         zoneId: 47,

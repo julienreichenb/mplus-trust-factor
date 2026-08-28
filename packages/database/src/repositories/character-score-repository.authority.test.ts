@@ -48,10 +48,12 @@ describe("CharacterScoreRepository revision authority", () => {
     expect(prisma.characterScore.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          characterId_seasonId_scoringVersion_contextRevisionKey: expect.objectContaining({
-            contextRevisionKey: "rev-n1",
-            seasonId: "season-a",
-          }),
+          characterId_seasonId_scoringVersion_contextRevisionKey_abilityCatalogExecutionKey:
+            expect.objectContaining({
+              abilityCatalogExecutionKey: "static",
+              contextRevisionKey: "rev-n1",
+              seasonId: "season-a",
+            }),
         },
       }),
     );

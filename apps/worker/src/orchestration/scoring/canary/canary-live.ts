@@ -296,6 +296,8 @@ function buildCanaryRefreshContract(input: {
     raiderIoAdapterVersion: "raiderio-v1",
     runSelectionVersion: RUN_SELECTION_VERSION,
     abilityCatalogVersion: "abilities-v1",
+
+    abilityCatalogExecutionKey: "static:abilities-v1",
     mechanicCatalogVersion: "mechanics-v1",
     activeSeasonId: input.seasonSlug,
     zoneId: input.zoneId,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { IsoDateTime, RegionCode } from "./identity.js";
+import { abilityCatalogExecutionPinSchema } from "./ability-catalog-execution-pin.js";
 
 export const QUEUE_NAMES = {
   refreshCharacter: "refresh-character",
@@ -103,6 +104,12 @@ export const refreshCharacterJobSchema = z.object({
    * Never infer from character name or caller text.
    */
   workloadClass: z.enum(["CALIBRATION", "OPERATION"]).optional(),
+  /**
+   * Explicit ability-catalog execution pin frozen at enqueue.
+   * Absent → STATIC legacy semantics (decode at worker).
+   * NEVER accept client-forged RELEASE digests as authority — API resolves pin server-side.
+   */
+  abilityCatalogExecutionPin: abilityCatalogExecutionPinSchema.optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

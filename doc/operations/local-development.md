@@ -102,6 +102,21 @@ RAIDERIO_ENABLED=true
 
 Set any of these to `false` to soft-disable that provider.
 
+## Ability catalog refresh (optional SimC)
+
+Admin `/admin/ability-catalog` → Refresh catalog needs a SimulationCraft CLI binary. Scoring API/worker do **not** require SimC.
+
+Local Windows:
+
+```powershell
+$env:ABILITY_CATALOG_SIMC_BIN="C:\Tools\SimulationCraft\simc.exe"
+pnpm dev
+```
+
+Do **not** set a SimC git SHA in `.env`. Refresh interrogates the binary for version, revision, WoW build, and LIVE/PTR mode.
+
+Test/prod: package SimC with the dedicated catalog-refresh image (`infra/docker/ability-catalog-refresh.Dockerfile`), which installs `/usr/local/bin/simc`. Keep Blizzard/DB/Redis secrets as runtime env — never bake them into the SimC image.
+
 ## Live mode
 
 1. Keep secrets in the root `.env` only (never in `VITE_*` or tracked files).

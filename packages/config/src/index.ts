@@ -76,6 +76,13 @@ export const envSchema = z
      * Thresholds live on ScoreModel.config.utilityPublicationEligibility — not env.
      */
     UTILITY_PUBLICATION_MODE: z.enum(["off", "shadow", "published"]).default("shadow"),
+
+    /**
+     * Optional SimC binary for admin catalog refresh (tooling only; not worker runtime).
+     * Local Windows: set to simc.exe path. Linux container: defaults to /usr/local/bin/simc when present.
+     * Revision identity is discovered by interrogating the binary — do not set a manual SHA.
+     */
+    ABILITY_CATALOG_SIMC_BIN: z.string().optional(),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
     /**
      * Published Trust Score freshness window (calculation/publication time).

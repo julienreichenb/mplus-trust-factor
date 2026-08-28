@@ -11,6 +11,8 @@ export * from "./bulk-processing.js";
 export * from "./calibration.js";
 export * from "./api.js";
 export * from "./faq.js";
+export * from "./ability-catalog-review.js";
+export * from "./ability-catalog-execution-pin.js";
 export * from "./refresh-contract.js";
 export * from "./account-characters.js";
 export * from "./active-rerolls.js";

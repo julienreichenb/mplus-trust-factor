@@ -48,6 +48,8 @@ describe("web router registration", () => {
     expect(routeDefs.map((r) => r.name)).not.toContain("admin-models");
     expect(routeDefs.map((r) => r.name)).not.toContain("admin-tuning");
     expect(routeDefs.map((r) => r.name)).not.toContain("admin-calibration");
+    expect(routeDefs.map((r) => r.name)).not.toContain("admin-ability-catalog-review");
+    expect(routeDefs.map((r) => r.name)).not.toContain("admin-ability-catalog-releases");
   });
 });
 

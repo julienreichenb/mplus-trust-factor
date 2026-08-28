@@ -5,6 +5,7 @@ import {
   findRetailSpecIdentityByBlizzardSpecId,
   findSpecDefinition,
   normalizeRetailClassSlug,
+  normalizeRetailSpecSlug,
 } from "./classes-matrix.js";
 import type { AbilityRole } from "../types.js";
 
@@ -66,5 +67,10 @@ describe("RETAIL_CLASS_MATRIX specialization → role catalog", () => {
     });
     expect(findRetailSpecIdentityByBlizzardSpecId(252)?.specSlug).toBe("unholy");
     expect(findRetailSpecIdentityByBlizzardSpecId(999999)).toBeNull();
+  });
+
+  it("normalizes provider-style spec underscores when they match the matrix", () => {
+    expect(normalizeRetailSpecSlug("hunter", "beast_mastery")).toBe("beast-mastery");
+    expect(normalizeRetailSpecSlug("hunter", "beast-mastery")).toBe("beast-mastery");
   });
 });

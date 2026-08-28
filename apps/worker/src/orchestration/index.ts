@@ -1,5 +1,6 @@
 export * from "./analyze-run.js";
 export * from "./build-refresh-contract.js";
+export * from "./ability-catalog-enqueue-pin.js";
 export * from "./bulk-character-processing.js";
 export * from "./bulk-character-selection.js";
 export * from "./bulk-checkpoint.js";

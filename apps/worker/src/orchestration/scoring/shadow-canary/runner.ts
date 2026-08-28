@@ -163,6 +163,7 @@ export async function runShadowCanaryJob(input: {
           raiderIoAdapterVersion: "raiderio-v1",
           runSelectionVersion: "evidence-selector-v2.0.0",
           abilityCatalogVersion: canary.catalogVersion ?? "unknown",
+          abilityCatalogExecutionKey: `static:${canary.catalogVersion ?? "unknown"}`,
           mechanicCatalogVersion: "none",
           activeSeasonId: input.seasonSlug,
           zoneId: null,

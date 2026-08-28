@@ -1,4 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 
 const runAuthoritativeScoring = vi.fn();
 
@@ -90,6 +91,7 @@ describe("runRecalculateScore canonical selection + season pin", () => {
       },
       logger: { info: vi.fn(), warn: vi.fn() },
       prisma: {
+        ...mockActiveBootstrapCatalogReleasePrisma(),
         character: {
           findUnique: vi.fn(async () => ({
             id: "char-1",

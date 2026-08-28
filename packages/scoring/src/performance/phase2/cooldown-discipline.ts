@@ -4,6 +4,7 @@
  */
 
 import type { ParticipantOffensiveActivationV1 } from "@mplus/contracts";
+import type { AbilityCatalogContext } from "@mplus/abilities";
 import {
   resolveEligibleOffensiveCooldowns,
   type CooldownAvailabilityReason,
@@ -142,6 +143,7 @@ function availabilityEvidenceFromRun(
 
 export function scoreRunCooldownDiscipline(
   run: PerformanceCooldownRunEvidence,
+  options?: { catalog?: AbilityCatalogContext },
 ): RunCooldownDisciplineResult {
   const key = runKey(run);
   const duration = run.activeCombatDurationMs;
@@ -167,6 +169,7 @@ export function scoreRunCooldownDiscipline(
       specSlug: run.specSlug,
       catalogVersion: run.catalogVersion,
       availabilityEvidence: availabilityEvidenceFromRun(run),
+      catalog: options?.catalog,
     });
 
   if (catalogueIncompatible) {
@@ -245,6 +248,7 @@ export function scoreRunCooldownDiscipline(
  */
 export function computeOffensiveCooldownDiscipline(
   runs: readonly PerformanceCooldownRunEvidence[],
+  options?: { catalog?: AbilityCatalogContext },
 ): OffensiveCooldownDisciplineResult {
   const seen = new Set<string>();
   const deduped: PerformanceCooldownRunEvidence[] = [];
@@ -255,7 +259,9 @@ export function computeOffensiveCooldownDiscipline(
     deduped.push(run);
   }
 
-  const runScores = deduped.map(scoreRunCooldownDiscipline);
+  const runScores = deduped.map((run) =>
+    scoreRunCooldownDiscipline(run, options),
+  );
   const usable = runScores.filter((r) => r.usable && r.score != null);
   const unsupported = new Set<string>();
   const catalogueIncompatibleRuns: string[] = [];

@@ -7,6 +7,7 @@ import {
   getAbilityCatalog,
   ruleResolvableSpellIds,
   rulesForCategory,
+  type AbilityCatalogContext,
   type AbilityRule,
 } from "@mplus/abilities";
 import {
@@ -122,6 +123,7 @@ export function resolveSurvivalCatalogTools(input: {
   classSlug: string | null;
   specSlug: string | null;
   availabilityEvidence?: SurvivalToolAvailabilityEvidence;
+  catalog?: AbilityCatalogContext;
 }): {
   supported: boolean;
   defensiveTools: SurvivalV2CatalogTool[];
@@ -129,11 +131,17 @@ export function resolveSurvivalCatalogTools(input: {
   toolkit: SurvivalV2ToolkitEntry[];
   unsupportedReason: string | null;
 } {
-  const catalog = getAbilityCatalog({
-    classSlug: input.classSlug,
-    specSlug: input.specSlug,
-    includeRacials: true,
-  });
+  const catalog = input.catalog
+    ? input.catalog.getCatalog({
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        includeRacials: true,
+      })
+    : getAbilityCatalog({
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        includeRacials: true,
+      });
   if (!catalog.supported) {
     return {
       supported: false,

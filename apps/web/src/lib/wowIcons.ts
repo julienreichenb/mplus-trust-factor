@@ -41,6 +41,38 @@ export const ROLE_ICON_NAMES = {
 } as const;
 
 /**
+ * Playable-race icons keyed by AbilityRule race slug (CDN race_* / allied-race assets).
+ * Used when a review/catalog item is racial rather than class/spec-owned.
+ */
+export const RACE_ICON_NAMES: Readonly<Record<string, string>> = {
+  human: "race_human_male",
+  orc: "race_orc_male",
+  dwarf: "race_dwarf_male",
+  "night-elf": "race_nightelf_male",
+  undead: "race_scourge_male",
+  tauren: "race_tauren_male",
+  gnome: "race_gnome_male",
+  troll: "race_troll_male",
+  goblin: "race_goblin_male",
+  "blood-elf": "race_bloodelf_male",
+  draenei: "race_draenei_male",
+  worgen: "race_worgen_male",
+  pandaren: "race_pandaren_male",
+  nightborne: "race_nightborne_male",
+  "highmountain-tauren": "race_highmountaintauren_male",
+  "void-elf": "race_voidelf_male",
+  "lightforged-draenei": "race_lightforgeddraenei_male",
+  "zandalari-troll": "achievement_alliedrace_zandalaritroll",
+  "kul-tiran": "race_kultiran_male",
+  "dark-iron-dwarf": "race_darkirondwarf_male",
+  vulpera: "race_vulpera_male",
+  "maghar-orc": "race_magharorc_male",
+  mechagnome: "race_mechagnome_male",
+  dracthyr: "race_dracthyr_male",
+  earthen: "race_earthendwarf_male",
+};
+
+/**
  * Spec icons keyed by `classSlug:specSlug` (Retail specialization media names).
  * Used for admin catalog disclosure toggles — not remote lookups.
  */
@@ -104,6 +136,12 @@ export function specIconName(
   if (!cls) return null;
   if (!spec) return classIconName(cls);
   return SPEC_ICON_NAMES[`${cls}:${spec}`] ?? classIconName(cls);
+}
+
+/** Race icon for a playable race slug; null when unknown. */
+export function raceIconName(raceSlug: string | null | undefined): string | null {
+  if (!raceSlug) return null;
+  return RACE_ICON_NAMES[raceSlug.toLowerCase()] ?? null;
 }
 
 export function roleIconName(role: string | null | undefined): string | null {

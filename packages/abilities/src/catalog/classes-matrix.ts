@@ -199,6 +199,62 @@ export function normalizeRetailClassSlug(value: string | null | undefined): stri
   return slug;
 }
 
+/**
+ * Normalize provider / digest spec slugs to retail matrix form.
+ * Underscores become hyphens (`beast_mastery` → `beast-mastery`) when that
+ * matches a known spec for the class. Does not invent unknown specs.
+ */
+export function normalizeRetailSpecSlug(
+  classSlug: string | null | undefined,
+  specSlug: string | null | undefined,
+): string | null {
+  if (specSlug == null) return null;
+  const raw = specSlug.trim().toLowerCase();
+  if (!raw) return null;
+  const hyphenated = raw.replace(/_/g, "-");
+  const classNorm = normalizeRetailClassSlug(classSlug);
+  if (classNorm) {
+    const cls = findClassDefinition(classNorm);
+    if (cls) {
+      if (cls.specs.some((s) => s.slug === hyphenated)) return hyphenated;
+      if (cls.specs.some((s) => s.slug === raw)) return raw;
+    }
+  }
+  // Unknown relative to matrix — keep hyphenated candidate for consistent reporting.
+  return hyphenated;
+}
+
+export type CanonicalRetailClassSpecIdentity = {
+  classSlug: string | null;
+  specSlug: string | null;
+  /** True when classSlug was altered from the input form. */
+  classNormalized: boolean;
+  /** True when specSlug was altered from the input form. */
+  specNormalized: boolean;
+};
+
+/**
+ * Domain-safe identity seam for catalog lookups from persisted digests / providers.
+ * Does not mutate source records — returns a canonical view.
+ */
+export function canonicalizeRetailClassSpecIdentity(input: {
+  classSlug?: string | null;
+  specSlug?: string | null;
+}): CanonicalRetailClassSpecIdentity {
+  const rawClass = input.classSlug ?? null;
+  const rawSpec = input.specSlug ?? null;
+  const classSlug = normalizeRetailClassSlug(rawClass);
+  const specSlug = normalizeRetailSpecSlug(classSlug ?? rawClass, rawSpec);
+  return {
+    classSlug,
+    specSlug,
+    classNormalized:
+      (rawClass?.trim().toLowerCase() ?? null) !== (classSlug ?? null),
+    specNormalized:
+      (rawSpec?.trim().toLowerCase() ?? null) !== (specSlug ?? null),
+  };
+}
+
 export interface RetailSpecIdentity {
   classSlug: string;
   specSlug: string;

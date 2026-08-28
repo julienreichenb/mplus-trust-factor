@@ -9,6 +9,19 @@ const props = defineProps<{
   entry: AdminAbilityEntry;
   /** When true, open the collapse (e.g. deep-link target). */
   open?: boolean;
+  pendingManualEdit?: {
+    canonicalKey: string;
+    draftRuleId: string;
+    version: number;
+    status: string;
+    name: string;
+  } | null;
+}>();
+
+defineEmits<{
+  edit: [];
+  editDraft: [];
+  discardEdit: [];
 }>();
 
 const detailsRef = ref<HTMLDetailsElement | null>(null);
@@ -120,6 +133,42 @@ watch(
     </summary>
 
     <div class="ability-body">
+      <div class="ability-actions" data-testid="ability-actions">
+        <span
+          v-if="pendingManualEdit"
+          class="badge badge-pending"
+          data-testid="pending-manual-edit"
+        >
+          Pending edit
+        </span>
+        <button
+          v-if="pendingManualEdit"
+          type="button"
+          class="btn-link"
+          data-testid="catalog-edit-draft"
+          @click.stop="$emit('editDraft')"
+        >
+          Edit draft
+        </button>
+        <button
+          v-if="pendingManualEdit"
+          type="button"
+          class="btn-link"
+          data-testid="catalog-discard-edit"
+          @click.stop="$emit('discardEdit')"
+        >
+          Discard edit
+        </button>
+        <button
+          v-else
+          type="button"
+          class="btn-link"
+          data-testid="catalog-rule-edit"
+          @click.stop="$emit('edit')"
+        >
+          Edit
+        </button>
+      </div>
       <div v-if="entry.badges.length" class="badges">
         <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{ badge }}</span>
       </div>
@@ -263,6 +312,42 @@ watch(
 .ability-body {
   padding: 0 0.65rem 0.65rem 2.85rem;
   min-width: 0;
+}
+
+.ability-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.badge-pending {
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+  color: var(--warn);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.btn-link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .badges {

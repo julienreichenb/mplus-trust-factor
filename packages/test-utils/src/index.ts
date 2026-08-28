@@ -1,3 +1,4 @@
+export * from "./ability-catalog-pin.js";
 export * from "./fixtures.js";
 export * from "./provider-schemas.js";
 export * from "./data-quality.js";

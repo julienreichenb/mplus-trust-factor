@@ -394,6 +394,14 @@ async function main() {
       if (seedCode !== 0) {
         throw new Error(`seed failed (exit ${seedCode})`);
       }
+      console.log("run-tests-isolated: activating Bootstrap ability catalog release for tests");
+      const bootstrapCode = await runCommand(
+        ["pnpm", "exec", "tsx", "apps/api/src/cli/seed-active-bootstrap.ts"],
+        childEnv,
+      );
+      if (bootstrapCode !== 0) {
+        throw new Error(`seed-active-bootstrap failed (exit ${bootstrapCode})`);
+      }
     }
 
     console.log(`run-tests-isolated: running ${command.join(" ")}`);

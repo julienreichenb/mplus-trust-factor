@@ -47,6 +47,15 @@ type DigestRow = {
   };
 };
 
+type CatalogIdentity = {
+  executionMode: string | null;
+  releaseKey: string | null;
+  contentDigest: string | null;
+  contentDigestShort: string | null;
+  releaseId: string | null;
+  versionId: string | null;
+};
+
 type CharacterScoreRow = {
   id: string;
   seasonSlug: string | null;
@@ -62,6 +71,7 @@ type CharacterScoreRow = {
   selectedRuns: unknown;
   calculatedAt: string;
   scoreExplainabilityAudit?: ScoreExplainabilityV1 | null;
+  catalog?: CatalogIdentity | null;
 };
 
 type SnapshotRow = {
@@ -79,6 +89,7 @@ type SnapshotRow = {
   calculatedAt: string;
   publishedAt: string | null;
   explanation: unknown;
+  catalog?: CatalogIdentity | null;
 };
 
 type DetailResponse = {
@@ -193,6 +204,22 @@ function toggleScoreSort(key: typeof scoreSortKey.value): void {
 
 function toggleSnapshotSort(key: typeof snapshotSortKey.value): void {
   toggleSort(snapshotSortKey, snapshotSortDir, key);
+}
+
+function formatCatalogLine(catalog: CatalogIdentity | null | undefined): string {
+  if (!catalog) return "Catalog: (not persisted)";
+  if (catalog.releaseKey) {
+    const digest = catalog.contentDigestShort ?? catalog.contentDigest?.slice(0, 12) ?? "—";
+    const id = catalog.releaseId ? ` · ${catalog.releaseId}` : "";
+    return `Catalog: ${catalog.releaseKey} · ${digest}${id}`;
+  }
+  if (catalog.versionId) {
+    return `Catalog: STATIC ${catalog.versionId}`;
+  }
+  if (catalog.executionMode) {
+    return `Catalog: ${catalog.executionMode} (no release key)`;
+  }
+  return "Catalog: (not persisted)";
 }
 
 const filteredDigests = computed(() => {
@@ -646,6 +673,7 @@ const currentGrade = computed((): Grade | null => {
                 </tr>
                 <tr v-if="expandedScoreId === row.id" class="detail-row">
                   <td colspan="7">
+                    <p class="catalog-line" data-testid="score-catalog">{{ formatCatalogLine(row.catalog) }}</p>
                     <ScoreExplainabilityAuditPanel
                       :explainability="row.scoreExplainabilityAudit ?? null"
                     />
@@ -723,6 +751,7 @@ const currentGrade = computed((): Grade | null => {
                 </tr>
                 <tr v-if="expandedSnapshotId === row.id" class="detail-row">
                   <td colspan="7">
+                    <p class="catalog-line" data-testid="snapshot-catalog">{{ formatCatalogLine(row.catalog) }}</p>
                     <p v-if="row.rejectionReason" class="error">Rejection: {{ row.rejectionReason }}</p>
                     <pre>{{ pretty(row.explanation) }}</pre>
                   </td>
@@ -822,6 +851,11 @@ const currentGrade = computed((): Grade | null => {
 }
 .error {
   color: var(--color-danger, #c44);
+}
+.catalog-line {
+  margin: 0 0 var(--space-2);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
 }
 .panel {
   display: grid;

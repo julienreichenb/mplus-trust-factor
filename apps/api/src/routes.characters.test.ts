@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { normalizeName } from "@mplus/domain";
@@ -6,12 +6,18 @@ import type { PrismaClient } from "@mplus/database";
 import {
   clearSeasonAuthorityCacheForTests,
   resolveActiveRefreshContract,
+  resolveEnqueueAbilityCatalogExecutionPin,
   seedRefreshEligibilityEvidenceForTest,
   synchronizeSeasonAuthority,
 } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
+import {
+  buildTestEnv,
+  createTestPrismaClient,
+  ensureActiveBootstrapCatalogReleaseForTests,
+  uniqueName,
+} from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 
@@ -26,8 +32,13 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   let verifiedContractHash: string;
   let verifiedSeasonId: number;
 
+  beforeEach(async () => {
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
+  });
+
   beforeAll(async () => {
     clearSeasonAuthorityCacheForTests();
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
     const env = buildTestEnv();
     // `skipQueues: true` runs the refresh pipeline inline (no Redis/BullMQ worker required) so
     // `inject()` tests can observe a persisted score synchronously.
@@ -48,12 +59,16 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
         { forceRefresh: true },
       );
       verifiedSeasonId = authority.blizzardSeasonId;
+      const catalogPin = await resolveEnqueueAbilityCatalogExecutionPin({
+        prisma: container.worker.prisma,
+      });
       verifiedContractHash = resolveActiveRefreshContract({
         scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
         scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
         activeSeasonId: authority.slug,
         providerMode: env.PROVIDER_MODE,
         env: process.env,
+        abilityCatalogExecutionPin: catalogPin,
       }).hash;
     }
   });

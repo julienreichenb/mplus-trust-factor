@@ -5,6 +5,7 @@ import {
   hashRefreshContract,
   type RefreshContractVersions,
 } from "@mplus/contracts";
+import { TEST_STATIC_ABILITY_CATALOG_PIN } from "@mplus/test-utils";
 import { buildRefreshContract } from "./orchestration/build-refresh-contract.js";
 import { fingerprintObservations } from "./orchestration/fingerprint.js";
 import { refreshCharacterDedupeKey } from "./dedupe.js";
@@ -20,7 +21,7 @@ const baseContract: RefreshContractVersions = buildRefreshContract({
   blizzardAdapterVersion: "blizzard-wow-profile-2026-07",
   raiderIoAdapterVersion: "0.62.5",
   runSelectionVersion: RUN_SELECTION_VERSION,
-  abilityCatalogVersion: "12.0.0/midnight-season-1",
+  abilityCatalogExecutionPin: TEST_STATIC_ABILITY_CATALOG_PIN,
   mechanicCatalogVersion: "0.1.0-seed",
 });
 
