@@ -35,11 +35,6 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === "string" && v.trim() !== "");
-}
-
 function parseCandidateBindings(value: unknown): DraftBinding[] {
   if (!Array.isArray(value)) return [];
   const out: DraftBinding[] = [];

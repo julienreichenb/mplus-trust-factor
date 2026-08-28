@@ -113,7 +113,7 @@ console.log(
     2,
   ),
 );
-const afterFirst = await summarize("after-first-refresh");
+await summarize("after-first-refresh");
 
 const second = await orch.runRefresh(audit);
 console.log(

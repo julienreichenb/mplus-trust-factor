@@ -1003,13 +1003,6 @@ async function selectItem(id: string, opts: { openMobile?: boolean } = {}) {
   }
 }
 
-async function navigate(offset: number) {
-  const idx = selectedIndex.value;
-  if (idx < 0) return;
-  const next = items.value[idx + offset];
-  if (next) await selectItem(next.id);
-}
-
 async function navigateNextPending() {
   const idx = selectedIndex.value;
   const next = items.value.find((item, i) => i > idx && item.decisionAction == null);
