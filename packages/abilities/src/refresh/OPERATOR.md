@@ -8,6 +8,8 @@ Retail Live only. The extractor always passes `ptr=0` and refuses a binary that 
 2. The binary is interrogated at extract time for application version, git revision, WoW build, and LIVE/PTR mode. Short banner hashes are stored honestly as `PREFIX` unless an optional expected full SHA proves expansion.
 3. Extract SpellQuery XML for cooldown-bearing class/spec/race spells (`cooldown>=1000ms` or `charge_cooldown>=1000ms`, then normalized in-extractor). The extractor first interrogates the binary (`ptr=0` SpellQuery probe) and **fails closed** if the banner is PTR, data mode is unreported, or the git revision is unreported. Optional `--expected-simc-revision` is a CI assertion only:
 
+   **Category cooldown audit (SimC 1210-01 / `a060a35`, Live):** `category_cooldown>=1000` adds zero spells beyond the current query for `class_spell`, `spec_spell`, and `race_spell` (subtraction sets empty). SpellQuery XML does not emit `category_cooldown` attributes (e.g. Power Word: Shield id=17 shows category cooldown in text output only). No extractor change required unless a future SimC build exposes category-only rows in XML.
+
 ```
 pnpm ability-catalog:simc:extract -- --simc-bin C:\path\to\simc.exe --out packages/abilities/generated/refresh/simc-live.json
 ```
