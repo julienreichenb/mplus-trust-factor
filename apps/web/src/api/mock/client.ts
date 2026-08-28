@@ -753,6 +753,18 @@ export function createMockApiClient(): MplusApiClient {
       return { state: "IDLE" };
     },
 
+    async getAbilityCatalogPublishStatus(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { status: "NO_CHANGES", pending: { hasPublishableChanges: false } };
+    },
+
+    async publishAbilityCatalogChanges(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client cannot publish ability catalog");
+    },
+
     async refreshAbilityCatalog(signal) {
       await delay(20);
       assertNotAborted(signal);

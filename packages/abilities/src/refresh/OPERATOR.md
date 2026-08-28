@@ -77,6 +77,16 @@ pnpm ability-catalog:refresh:shadow -- --blizzard … --simc … --previous-simc
 
 Admin-only. Prefer this CLI over ad-hoc SQL. Do not expose raw snapshot payloads on public APIs.
 
+## Product workflow (admin UI)
+
+Normal operator flow:
+
+1. **Sync sources** — dev/prod SimC execution is outside this UI (see Agent 06). The Catalog page shows last sync metadata; local dev may use **Dev refresh**.
+2. **Classify** — on the Catalog page, use **Needs classification** for new cooldowns (Include / Exclude / Defer with category + availability).
+3. **Publish** — click **Publish changes** on the Catalog page. The backend compiles, validates, replays, and atomically activates in one operation.
+
+Emergency rollback remains on the **History** tab. Low-level release/replay CLI commands below are **DEBUG / RECOVERY**, not required product steps.
+
 ## Phase 3B.1 — Bootstrap Release 0 (compile + parity only)
 
 Compile the current static production catalog into an immutable Bootstrap Release 0 candidate, validate it, and prove semantic parity vs `RETAIL_ABILITY_CATALOG`.

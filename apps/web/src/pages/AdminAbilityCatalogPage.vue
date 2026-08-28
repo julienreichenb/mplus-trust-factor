@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
 import { useRoute, useRouter } from "vue-router";
 import { DRAFT_ABILITY_CATEGORIES, type AdminAbilityEntry } from "@mplus/abilities";
 import { api } from "../api/client";
@@ -13,6 +12,9 @@ import type { IconSelectOption } from "../components/ability-catalog/IconSelect.
 import ValidationIssuesPanel from "../components/ability-catalog/ValidationIssuesPanel.vue";
 import AbilityCard from "../components/ability-catalog/AbilityCard.vue";
 import AbilityCatalogManualEditModal from "../components/ability-catalog/AbilityCatalogManualEditModal.vue";
+import AbilityCatalogPublishBar from "../components/ability-catalog/AbilityCatalogPublishBar.vue";
+import AbilityCatalogClassificationPanel from "../components/ability-catalog/AbilityCatalogClassificationPanel.vue";
+import AbilityCatalogExcludedPanel from "../components/ability-catalog/AbilityCatalogExcludedPanel.vue";
 import WowIcon from "../components/ability-catalog/WowIcon.vue";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../integrations/wowhead/tooltips";
 import { classIconName, filterOptionIconName, specIconName } from "../lib/wowIcons";
@@ -96,6 +98,12 @@ const expandedShared = ref<Set<string>>(new Set());
 const manualEdits = ref<ManualCatalogEditSummary[]>([]);
 const manualEditOpen = ref(false);
 const manualEditCanonicalKey = ref("");
+const publishBarRef = ref<{ reload: () => Promise<void> } | null>(null);
+const classifyPanelRef = ref<{ reload: () => Promise<void> } | null>(null);
+const excludedPanelRef = ref<{ reload: () => Promise<void> } | null>(null);
+
+type CatalogSection = "included" | "classify" | "excluded";
+const activeSection = ref<CatalogSection>("included");
 
 const manualEditsByKey = computed(() => {
   const map: Record<string, ManualCatalogEditSummary> = {};
@@ -130,7 +138,7 @@ async function discardManualEdit(canonicalKey: string): Promise<void> {
 async function excludeFromMplus(canonicalKey: string): Promise<void> {
   if (
     !window.confirm(
-      "Exclude this ability from M+ Trust Factor scoring? It will be omitted from the next published catalog release.",
+      "Exclude this ability from M+ Trust Factor? It stays in the active catalog until you publish changes.",
     )
   ) {
     return;
@@ -138,13 +146,34 @@ async function excludeFromMplus(canonicalKey: string): Promise<void> {
   try {
     await api.createAbilityCatalogExclusion({ canonicalKey });
     error.value = null;
+    await onCatalogChanged();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Failed to exclude ability";
   }
 }
 
 async function onManualEditSaved(): Promise<void> {
-  await loadManualEdits();
+  await onCatalogChanged();
+}
+
+async function onCatalogChanged(): Promise<void> {
+  await Promise.all([
+    loadManualEdits(),
+    loadCatalog(),
+    loadWorkflow(),
+    publishBarRef.value?.reload(),
+    classifyPanelRef.value?.reload(),
+    excludedPanelRef.value?.reload(),
+  ]);
+}
+
+function setSection(section: CatalogSection): void {
+  activeSection.value = section;
+  void router.replace({
+    name: "admin-ability-catalog",
+    params: { tab: "catalog" },
+    query: { ...route.query, section },
+  });
 }
 
 const route = useRoute();
@@ -162,6 +191,10 @@ function readQueryParam(key: string): string {
 }
 
 function applyRouteQuery(): void {
+  const section = readQueryParam("section");
+  if (section === "classify" || section === "excluded" || section === "included") {
+    activeSection.value = section;
+  }
   searchInput.value = readQueryParam("query");
   debouncedQuery.value = searchInput.value;
   classSlug.value = readQueryParam("classSlug");
@@ -481,85 +514,91 @@ onMounted(() => {
     <header v-if="!props.embedded" class="catalog-page__header">
       <h1>Ability catalog</h1>
       <p class="muted">
-        Catalog control center — active release, refresh, review, and activation. New analyses always
-        pin the ACTIVE immutable release.
+        Classify new cooldowns, edit business metadata, and publish catalog changes. Scoring always
+        uses the ACTIVE immutable release until publication succeeds.
       </p>
     </header>
+
+    <AbilityCatalogPublishBar ref="publishBarRef" @published="onCatalogChanged" />
 
     <StatusBanner v-if="workflowError" tone="error">{{ workflowError }}</StatusBanner>
     <StatusBanner v-if="workflowNotice" tone="info">{{ workflowNotice }}</StatusBanner>
     <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
 
-    <section v-if="!workflowLoading" class="workflow-panel" data-testid="catalog-workflow">
+    <section v-if="!workflowLoading" class="workflow-panel workflow-panel--compact" data-testid="catalog-workflow">
       <div class="workflow-header">
-        <strong>State: {{ workflowState }}</strong>
-        <button type="button" class="btn" :disabled="refreshBusy" @click="refreshCatalog">
-          {{ refreshBusy ? "Refreshing…" : "Refresh catalog" }}
-        </button>
-      </div>
-      <div class="workflow-grid">
         <div>
-          <h2>Active catalog</h2>
-          <p v-if="workflowActive">
-            <code>{{ workflowActive.releaseKey }}</code>
-            <span class="muted"> · build {{ workflowActive.wowBuild ?? "—" }}</span><br />
-            <span class="muted">digest {{ workflowActive.contentDigestShort }} · {{ workflowActive.ruleCount }} rules</span>
-          </p>
-          <p v-else class="muted">No ACTIVE release — activate Bootstrap before running analyses.</p>
-        </div>
-        <div>
-          <h2>Refresh</h2>
-          <p class="muted">
-            SimC {{ workflowRefresh?.simcApplicationVersion ?? "—" }} · rev
+          <strong>Source sync</strong>
+          <p class="muted workflow-sync-line">
+            Last sync
+            {{ workflowRefresh?.lastBatchCreatedAt ? String(workflowRefresh.lastBatchCreatedAt) : "—" }}
+            · SimC
             {{
               typeof workflowRefresh?.simcRevision === "string"
                 ? String(workflowRefresh.simcRevision).slice(0, 12)
                 : "—"
             }}
-            <span v-if="workflowRefresh?.simcRevisionPrecision" class="muted">
-              ({{ workflowRefresh.simcRevisionPrecision }})
-            </span>
-            · build {{ workflowRefresh?.wowBuild ?? "—" }} ·
-            {{ workflowRefresh?.simcDataMode ?? "—" }} · changes
-            {{ workflowRefresh?.changesDetected ?? 0 }} · pending
-            {{ workflowRefresh?.pendingReviewCount ?? 0 }}
+            · build {{ workflowRefresh?.wowBuild ?? "—" }}
+          </p>
+          <p class="muted workflow-sync-note">
+            Dev/prod SimC execution is handled outside this UI (Agent 06). Local refresh remains
+            available for development only.
           </p>
         </div>
-        <div>
-          <h2>Review</h2>
-          <p>
-            <RouterLink
-              :to="
-                typeof workflowReview?.reviewUrl === 'string'
-                  ? workflowReview.reviewUrl
-                  : { name: 'admin-ability-catalog', params: { tab: 'review' } }
-              "
-            >
-              Open review queue
-            </RouterLink>
-            <span class="muted"> · pending {{ workflowReview?.pendingItems ?? 0 }}</span>
-          </p>
-        </div>
-        <div>
-          <h2>Release</h2>
-          <p v-if="workflowRelease?.candidateReleaseKey">
-            Candidate <code>{{ workflowRelease.candidateReleaseKey }}</code>
-            <span class="muted">
-              · validation {{ workflowRelease.validationStatus ?? "—" }} · replay
-              {{ workflowRelease.replayStatus ?? "—" }}
-            </span>
-          </p>
-          <p v-else class="muted">No validated candidate ready.</p>
-          <p v-if="workflowRelease?.canActivate">
-            <RouterLink :to="{ name: 'admin-ability-catalog', params: { tab: 'releases' } }">
-              Activate catalog →
-            </RouterLink>
-          </p>
-        </div>
+        <button
+          type="button"
+          class="btn secondary"
+          :disabled="refreshBusy"
+          data-testid="catalog-dev-refresh"
+          @click="refreshCatalog"
+        >
+          {{ refreshBusy ? "Refreshing…" : "Dev refresh" }}
+        </button>
       </div>
     </section>
 
-    <h2 class="explorer-heading">Catalog explorer</h2>
+    <nav class="section-nav" aria-label="Catalog sections">
+      <button
+        type="button"
+        class="section-nav__btn"
+        :class="{ 'section-nav__btn--active': activeSection === 'included' }"
+        data-testid="section-included"
+        @click="setSection('included')"
+      >
+        Included
+      </button>
+      <button
+        type="button"
+        class="section-nav__btn"
+        :class="{ 'section-nav__btn--active': activeSection === 'classify' }"
+        data-testid="section-classify"
+        @click="setSection('classify')"
+      >
+        Needs classification
+      </button>
+      <button
+        type="button"
+        class="section-nav__btn"
+        :class="{ 'section-nav__btn--active': activeSection === 'excluded' }"
+        data-testid="section-excluded"
+        @click="setSection('excluded')"
+      >
+        Excluded
+      </button>
+    </nav>
+
+    <section v-if="activeSection === 'classify'" class="section-panel">
+      <h2>Needs classification</h2>
+      <AbilityCatalogClassificationPanel ref="classifyPanelRef" @changed="onCatalogChanged" />
+    </section>
+
+    <section v-else-if="activeSection === 'excluded'" class="section-panel">
+      <h2>Excluded from M+</h2>
+      <AbilityCatalogExcludedPanel ref="excludedPanelRef" @changed="onCatalogChanged" />
+    </section>
+
+    <template v-else>
+    <h2 class="explorer-heading">Included abilities</h2>
 
     <ValidationIssuesPanel
       v-if="catalog && catalog.validationSummary.issues.length"
@@ -784,6 +823,7 @@ onMounted(() => {
         </button>
       </nav>
     </div>
+    </template>
 
     <AbilityCatalogManualEditModal
       :open="manualEditOpen"
@@ -795,6 +835,45 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.workflow-panel--compact {
+  padding: 0.75rem 1rem;
+}
+
+.workflow-sync-line,
+.workflow-sync-note {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+}
+
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.section-nav__btn {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.section-nav__btn--active {
+  color: var(--color-text);
+  border-color: var(--color-accent, var(--accent));
+}
+
+.section-panel h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+}
+
 .muted {
   color: var(--muted);
 }

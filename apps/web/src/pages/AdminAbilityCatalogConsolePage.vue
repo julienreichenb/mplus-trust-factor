@@ -3,32 +3,29 @@ import { computed, defineAsyncComponent, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 const AdminAbilityCatalogPage = defineAsyncComponent(() => import("./AdminAbilityCatalogPage.vue"));
-const AdminAbilityCatalogReviewPage = defineAsyncComponent(
-  () => import("./AdminAbilityCatalogReviewPage.vue"),
-);
 const AdminAbilityCatalogReleasesPage = defineAsyncComponent(
   () => import("./AdminAbilityCatalogReleasesPage.vue"),
 );
 
-type AbilityCatalogTab = "catalog" | "review" | "releases";
+type AbilityCatalogTab = "catalog" | "history";
 
 const route = useRoute();
 const router = useRouter();
 
 const TABS: { id: AbilityCatalogTab; label: string }[] = [
   { id: "catalog", label: "Catalog" },
-  { id: "review", label: "Review" },
-  { id: "releases", label: "Releases" },
+  { id: "history", label: "History" },
 ];
 
 const activeTab = computed<AbilityCatalogTab>(() => {
   const raw = String(route.params.tab ?? "catalog").toLowerCase();
-  if (raw === "review" || raw === "releases" || raw === "catalog") return raw;
+  if (raw === "history" || raw === "releases") return "history";
+  if (raw === "review") return "catalog";
   return "catalog";
 });
 
 function selectTab(tab: AbilityCatalogTab): void {
-  if (tab === activeTab.value) return;
+  if (tab === activeTab.value && route.params.tab !== "review") return;
   void router.push({
     name: "admin-ability-catalog",
     params: { tab },
@@ -45,6 +42,21 @@ watch(
         params: { tab: "catalog" },
         query: route.query,
       });
+      return;
+    }
+    if (tab === "review") {
+      void router.replace({
+        name: "admin-ability-catalog",
+        params: { tab: "catalog" },
+        query: { ...route.query, section: "classify" },
+      });
+    }
+    if (tab === "releases") {
+      void router.replace({
+        name: "admin-ability-catalog",
+        params: { tab: "history" },
+        query: {},
+      });
     }
   },
   { immediate: true },
@@ -56,7 +68,7 @@ watch(
     <header class="ability-catalog-console__header">
       <h1>Ability catalog</h1>
       <p class="muted">
-        Catalog control center — explorer, review queue, and release activation. New analyses always
+        Classify cooldowns, edit business metadata, and publish catalog changes. New analyses always
         pin the ACTIVE immutable release.
       </p>
     </header>
@@ -77,7 +89,6 @@ watch(
 
     <div class="ability-catalog-console__panel" :data-tab="activeTab">
       <AdminAbilityCatalogPage v-if="activeTab === 'catalog'" embedded />
-      <AdminAbilityCatalogReviewPage v-else-if="activeTab === 'review'" embedded />
       <AdminAbilityCatalogReleasesPage v-else embedded />
     </div>
   </section>

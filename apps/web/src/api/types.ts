@@ -340,6 +340,20 @@ export interface MplusApiClient {
     notice?: string;
   }>;
   getAbilityCatalogWorkflow(signal?: AbortSignal): Promise<Record<string, unknown>>;
+  getAbilityCatalogPublishStatus(signal?: AbortSignal): Promise<Record<string, unknown>>;
+  publishAbilityCatalogChanges(
+    body?: { expectedPreviousActiveId?: string | null; notes?: string },
+    signal?: AbortSignal,
+  ): Promise<{
+    success: boolean;
+    stage: string;
+    message: string;
+    previousActive?: { id: string; releaseKey: string; contentDigest: string } | null;
+    newActive?: { id: string; releaseKey: string; contentDigest: string; activatedAt: string } | null;
+    candidateRelease?: { id: string; releaseKey: string; validationStatus: string | null } | null;
+    replay?: { id: string; status: string } | null;
+    errors?: string[];
+  }>;
   refreshAbilityCatalog(signal?: AbortSignal): Promise<Record<string, unknown>>;
   activateAbilityCatalogRelease(
     releaseId: string,

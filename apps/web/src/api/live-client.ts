@@ -337,6 +337,21 @@ export function createLiveApiClient(options: {
     getAbilityCatalogWorkflow: (signal) =>
       get<Record<string, unknown>>("/api/v1/admin/ability-catalog/workflow", signal),
 
+    getAbilityCatalogPublishStatus: (signal) =>
+      get<Record<string, unknown>>("/api/v1/admin/ability-catalog/publish-status", signal),
+
+    publishAbilityCatalogChanges: (body, signal) =>
+      send<{
+        success: boolean;
+        stage: string;
+        message: string;
+        previousActive?: { id: string; releaseKey: string; contentDigest: string } | null;
+        newActive?: { id: string; releaseKey: string; contentDigest: string; activatedAt: string } | null;
+        candidateRelease?: { id: string; releaseKey: string; validationStatus: string | null } | null;
+        replay?: { id: string; status: string } | null;
+        errors?: string[];
+      }>("POST", "/api/v1/admin/ability-catalog/publish", body ?? {}, signal),
+
     refreshAbilityCatalog: (signal) =>
       send<Record<string, unknown>>("POST", "/api/v1/admin/ability-catalog/refresh", {}, signal),
 

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { AbilityCatalogWorkflowService } from "../services/ability-catalog-workflow-service.js";
+import { AbilityCatalogPublishService } from "../services/ability-catalog-publish-service.js";
 import {
   AbilityCatalogRefreshOrchestrationService,
 } from "../services/ability-catalog-refresh-orchestration-service.js";
@@ -31,6 +32,7 @@ function auditCtx(
 export function buildAdminAbilityCatalogWorkflowRoutes(container: ApiContainer): FastifyPluginAsync {
   const env = container.env;
   const workflow = new AbilityCatalogWorkflowService(container.worker.prisma);
+  const publish = new AbilityCatalogPublishService(container.worker.prisma);
 
   return async (app) => {
     await app.register(async (readApp) => {
@@ -60,6 +62,62 @@ export function buildAdminAbilityCatalogWorkflowRoutes(container: ApiContainer):
           },
         },
         async () => workflow.getStatus(false),
+      );
+
+      readApp.get(
+        "/api/v1/admin/ability-catalog/publish-status",
+        {
+          schema: {
+            tags: ["admin"],
+            response: {
+              200: { type: "object", additionalProperties: true },
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async () => publish.getPublishStatus(),
+      );
+    });
+
+    await app.register(async (publishApp) => {
+      publishApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_ABILITY_CATALOG_PUBLISH, {
+          auditAction: "admin.ability_catalog.publish",
+          allowEmergencyAdminKey: true,
+        }),
+      );
+
+      publishApp.post(
+        "/api/v1/admin/ability-catalog/publish",
+        {
+          schema: {
+            tags: ["admin"],
+            body: { type: "object", additionalProperties: true },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+              409: errorResponseSchema,
+            },
+          },
+        },
+        async (request) =>
+          publish.publishChanges(
+            {
+              userId: request.auth?.user?.id ?? null,
+              actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+              ip: request.ip ?? null,
+              userAgent:
+                typeof request.headers["user-agent"] === "string"
+                  ? request.headers["user-agent"]
+                  : null,
+              sessionSecret: env.SESSION_SECRET,
+            },
+            (request.body ?? {}) as never,
+          ),
       );
     });
 
@@ -97,7 +155,7 @@ export function buildAdminAbilityCatalogWorkflowRoutes(container: ApiContainer):
             ...result,
             workflow: status,
             notice:
-              "Refresh imported review batch. ACTIVE release unchanged until explicit activation.",
+              "Refresh imported review batch. Use Classify and Publish to apply business changes.",
           };
         },
       );

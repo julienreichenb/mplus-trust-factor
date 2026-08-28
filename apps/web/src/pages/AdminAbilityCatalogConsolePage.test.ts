@@ -10,11 +10,6 @@ const StubCatalog = defineComponent({
   props: { embedded: { type: Boolean, default: false } },
   setup: () => () => h("div", { "data-testid": "ability-catalog-page" }),
 });
-const StubReview = defineComponent({
-  name: "AdminAbilityCatalogReviewPage",
-  props: { embedded: { type: Boolean, default: false } },
-  setup: () => () => h("div", { "data-testid": "ability-catalog-review-page" }),
-});
 const StubReleases = defineComponent({
   name: "AdminAbilityCatalogReleasesPage",
   props: { embedded: { type: Boolean, default: false } },
@@ -33,7 +28,6 @@ async function mountConsole(path: string) {
       plugins: [router],
       stubs: {
         AdminAbilityCatalogPage: StubCatalog,
-        AdminAbilityCatalogReviewPage: StubReview,
         AdminAbilityCatalogReleasesPage: StubReleases,
       },
     },
@@ -43,27 +37,26 @@ async function mountConsole(path: string) {
 }
 
 describe("AdminAbilityCatalogConsolePage", () => {
-  it("renders Catalog/Review/Releases tabs and defaults to catalog", async () => {
+  it("renders Catalog/History tabs and defaults to catalog", async () => {
     const { wrapper, router } = await mountConsole("/admin/ability-catalog");
     expect(wrapper.find("[data-testid='admin-ability-catalog-console']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='tab-catalog']").classes()).toContain("tab--active");
-    expect(wrapper.find("[data-testid='tab-review']").exists()).toBe(true);
-    expect(wrapper.find("[data-testid='tab-releases']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='tab-history']").exists()).toBe(true);
     expect(router.currentRoute.value.params.tab).toBe("catalog");
     expect(wrapper.find("[data-testid='ability-catalog-page']").exists()).toBe(true);
   });
 
-  it("opens review tab from /admin/ability-catalog/review", async () => {
-    const { wrapper } = await mountConsole("/admin/ability-catalog/review");
-    expect(wrapper.find("[data-testid='tab-review']").classes()).toContain("tab--active");
-    expect(wrapper.find("[data-testid='ability-catalog-review-page']").exists()).toBe(true);
+  it("redirects legacy review route to catalog classify section", async () => {
+    const { router } = await mountConsole("/admin/ability-catalog/review");
+    expect(router.currentRoute.value.params.tab).toBe("catalog");
+    expect(router.currentRoute.value.query.section).toBe("classify");
   });
 
-  it("switches to releases via tab click", async () => {
+  it("switches to history via tab click", async () => {
     const { wrapper, router } = await mountConsole("/admin/ability-catalog/catalog");
-    await wrapper.find("[data-testid='tab-releases']").trigger("click");
+    await wrapper.find("[data-testid='tab-history']").trigger("click");
     await flushPromises();
-    expect(router.currentRoute.value.params.tab).toBe("releases");
+    expect(router.currentRoute.value.params.tab).toBe("history");
     expect(wrapper.find("[data-testid='ability-catalog-releases-page']").exists()).toBe(true);
   });
 });
