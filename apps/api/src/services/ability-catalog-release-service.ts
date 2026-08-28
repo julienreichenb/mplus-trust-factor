@@ -315,12 +315,31 @@ export class AbilityCatalogReleaseService {
     const loaded = await this.loadReleaseArtifact(input.baseReleaseId);
     const baseArtifact = loaded.artifact;
 
+    const hasExplicitSelection =
+      input.includedDraftRuleIds !== undefined ||
+      input.includedDraftTopologyIds !== undefined ||
+      input.includedRemovalItemIds !== undefined;
+
     const resolvedInput: CreateReleaseCandidateInput = {
       ...input,
       includedDraftRuleIds:
         input.includedDraftRuleIds !== undefined
           ? input.includedDraftRuleIds
-          : await this.listReadyDraftRuleRefs(),
+          : hasExplicitSelection
+            ? []
+            : await this.listReadyDraftRuleRefs(),
+      includedDraftTopologyIds:
+        input.includedDraftTopologyIds !== undefined
+          ? input.includedDraftTopologyIds
+          : hasExplicitSelection
+            ? []
+            : [],
+      includedRemovalItemIds:
+        input.includedRemovalItemIds !== undefined
+          ? input.includedRemovalItemIds
+          : hasExplicitSelection
+            ? []
+            : [],
     };
 
     const { changes, curationEntries, curatedChangeIds } = await this.buildExplicitChanges(

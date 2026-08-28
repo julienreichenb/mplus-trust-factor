@@ -368,13 +368,21 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     expect(archived.length).toBeGreaterThanOrEqual(1);
     expect(state.json().published.id).toBe(published2.json().revision.id);
 
-    const audits = await prisma.auditEvent.findMany({
-      where: { action: { startsWith: "admin.score_context." } },
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    const importAudit = await prisma.auditEvent.findFirst({
+      where: {
+        action: "admin.score_context.distribution.import",
+        resourceId: distId!,
+      },
     });
-    expect(audits.some((a) => a.action === "admin.score_context.publish")).toBe(true);
-    expect(audits.some((a) => a.action === "admin.score_context.distribution.import")).toBe(true);
+    expect(importAudit).toBeTruthy();
+
+    const publishAudit = await prisma.auditEvent.findFirst({
+      where: {
+        action: "admin.score_context.publish",
+        resourceId: published2.json().revision.id,
+      },
+    });
+    expect(publishAudit).toBeTruthy();
   });
 
   it("surfaces enqueue failure as retryable without mutating the published revision", async () => {

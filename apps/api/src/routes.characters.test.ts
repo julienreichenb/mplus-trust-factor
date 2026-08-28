@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { normalizeName } from "@mplus/domain";
 import type { PrismaClient } from "@mplus/database";
+import type { AppEnv } from "@mplus/config";
 import {
   clearSeasonAuthorityCacheForTests,
   resolveActiveRefreshContract,
@@ -16,7 +17,9 @@ import {
   buildTestEnv,
   createTestPrismaClient,
   ensureActiveBootstrapCatalogReleaseForTests,
+  ensureActiveBootstrapCatalogReleaseUnlocked,
   uniqueName,
+  withCatalogActiveTestLock,
 } from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
@@ -29,26 +32,69 @@ afterAll(async () => {
 describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
+  let testEnv: AppEnv;
   let verifiedContractHash: string;
   let verifiedSeasonId: number;
 
+  /** Re-resolve after parallel suites may have flipped ACTIVE catalog releases. */
+  async function syncVerifiedContractRef(): Promise<void> {
+    const region = await prisma.region.findFirst({ where: { code: "EU" } });
+    if (!region) return;
+    const authority = await synchronizeSeasonAuthority(
+      {
+        prisma: container.worker.prisma,
+        blizzard: container.worker.providers.blizzard,
+        logger: container.logger,
+      },
+      "EU",
+      region.id,
+      { forceRefresh: false },
+    );
+    verifiedSeasonId = authority.blizzardSeasonId;
+    const catalogPin = await resolveEnqueueAbilityCatalogExecutionPin({
+      prisma: container.worker.prisma,
+    });
+    verifiedContractHash = resolveActiveRefreshContract({
+      scoringModelKey: testEnv.ACTIVE_SCORE_MODEL_KEY,
+      scoringModelVersion: testEnv.ACTIVE_SCORE_MODEL_VERSION,
+      activeSeasonId: authority.slug,
+      providerMode: testEnv.PROVIDER_MODE,
+      env: process.env,
+      abilityCatalogExecutionPin: catalogPin,
+    }).hash;
+  }
+
+  /**
+   * Holds the cross-worker ACTIVE-catalog advisory lock while inline refresh runs so
+   * parallel ability-catalog tests cannot change the execution pin mid-pipeline.
+   */
+  async function withStableActiveCatalog<T>(fn: () => Promise<T>): Promise<T> {
+    return withCatalogActiveTestLock(prisma, async () => {
+      await ensureActiveBootstrapCatalogReleaseUnlocked(prisma);
+      await syncVerifiedContractRef();
+      return await fn();
+    });
+  }
+
   beforeEach(async () => {
     await ensureActiveBootstrapCatalogReleaseForTests(prisma);
+    container.responseCache.clear();
+    await syncVerifiedContractRef();
   });
 
   beforeAll(async () => {
     clearSeasonAuthorityCacheForTests();
     await ensureActiveBootstrapCatalogReleaseForTests(prisma);
-    const env = buildTestEnv();
+    testEnv = buildTestEnv();
     // `skipQueues: true` runs the refresh pipeline inline (no Redis/BullMQ worker required) so
     // `inject()` tests can observe a persisted score synchronously.
-    container = createApiContainer(env, { workerOverrides: { prisma: prisma as PrismaClient }, skipQueues: true });
-    app = await buildApp({ env, container });
+    container = createApiContainer(testEnv, { workerOverrides: { prisma: prisma as PrismaClient }, skipQueues: true });
+    app = await buildApp({ env: testEnv, container });
     await app.ready();
 
     const region = await prisma.region.findFirst({ where: { code: "EU" } });
     if (region) {
-      const authority = await synchronizeSeasonAuthority(
+      await synchronizeSeasonAuthority(
         {
           prisma: container.worker.prisma,
           blizzard: container.worker.providers.blizzard,
@@ -58,18 +104,7 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
         region.id,
         { forceRefresh: true },
       );
-      verifiedSeasonId = authority.blizzardSeasonId;
-      const catalogPin = await resolveEnqueueAbilityCatalogExecutionPin({
-        prisma: container.worker.prisma,
-      });
-      verifiedContractHash = resolveActiveRefreshContract({
-        scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
-        scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
-        activeSeasonId: authority.slug,
-        providerMode: env.PROVIDER_MODE,
-        env: process.env,
-        abilityCatalogExecutionPin: catalogPin,
-      }).hash;
+      await syncVerifiedContractRef();
     }
   });
 
@@ -87,23 +122,25 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    const first = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
-    expect(first.statusCode).toBe(202);
-    const firstBody = first.json();
-    expect(firstBody.refreshStatus).toBe("QUEUED");
-    expect(firstBody.score).toBeNull();
+    await withStableActiveCatalog(async () => {
+      const first = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+      expect(first.statusCode).toBe(202);
+      const firstBody = first.json();
+      expect(firstBody.refreshStatus).toBe("QUEUED");
+      expect(firstBody.score).toBeNull();
 
-    const second = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
-    expect(second.statusCode).toBe(200);
-    const secondBody = second.json();
-    expect(secondBody.refreshStatus).toBe("FRESH");
-    expect(secondBody.score).not.toBeNull();
-    expect(secondBody.score.overallScore).toBeGreaterThanOrEqual(0);
-    expect(secondBody.score.overallScore).toBeLessThanOrEqual(100);
+      const second = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+      expect(second.statusCode).toBe(200);
+      const secondBody = second.json();
+      expect(secondBody.refreshStatus).toBe("FRESH");
+      expect(secondBody.score).not.toBeNull();
+      expect(secondBody.score.overallScore).toBeGreaterThanOrEqual(0);
+      expect(secondBody.score.overallScore).toBeLessThanOrEqual(100);
 
-    // No secrets, tokens, or raw provider payloads should ever leak through the API.
-    const raw = JSON.stringify(secondBody);
-    expect(raw).not.toMatch(/clientSecret|client_secret|admin_api_key|session_secret/i);
+      // No secrets, tokens, or raw provider payloads should ever leak through the API.
+      const raw = JSON.stringify(secondBody);
+      expect(raw).not.toMatch(/clientSecret|client_secret|admin_api_key|session_secret/i);
+    });
   }, 30_000);
 
   it("marks a score past TTL as needing refresh and arms at most one job", async () => {
@@ -115,49 +152,51 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    await app.inject({ method: "GET", url: path });
-    const fresh = await app.inject({ method: "GET", url: path });
-    expect(fresh.statusCode).toBe(200);
-    expect(fresh.json().refreshStatus).toBe("FRESH");
-    expect(fresh.json().score).not.toBeNull();
+    await withStableActiveCatalog(async () => {
+      await app.inject({ method: "GET", url: path });
+      const fresh = await app.inject({ method: "GET", url: path });
+      expect(fresh.statusCode).toBe(200);
+      expect(fresh.json().refreshStatus).toBe("FRESH");
+      expect(fresh.json().score).not.toBeNull();
 
-    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
-    expect(character).not.toBeNull();
+      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      expect(character).not.toBeNull();
 
-    // Canonical score freshness is ScoreSnapshot.calculatedAt (not lastPublicRefreshAt).
-    const published = await prisma.characterPublishedScore.findFirst({
-      where: { characterId: character!.id },
-    });
-    expect(published).not.toBeNull();
-    const staleCalculatedAt = new Date(Date.now() - 8 * 86_400_000);
-    await prisma.scoreSnapshot.update({
-      where: { id: published!.publishedSnapshotId },
-      data: { calculatedAt: staleCalculatedAt },
-    });
-    // Keep lastPublicRefreshAt recent to prove it alone does not drive STALE.
-    await prisma.character.update({
-      where: { id: character!.id },
-      data: { lastPublicRefreshAt: new Date() },
-    });
-    container.responseCache.clear();
+      // Canonical score freshness is ScoreSnapshot.calculatedAt (not lastPublicRefreshAt).
+      const published = await prisma.characterPublishedScore.findFirst({
+        where: { characterId: character!.id },
+      });
+      expect(published).not.toBeNull();
+      const staleCalculatedAt = new Date(Date.now() - 8 * 86_400_000);
+      await prisma.scoreSnapshot.update({
+        where: { id: published!.publishedSnapshotId },
+        data: { calculatedAt: staleCalculatedAt },
+      });
+      // Keep lastPublicRefreshAt recent to prove it alone does not drive STALE.
+      await prisma.character.update({
+        where: { id: character!.id },
+        data: { lastPublicRefreshAt: new Date() },
+      });
+      container.responseCache.clear();
 
-    const jobsBefore = await prisma.ingestionJob.count({
-      where: { characterId: character!.id, jobType: "refresh-character" },
-    });
+      const jobsBefore = await prisma.ingestionJob.count({
+        where: { characterId: character!.id, jobType: "refresh-character" },
+      });
 
-    const response = await app.inject({ method: "GET", url: path });
-    expect(response.statusCode).toBe(200);
-    // Inline producers finish before the HTTP response; async queues would expose REFRESHING
-    // while the job is QUEUED/ACTIVE. Score must remain visible either way.
-    expect(["STALE", "REFRESHING", "FRESH"]).toContain(response.json().refreshStatus);
-    expect(response.json().score).not.toBeNull();
-    expect(response.json().score.overallScore).toBe(fresh.json().score.overallScore);
+      const response = await app.inject({ method: "GET", url: path });
+      expect(response.statusCode).toBe(200);
+      // Inline producers finish before the HTTP response; async queues would expose REFRESHING
+      // while the job is QUEUED/ACTIVE. Score must remain visible either way.
+      expect(["STALE", "REFRESHING", "FRESH"]).toContain(response.json().refreshStatus);
+      expect(response.json().score).not.toBeNull();
+      expect(response.json().score.overallScore).toBe(fresh.json().score.overallScore);
 
-    const jobsAfterStale = await prisma.ingestionJob.count({
-      where: { characterId: character!.id, jobType: "refresh-character" },
+      const jobsAfterStale = await prisma.ingestionJob.count({
+        where: { characterId: character!.id, jobType: "refresh-character" },
+      });
+      // Inline queue may complete immediately; at most one additional refresh arming.
+      expect(jobsAfterStale - jobsBefore).toBeLessThanOrEqual(1);
     });
-    // Inline queue may complete immediately; at most one additional refresh arming.
-    expect(jobsAfterStale - jobsBefore).toBeLessThanOrEqual(1);
   }, 30_000);
 
   it("does not mark STALE when only lastPublicRefreshAt is aged", async () => {
@@ -169,21 +208,23 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    await app.inject({ method: "GET", url: path });
-    await app.inject({ method: "GET", url: path });
+    await withStableActiveCatalog(async () => {
+      await app.inject({ method: "GET", url: path });
+      await app.inject({ method: "GET", url: path });
 
-    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
-    expect(character).not.toBeNull();
-    await prisma.character.update({
-      where: { id: character!.id },
-      data: { lastPublicRefreshAt: new Date(Date.now() - 999_999_999_999) },
+      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      expect(character).not.toBeNull();
+      await prisma.character.update({
+        where: { id: character!.id },
+        data: { lastPublicRefreshAt: new Date(Date.now() - 999_999_999_999) },
+      });
+      container.responseCache.clear();
+
+      const response = await app.inject({ method: "GET", url: path });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().refreshStatus).toBe("FRESH");
+      expect(response.json().score).not.toBeNull();
     });
-    container.responseCache.clear();
-
-    const response = await app.inject({ method: "GET", url: path });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().refreshStatus).toBe("FRESH");
-    expect(response.json().score).not.toBeNull();
   });
 
   it("reuses an active refresh job on repeated stale reads", async () => {
@@ -195,74 +236,76 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    await app.inject({ method: "GET", url: path });
-    await app.inject({ method: "GET", url: path });
+    await withStableActiveCatalog(async () => {
+      await app.inject({ method: "GET", url: path });
+      await app.inject({ method: "GET", url: path });
 
-    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
-    expect(character).not.toBeNull();
+      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      expect(character).not.toBeNull();
 
-    const published = await prisma.characterPublishedScore.findFirst({
-      where: { characterId: character!.id },
-    });
-    expect(published).not.toBeNull();
-    await prisma.scoreSnapshot.update({
-      where: { id: published!.publishedSnapshotId },
-      data: { calculatedAt: new Date(Date.now() - 8 * 86_400_000) },
-    });
+      const published = await prisma.characterPublishedScore.findFirst({
+        where: { characterId: character!.id },
+      });
+      expect(published).not.toBeNull();
+      await prisma.scoreSnapshot.update({
+        where: { id: published!.publishedSnapshotId },
+        data: { calculatedAt: new Date(Date.now() - 8 * 86_400_000) },
+      });
 
-    // Simulate an in-flight job so policy must REUSE_ACTIVE_JOB (no second enqueue).
-    await prisma.ingestionJob.updateMany({
-      where: { characterId: character!.id, jobType: "refresh-character" },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    });
-    const active = await prisma.ingestionJob.create({
-      data: {
-        jobType: "refresh-character",
-        status: "QUEUED",
-        characterId: character!.id,
-        dedupeKey: `test-reuse-${character!.id}`,
-        payload: {
-          region: "EU",
-          realmSlug: "tarren-mill",
-          name,
-          refreshContractHash: verifiedContractHash,
-          authoritativeSeasonId: verifiedSeasonId,
+      // Simulate an in-flight job so policy must REUSE_ACTIVE_JOB (no second enqueue).
+      await prisma.ingestionJob.updateMany({
+        where: { characterId: character!.id, jobType: "refresh-character" },
+        data: { status: "COMPLETED", completedAt: new Date() },
+      });
+      const active = await prisma.ingestionJob.create({
+        data: {
+          jobType: "refresh-character",
+          status: "QUEUED",
+          characterId: character!.id,
+          dedupeKey: `test-reuse-${character!.id}`,
+          payload: {
+            region: "EU",
+            realmSlug: "tarren-mill",
+            name,
+            refreshContractHash: verifiedContractHash,
+            authoritativeSeasonId: verifiedSeasonId,
+          },
+          priority: 0,
+          scheduledAt: new Date(),
         },
-        priority: 0,
-        scheduledAt: new Date(),
-      },
+      });
+      container.responseCache.clear();
+
+      const first = await app.inject({ method: "GET", url: path });
+      expect(first.statusCode).toBe(200);
+      expect(first.json().refreshStatus).toBe("REFRESHING");
+      expect(first.json().score).not.toBeNull();
+
+      const queuedCount = await prisma.ingestionJob.count({
+        where: {
+          characterId: character!.id,
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+      });
+      expect(queuedCount).toBe(1);
+
+      container.responseCache.clear();
+      const second = await app.inject({ method: "GET", url: path });
+      expect(second.statusCode).toBe(200);
+      expect(second.json().refreshStatus).toBe("REFRESHING");
+      expect(second.json().score).not.toBeNull();
+
+      const queuedAgain = await prisma.ingestionJob.count({
+        where: {
+          characterId: character!.id,
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+      });
+      expect(queuedAgain).toBe(1);
+      expect(active.id).toBeTruthy();
     });
-    container.responseCache.clear();
-
-    const first = await app.inject({ method: "GET", url: path });
-    expect(first.statusCode).toBe(200);
-    expect(first.json().refreshStatus).toBe("REFRESHING");
-    expect(first.json().score).not.toBeNull();
-
-    const queuedCount = await prisma.ingestionJob.count({
-      where: {
-        characterId: character!.id,
-        jobType: "refresh-character",
-        status: { in: ["QUEUED", "ACTIVE"] },
-      },
-    });
-    expect(queuedCount).toBe(1);
-
-    container.responseCache.clear();
-    const second = await app.inject({ method: "GET", url: path });
-    expect(second.statusCode).toBe(200);
-    expect(second.json().refreshStatus).toBe("REFRESHING");
-    expect(second.json().score).not.toBeNull();
-
-    const queuedAgain = await prisma.ingestionJob.count({
-      where: {
-        characterId: character!.id,
-        jobType: "refresh-character",
-        status: { in: ["QUEUED", "ACTIVE"] },
-      },
-    });
-    expect(queuedAgain).toBe(1);
-    expect(active.id).toBeTruthy();
   });
 
   it("returns 404 for a confirmed not-found identity on the second request", async () => {
@@ -355,37 +398,40 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       realmSlug: "tarren-mill",
       name,
     });
-    // Seed a QUEUED job without completing so the second call hits the active-job short-circuit.
-    const character = await container.worker.repositories.character.upsertCharacter(
-      { region: "EU", realmSlug: "tarren-mill", name },
-      { displayName: name },
-    );
-    const dedupeKey = `concurrent-${randomUUID()}`;
-    const queued = await container.worker.repositories.job.createOrGetByDedupe({
-      jobType: "refresh-character",
-      dedupeKey,
-      characterId: character.id,
-      payload: {
-        region: "EU",
-        realmSlug: "tarren-mill",
-        name,
-        refreshContractHash: verifiedContractHash,
-        authoritativeSeasonId: verifiedSeasonId,
-      },
-    });
-    expect(queued.job.status).toBe("QUEUED");
 
-    const [a, b] = await Promise.all([
-      app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
-      app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
-    ]);
-    expect(a.statusCode).toBe(200);
-    expect(b.statusCode).toBe(200);
-    expect(a.json().job?.jobId).toBe(queued.job.id);
-    expect(b.json().job?.jobId).toBe(queued.job.id);
-    expect(["queued", "QUEUED", "in_progress", "IN_PROGRESS"]).toContain(
-      String(a.json().job?.status).toLowerCase(),
-    );
+    await withStableActiveCatalog(async () => {
+      // Seed a QUEUED job without completing so the second call hits the active-job short-circuit.
+      const character = await container.worker.repositories.character.upsertCharacter(
+        { region: "EU", realmSlug: "tarren-mill", name },
+        { displayName: name },
+      );
+      const dedupeKey = `concurrent-${randomUUID()}`;
+      const queued = await container.worker.repositories.job.createOrGetByDedupe({
+        jobType: "refresh-character",
+        dedupeKey,
+        characterId: character.id,
+        payload: {
+          region: "EU",
+          realmSlug: "tarren-mill",
+          name,
+          refreshContractHash: verifiedContractHash,
+          authoritativeSeasonId: verifiedSeasonId,
+        },
+      });
+      expect(queued.job.status).toBe("QUEUED");
+
+      const [a, b] = await Promise.all([
+        app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
+        app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
+      ]);
+      expect(a.statusCode).toBe(200);
+      expect(b.statusCode).toBe(200);
+      expect(a.json().job?.jobId).toBe(queued.job.id);
+      expect(b.json().job?.jobId).toBe(queued.job.id);
+      expect(["queued", "QUEUED", "in_progress", "IN_PROGRESS"]).toContain(
+        String(a.json().job?.status).toLowerCase(),
+      );
+    });
   });
 
   it("exposes public enrichment fields without inventing item level zero", async () => {
@@ -483,51 +529,54 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       realmSlug: "tarren-mill",
       name,
     });
-    const character = await container.worker.repositories.character.upsertCharacter(
-      { region: "EU", realmSlug: "tarren-mill", name },
-      { displayName: name },
-    );
-    const active = await prisma.ingestionJob.create({
-      data: {
-        jobType: "refresh-character",
-        status: "QUEUED",
-        characterId: character.id,
-        dedupeKey: `force-reuse-${character.id}`,
-        payload: {
-          forceRefresh: true,
-          refreshContractHash: verifiedContractHash,
-          authoritativeSeasonId: verifiedSeasonId,
+
+    await withStableActiveCatalog(async () => {
+      const character = await container.worker.repositories.character.upsertCharacter(
+        { region: "EU", realmSlug: "tarren-mill", name },
+        { displayName: name },
+      );
+      const active = await prisma.ingestionJob.create({
+        data: {
+          jobType: "refresh-character",
+          status: "QUEUED",
+          characterId: character.id,
+          dedupeKey: `force-reuse-${character.id}`,
+          payload: {
+            forceRefresh: true,
+            refreshContractHash: verifiedContractHash,
+            authoritativeSeasonId: verifiedSeasonId,
+          },
+          priority: 0,
+          scheduledAt: new Date(),
         },
-        priority: 0,
-        scheduledAt: new Date(),
-      },
-    });
+      });
 
-    const [a, b] = await Promise.all([
-      app.inject({
-        method: "POST",
-        url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
-        headers: { "x-admin-api-key": "test-admin-key" },
-      }),
-      app.inject({
-        method: "POST",
-        url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
-        headers: { "x-admin-api-key": "test-admin-key" },
-      }),
-    ]);
-    expect(a.statusCode).toBe(200);
-    expect(b.statusCode).toBe(200);
-    expect(a.json().job?.jobId).toBe(active.id);
-    expect(b.json().job?.jobId).toBe(active.id);
+      const [a, b] = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
+          headers: { "x-admin-api-key": "test-admin-key" },
+        }),
+        app.inject({
+          method: "POST",
+          url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
+          headers: { "x-admin-api-key": "test-admin-key" },
+        }),
+      ]);
+      expect(a.statusCode).toBe(200);
+      expect(b.statusCode).toBe(200);
+      expect(a.json().job?.jobId).toBe(active.id);
+      expect(b.json().job?.jobId).toBe(active.id);
 
-    const activeCount = await prisma.ingestionJob.count({
-      where: {
-        characterId: character.id,
-        jobType: "refresh-character",
-        status: { in: ["QUEUED", "ACTIVE"] },
-      },
+      const activeCount = await prisma.ingestionJob.count({
+        where: {
+          characterId: character.id,
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+      });
+      expect(activeCount).toBe(1);
     });
-    expect(activeCount).toBe(1);
   });
 
   it("stale GET still returns published score and enqueues at most once", async () => {

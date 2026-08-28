@@ -6,7 +6,7 @@ import {
   serializeSemanticReleaseContentBytes,
   casHashOfSemanticBytes,
 } from "@mplus/abilities/release";
-import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
+import { CURRENT_CATALOG_VERSION_ID, getAllRegisteredRules } from "@mplus/abilities";
 import {
   AbilityCatalogReleaseService,
   draftRuleRowToAbilityRule,
@@ -27,6 +27,40 @@ afterAll(async () => {
 
 function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function draftBindingsFromRule(rule: {
+  spellIds: number[];
+  bindings?: Array<{ spellId: number; role: string }>;
+}) {
+  if (rule.bindings?.length) {
+    return rule.bindings.map((b) => ({ spellId: b.spellId, role: b.role }));
+  }
+  return rule.spellIds.map((spellId, index) => ({
+    spellId,
+    role: index === 0 ? "PRIMARY_ACTIVATION" : "CAST_ALIAS",
+  }));
+}
+
+function readyManualDraftFromRegistry(canonicalKey: string, cooldownDelta: number) {
+  const rule = getAllRegisteredRules().find((entry) => entry.canonicalKey === canonicalKey)!;
+  return {
+    canonicalKey,
+    name: rule.name,
+    spellIds: [...rule.spellIds],
+    bindings: draftBindingsFromRule(rule),
+    iconName: rule.iconName ?? null,
+    classSlug: rule.classSlug,
+    specSlugs: [...rule.specSlugs],
+    raceSlugs: [],
+    category: rule.category,
+    dimensionTags: ["PERFORMANCE_OFFENSIVE_COOLDOWN"],
+    availability: rule.availability,
+    cooldownSeconds: (rule.cooldownSeconds ?? 0) + cooldownDelta,
+    charges: rule.charges ?? null,
+    sourceOwnership: rule.sourceOwnership,
+    provenance: rule.provenance,
+  };
 }
 
 describe.skipIf(!dbAvailable)("AbilityCatalogReleaseService persistence", () => {
@@ -319,6 +353,112 @@ describe.skipIf(!dbAvailable)("AbilityCatalogReleaseService persistence", () => 
       where: { id: draftRuleId },
       data: { status: "READY_FOR_PUBLISH_REVIEW" },
     });
+  });
+
+  it("implicit createReleaseCandidate auto-selects READY draft rules", async () => {
+    const boot = await service.persistBootstrapRelease0(audit);
+    const targetKey = "shaman.offensive.stormkeeper";
+    const registryRule = getAllRegisteredRules().find((rule) => rule.canonicalKey === targetKey)!;
+    const draftData = readyManualDraftFromRegistry(targetKey, 1);
+
+    await prisma.abilityCatalogDraftRule.deleteMany({ where: { status: "READY_FOR_PUBLISH_REVIEW" } });
+
+    await prisma.abilityCatalogDraftRule.create({
+      data: {
+        id: randomUUID(),
+        source: "MANUAL",
+        reviewItemId: null,
+        ...draftData,
+        status: "READY_FOR_PUBLISH_REVIEW",
+        version: 1,
+      },
+    });
+
+    const candidate = await service.createReleaseCandidate({ baseReleaseId: boot.release.id }, audit);
+    const art = await service.loadReleaseArtifact(candidate.release.id);
+    const updated = art.artifact.rules.find((r) => r.canonicalKey === targetKey);
+    expect(updated?.cooldownSeconds).toBe((registryRule.cooldownSeconds ?? 0) + 1);
+  });
+
+  it("explicit removal-only request does not auto-include READY rule drafts", async () => {
+    const boot = await service.persistBootstrapRelease0(audit);
+    const loadedBase = await service.loadReleaseArtifact(boot.release.id);
+    const tombstoneKey = loadedBase.artifact.rules[0]!.canonicalKey;
+    const otherKey = "shaman.offensive.stormkeeper";
+    const registryRule = getAllRegisteredRules().find((rule) => rule.canonicalKey === otherKey)!;
+    const draftData = readyManualDraftFromRegistry(otherKey, 9);
+
+    await prisma.abilityCatalogDraftRule.deleteMany({ where: { status: "READY_FOR_PUBLISH_REVIEW" } });
+    await prisma.abilityCatalogDraftRule.create({
+      data: {
+        id: randomUUID(),
+        source: "MANUAL",
+        reviewItemId: null,
+        ...draftData,
+        status: "READY_FOR_PUBLISH_REVIEW",
+        version: 1,
+      },
+    });
+
+    const batchId = randomUUID();
+    const itemId = randomUUID();
+    await prisma.abilityCatalogReviewBatch.create({
+      data: {
+        id: batchId,
+        reportDigest: sha256(Buffer.from(`removal-explicit-${randomUUID()}`)),
+        reviewPlanDigest: sha256(Buffer.from(`removal-explicit-plan-${batchId}`)),
+        datasetKind: "PINNED",
+        sourceIdentities: {},
+        summaryCounts: {},
+      },
+    });
+    await prisma.abilityCatalogReviewItem.create({
+      data: {
+        id: itemId,
+        batchId,
+        kind: "REMOVAL_REVIEW",
+        identityKey: `removal.${tombstoneKey}`,
+        name: "Removal",
+        matchedCanonicalKey: tombstoneKey,
+        reviewReason: "test",
+        evidence: {},
+        sourceProvenance: {},
+        decisionAction: "CONFIRM_REMOVAL",
+        decidedAt: new Date(),
+        version: 1,
+      },
+    });
+
+    const tombstoned = await service.createReleaseCandidate(
+      {
+        baseReleaseId: boot.release.id,
+        includedRemovalItemIds: [{ reviewItemId: itemId, validToBuild: "70000" }],
+        wowBuild: "tombstone-explicit-only",
+      },
+      audit,
+    );
+    expect(tombstoned.release.ruleCount).toBe(311);
+    const art = await service.loadReleaseArtifact(tombstoned.release.id);
+    expect(art.artifact.rules.find((r) => r.canonicalKey === tombstoneKey)?.validToBuild).toBe("70000");
+    expect(art.artifact.rules.find((r) => r.canonicalKey === otherKey)?.cooldownSeconds).toBe(
+      registryRule.cooldownSeconds,
+    );
+  });
+
+  it("explicit empty includedDraftRuleIds yields EMPTY_CHANGESET", async () => {
+    const boot = await service.persistBootstrapRelease0(audit);
+    await prisma.abilityCatalogDraftRule.deleteMany({ where: { status: "READY_FOR_PUBLISH_REVIEW" } });
+    await expect(
+      service.createReleaseCandidate(
+        {
+          baseReleaseId: boot.release.id,
+          includedDraftRuleIds: [],
+          includedDraftTopologyIds: [],
+          includedRemovalItemIds: [],
+        },
+        audit,
+      ),
+    ).rejects.toMatchObject({ code: "EMPTY_CHANGESET" });
   });
 
   it("supports TOMBSTONE_RULE via explicit removal inclusion without mutating base", async () => {

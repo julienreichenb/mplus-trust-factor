@@ -653,7 +653,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       sourceOwnership?: string | null;
       provenance?: { source?: string };
     };
-    expect(ensuredDraft.canonicalKey).toBe("priest.refresh.vampiric-embrace-15286");
+    expect(ensuredDraft.canonicalKey).toBe("priest.shadow.vampiric-embrace");
     expect(ensuredDraft.cooldownSeconds).toBe(120);
     expect(ensuredDraft.sourceOwnership).toBe("PLAYER");
     expect(ensuredDraft.provenance?.source).toBe("SIMC_ADVISORY");

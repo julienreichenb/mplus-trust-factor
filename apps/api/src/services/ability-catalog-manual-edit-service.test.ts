@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getAllRegisteredRules, projectCurrentRuleBindings } from "@mplus/abilities";
 import { AbilityCatalogManualEditService } from "./ability-catalog-manual-edit-service.js";
@@ -29,6 +29,19 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
       role: b.role,
     }));
 
+  async function activeBootstrapReleaseId(): Promise<string> {
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
+    const active = await prisma.abilityCatalogRelease.findFirstOrThrow({
+      where: { status: "ACTIVE" },
+    });
+    return active.id;
+  }
+
+  beforeEach(async () => {
+    await prisma.abilityCatalogDraftRule.deleteMany({ where: { source: "MANUAL" } });
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
+  });
+
   afterEach(async () => {
     await prisma.abilityCatalogDraftRule.deleteMany({ where: { source: "MANUAL" } });
     await ensureActiveBootstrapCatalogReleaseForTests(prisma);
@@ -36,13 +49,9 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
 
   it("saves manual edit without review batch and compiles into release candidate", async () => {
     expect(stormkeeper).toBeTruthy();
-    const boot = await releases.persistBootstrapRelease0(audit);
-    await prisma.abilityCatalogRelease.update({
-      where: { id: boot.release.id },
-      data: { status: "ACTIVE" },
-    });
+    const baseReleaseId = await activeBootstrapReleaseId();
 
-    const baseBefore = await releases.loadReleaseArtifact(boot.release.id);
+    const baseBefore = await releases.loadReleaseArtifact(baseReleaseId);
     const baseRule = baseBefore.artifact.rules.find(
       (r) => r.canonicalKey === stormkeeper!.canonicalKey,
     );
@@ -76,16 +85,13 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     expect(saved.draftStatus).toBe("READY_FOR_PUBLISH_REVIEW");
     expect(saved.draftVersion).toBe(1);
 
-    const activeAfterSave = await releases.loadReleaseArtifact(boot.release.id);
+    const activeAfterSave = await releases.loadReleaseArtifact(baseReleaseId);
     const unchanged = activeAfterSave.artifact.rules.find(
       (r) => r.canonicalKey === stormkeeper!.canonicalKey,
     );
     expect(unchanged?.cooldownSeconds).toBe(baseRule?.cooldownSeconds);
 
-    const candidate = await releases.createReleaseCandidate(
-      { baseReleaseId: boot.release.id },
-      audit,
-    );
+    const candidate = await releases.createReleaseCandidate({ baseReleaseId }, audit);
     const loadedCandidate = await releases.loadReleaseArtifact(candidate.release.id);
     const updated = loadedCandidate.artifact.rules.find(
       (r) => r.canonicalKey === stormkeeper!.canonicalKey,
@@ -95,11 +101,7 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
 
   it("discard removes pending manual edit", async () => {
     expect(stormkeeper).toBeTruthy();
-    const boot = await releases.persistBootstrapRelease0(audit);
-    await prisma.abilityCatalogRelease.update({
-      where: { id: boot.release.id },
-      data: { status: "ACTIVE" },
-    });
+    await activeBootstrapReleaseId();
 
     await manual.saveEdit(
       stormkeeper!.canonicalKey,
@@ -129,11 +131,7 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
 
   it("incomplete manual draft is not included in release candidate", async () => {
     expect(stormkeeper).toBeTruthy();
-    const boot = await releases.persistBootstrapRelease0(audit);
-    await prisma.abilityCatalogRelease.update({
-      where: { id: boot.release.id },
-      data: { status: "ACTIVE" },
-    });
+    const baseReleaseId = await activeBootstrapReleaseId();
 
     await prisma.abilityCatalogDraftRule.create({
       data: {
@@ -158,7 +156,15 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     });
 
     await expect(
-      releases.createReleaseCandidate({ baseReleaseId: boot.release.id }, audit),
+      releases.createReleaseCandidate(
+        {
+          baseReleaseId,
+          includedDraftRuleIds: [],
+          includedDraftTopologyIds: [],
+          includedRemovalItemIds: [],
+        },
+        audit,
+      ),
     ).rejects.toMatchObject({ code: "EMPTY_CHANGESET" });
   });
 });
