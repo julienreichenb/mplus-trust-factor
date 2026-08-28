@@ -31,6 +31,48 @@ export const draftBindingSchema = z
   })
   .strict();
 
+const draftAbilityCategorySchema = z.enum([
+  "INTERRUPT",
+  "HARD_CC",
+  "SOFT_CC",
+  "DISPEL",
+  "PURGE",
+  "DEFENSIVE_MAJOR",
+  "DEFENSIVE_MINOR",
+  "IMMUNITY",
+  "SELF_HEAL",
+  "EXTERNAL_DEFENSIVE",
+  "GROUP_UTILITY",
+  "MOVEMENT_UTILITY",
+  "BATTLE_REZ",
+  "BLOODLUST",
+  "CONSUMABLE",
+  "OFFENSIVE_MAJOR",
+  "OFFENSIVE_MINOR",
+]);
+
+const draftAbilityDimensionTagSchema = z.enum([
+  "PERFORMANCE_OFFENSIVE_COOLDOWN",
+  "SURVIVAL_PERSONAL_DEFENSIVE",
+  "SURVIVAL_RECOVERY",
+  "UTILITY_INTERRUPT",
+  "UTILITY_DISPEL",
+  "UTILITY_CROWD_CONTROL",
+  "UTILITY_EXTERNAL",
+  "UTILITY_COMBAT_RES",
+]);
+
+const draftAbilityAvailabilitySchema = z.enum([
+  "BASELINE",
+  "TALENT",
+  "PET_DEPENDENT",
+  "FORM_DEPENDENT",
+  "CHOICE_NODE",
+  "SHARED",
+]);
+
+const draftSourceOwnershipSchema = z.enum(["PLAYER", "PET", "GUARDIAN", "ANY_OWNED"]);
+
 export const curatedDraftFieldsSchema = z
   .object({
     canonicalKey: z.string().min(1).max(200).optional().nullable(),
@@ -41,12 +83,12 @@ export const curatedDraftFieldsSchema = z
     classSlug: z.string().max(64).optional().nullable(),
     specSlugs: z.array(z.string().max(64)).optional(),
     raceSlugs: z.array(z.string().max(64)).optional(),
-    category: z.string().max(64).optional().nullable(),
-    dimensionTags: z.array(z.string().max(64)).optional(),
-    availability: z.string().max(64).optional().nullable(),
+    category: draftAbilityCategorySchema.optional().nullable(),
+    dimensionTags: z.array(draftAbilityDimensionTagSchema).optional(),
+    availability: draftAbilityAvailabilitySchema.optional().nullable(),
     cooldownSeconds: z.number().int().nonnegative().optional().nullable(),
     charges: z.number().int().nonnegative().optional().nullable(),
-    sourceOwnership: z.string().max(64).optional().nullable(),
+    sourceOwnership: draftSourceOwnershipSchema.optional().nullable(),
     notes: z.string().max(4000).optional().nullable(),
     validFromBuild: z.string().max(64).optional().nullable(),
     validToBuild: z.string().max(64).optional().nullable(),

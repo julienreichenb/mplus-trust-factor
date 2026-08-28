@@ -90,7 +90,7 @@ function draftPersistData(
     canonicalKey: draft.canonicalKey ?? null,
     name: draft.name,
     spellIds: draft.spellIds as Prisma.InputJsonValue,
-    bindings: draft.bindings as Prisma.InputJsonValue,
+    bindings: draft.bindings as unknown as Prisma.InputJsonValue,
     iconName: draft.iconName ?? null,
     classSlug: draft.classSlug ?? null,
     specSlugs: (draft.specSlugs ?? []) as Prisma.InputJsonValue,

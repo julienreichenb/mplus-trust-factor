@@ -863,7 +863,7 @@ export class AbilityCatalogReleaseService {
         operation: op,
         canonicalKey: rule.canonicalKey,
         reviewBatchId: draft.reviewItem.batchId,
-        reviewItemId: draft.reviewItemId,
+        reviewItemId: draft.reviewItemId ?? undefined,
         draftRuleId: draft.id,
         decisionEventId: draft.reviewItem.decisionEvents[0]?.id,
         draftVersion: draft.version,
@@ -920,7 +920,7 @@ export class AbilityCatalogReleaseService {
       curationEntries.push({
         operation: "UPDATE_TOPOLOGY",
         reviewBatchId: draft.reviewItem.batchId,
-        reviewItemId: draft.reviewItemId,
+        reviewItemId: draft.reviewItemId ?? undefined,
         draftTopologyId: draft.id,
         decisionEventId: draft.reviewItem.decisionEvents[0]?.id,
         draftVersion: draft.version,
