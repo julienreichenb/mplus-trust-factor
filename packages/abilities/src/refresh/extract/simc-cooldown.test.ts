@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSpellQueryXml, resolveSpellCooldownSeconds } from "./simc-xml.js";
+import { parseSpellQueryXml, resolveSpellCooldownSeconds, isCooldownCatalogCandidate } from "./simc-xml.js";
 
 const SHIFT_XML = `<spell id="1234796" name="Shift" cooldown="0.8">
   <spec id="Devourer Demon Hunter" name="devourer" />
@@ -62,5 +62,30 @@ describe("resolveSpellCooldownSeconds", () => {
       `<spell id="43" name="Durationy" cooldown="8" duration="8"></spell>`,
     )[0]!;
     expect(resolveSpellCooldownSeconds(durationLike)).toBeNull();
+  });
+});
+
+describe("isCooldownCatalogCandidate", () => {
+  it("excludes passive, no-cooldown, and pseudo-cooldown actives", () => {
+    const passive = parseSpellQueryXml(`<spell id="1" name="Passive" passive="true" cooldown="120"></spell>`)[0]!;
+    expect(isCooldownCatalogCandidate(passive)).toBe(false);
+
+    const noCd = parseSpellQueryXml(`<spell id="2" name="No CD" cooldown="0"></spell>`)[0]!;
+    expect(isCooldownCatalogCandidate(noCd)).toBe(false);
+
+    const gcdLike = parseSpellQueryXml(`<spell id="3" name="GCD" cooldown="1.5" gcd="1.5"></spell>`)[0]!;
+    expect(isCooldownCatalogCandidate(gcdLike)).toBe(false);
+
+    const shift = parseSpellQueryXml(SHIFT_XML)[0]!;
+    expect(isCooldownCatalogCandidate(shift)).toBe(false);
+  });
+
+  it("includes real cooldown and charge-based cooldown actives", () => {
+    const fsk = parseSpellQueryXml(FLYING_SERPENT_KICK_XML)[0]!;
+    expect(isCooldownCatalogCandidate(fsk)).toBe(true);
+
+    const charged = parseSpellQueryXml(CHARGE_SPELL_XML)[0]!;
+    expect(isCooldownCatalogCandidate(charged)).toBe(true);
+    expect(resolveSpellCooldownSeconds(charged)).toBe(20);
   });
 });

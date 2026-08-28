@@ -168,6 +168,11 @@ function parseSpellBlock(block: string): ParsedSpellQuerySpell | null {
   };
 }
 
+/** Technical source eligibility: active spell with a normalized reusable cooldown. */
+export function isCooldownCatalogCandidate(spell: ParsedSpellQuerySpell): boolean {
+  return spell.isPassive !== true && resolveSpellCooldownSeconds(spell) != null;
+}
+
 /** Map SpellQuery timing fields to a curated cooldown when semantically trustworthy. */
 export function resolveSpellCooldownSeconds(spell: ParsedSpellQuerySpell): number | null {
   if (

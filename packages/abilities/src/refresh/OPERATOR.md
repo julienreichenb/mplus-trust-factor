@@ -6,7 +6,7 @@ Retail Live only. The extractor always passes `ptr=0` and refuses a binary that 
 
 1. Obtain a SimulationCraft `simc` / `simc.exe`. Prefer a known build (packaged catalog-refresh runner, or local override via `ABILITY_CATALOG_SIMC_BIN`). Do not invent identity from folder names or branches.
 2. The binary is interrogated at extract time for application version, git revision, WoW build, and LIVE/PTR mode. Short banner hashes are stored honestly as `PREFIX` unless an optional expected full SHA proves expansion.
-3. Extract SpellQuery XML (`class_spell`, `spec_spell`, `race_spell`). The extractor first interrogates the binary (`ptr=0` SpellQuery probe) and **fails closed** if the banner is PTR, data mode is unreported, or the git revision is unreported. Optional `--expected-simc-revision` is a CI assertion only:
+3. Extract SpellQuery XML for cooldown-bearing class/spec/race spells (`cooldown>=1000ms` or `charge_cooldown>=1000ms`, then normalized in-extractor). The extractor first interrogates the binary (`ptr=0` SpellQuery probe) and **fails closed** if the banner is PTR, data mode is unreported, or the git revision is unreported. Optional `--expected-simc-revision` is a CI assertion only:
 
 ```
 pnpm ability-catalog:simc:extract -- --simc-bin C:\path\to\simc.exe --out packages/abilities/generated/refresh/simc-live.json
