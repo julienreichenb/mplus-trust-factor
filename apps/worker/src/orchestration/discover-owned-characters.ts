@@ -16,6 +16,7 @@ import type { Prisma, Season } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import type { QueueProducers } from "../queues.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "./ability-catalog-enqueue-pin.js";
 import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
 import { synchronizeSeasonAuthority } from "./season-authority.js";
 import {
@@ -567,12 +568,16 @@ export async function runDiscoverOwnedCharacters(
           key: env.ACTIVE_SCORE_MODEL_KEY,
           version: env.ACTIVE_SCORE_MODEL_VERSION,
         };
+        const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+          prisma,
+        });
         const { hash } = resolveActiveRefreshContract({
           scoringModelKey: activeModel.key ?? env.ACTIVE_SCORE_MODEL_KEY,
           scoringModelVersion: activeModel.version ?? env.ACTIVE_SCORE_MODEL_VERSION,
           activeSeasonId: regional.slug,
           providerMode: env.PROVIDER_MODE ?? process.env.PROVIDER_MODE ?? "fixture",
           zoneId: regional.wclZoneId,
+          abilityCatalogExecutionPin,
         });
 
         const enqueued = await producers.enqueueRefreshCharacter({
@@ -588,6 +593,7 @@ export async function runDiscoverOwnedCharacters(
           authoritativeSeasonId: regional.seasonId,
           authoritativeSeasonSlug: regional.slug,
           authoritySource: regional.source,
+          abilityCatalogExecutionPin,
         });
 
         if (enqueued.reused && !enqueued.enqueued) {

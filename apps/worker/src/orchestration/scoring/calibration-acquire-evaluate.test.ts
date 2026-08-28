@@ -8,6 +8,7 @@ import {
   type EvidenceCandidateMetadataV2,
   type ScoreSnapshotDTO,
 } from "@mplus/contracts";
+import { mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 import type { WorkerContainer } from "../../container.js";
 
 const runAuthoritativeScoring = vi.fn();
@@ -206,6 +207,16 @@ function scoreResult(overrides?: { characterScoreId?: string | null }) {
         aggregateRowId: null,
         contentHash: null,
       },
+      appliedContext: {
+        contextRevisionKey: "none",
+        contextRevisionId: null,
+        key: { distributionSnapshotId: null, canonicalRuns: [] },
+      } as never,
+      boostAssessment: null,
+      abilityCatalogExecutionPin: {
+        kind: "STATIC" as const,
+        catalogVersionId: "12.0.0/midnight-season-1",
+      },
     },
     providerCalls: 2,
   };
@@ -226,6 +237,7 @@ function baseContainer(overrides?: {
       WCL_CHARACTER_TTL_SECONDS: 43_200,
     },
     prisma: {
+      ...mockActiveBootstrapCatalogReleasePrisma(),
       character: {
         findUnique: async () => ({
           id: CHARACTER_ID,

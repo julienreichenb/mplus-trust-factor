@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { hashRefreshContract } from "@mplus/contracts";
+import { BOOTSTRAP_TEST_RELEASE_PIN, mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 
 const runAuthoritativeScoring = vi.fn();
@@ -48,6 +49,7 @@ describe("runRecalculateScore — contract stability", () => {
       activeSeasonId: season.slug,
       providerMode: "fixture",
       zoneId: 45,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
 
     const saveScoreSnapshot = vi.fn(
@@ -106,6 +108,7 @@ describe("runRecalculateScore — contract stability", () => {
       },
       logger: { info: vi.fn(), warn: vi.fn() },
       prisma: {
+        ...mockActiveBootstrapCatalogReleasePrisma(),
         character: {
           findUnique: vi.fn(async () => ({
             id: "char-1",

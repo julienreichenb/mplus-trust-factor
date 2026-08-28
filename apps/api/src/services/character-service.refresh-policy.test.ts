@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { hashRefreshContract } from "@mplus/contracts";
+import { BOOTSTRAP_TEST_RELEASE_PIN } from "@mplus/test-utils";
 import { buildRefreshContract, clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
 import type { ApiContainer } from "../container.js";
@@ -39,6 +40,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     activeSeasonId: "blizzard-season-13",
     env: process.env,
     allowFixtureZoneDefault: true,
+    abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
   });
   const matchingHash = hashRefreshContract(matchingContract);
 

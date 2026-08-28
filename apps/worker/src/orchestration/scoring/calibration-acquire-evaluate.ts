@@ -18,6 +18,7 @@ import { CALIBRATION_EVIDENCE_SOURCE_CANONICAL } from "@mplus/contracts";
 import { mythicRunToEvidenceCandidateMetadataList } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import { resolveActiveRefreshContract } from "../build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "../ability-catalog-enqueue-pin.js";
 import { requirePersistedCatalogWclZoneId } from "../active-mplus-season/catalog-metadata.js";
 import { canonicalDungeonKey } from "../run-fusion.js";
 import {
@@ -236,12 +237,16 @@ export async function acquireAndEvaluateCalibrationMember(
   const classSlug = input.classSlug ?? character.gameClass?.slug ?? null;
   const specSlug = input.specSlug ?? character.activeSpec?.slug ?? null;
 
+  const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+    prisma: container.prisma,
+  });
   const { contract: refreshContract } = resolveActiveRefreshContract({
     scoringModelKey: input.scoreModelKey,
     scoringModelVersion: input.scoreModelVersion,
     activeSeasonId: season.slug,
     providerMode: container.env.PROVIDER_MODE,
     zoneId: requirePersistedCatalogWclZoneId(season),
+    abilityCatalogExecutionPin,
   });
 
   let scoringOutcome;

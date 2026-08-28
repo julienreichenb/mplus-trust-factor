@@ -650,6 +650,9 @@ model RawArtifact {
   wclRunSourceDigests WclRunSourceDigest[]
   capabilityEvidencePackages CapabilityEvidencePackageRecord[]
   participantScoringDigests  ParticipantScoringDigest[]
+  abilityCatalogReleases AbilityCatalogRelease[] @relation("AbilityCatalogReleaseArtifact")
+  abilityCatalogReleaseValidationReports AbilityCatalogRelease[] @relation("AbilityCatalogReleaseValidationArtifact")
+  abilityCatalogReleaseReplayReports AbilityCatalogReleaseReplay[] @relation("AbilityCatalogReleaseReplayReportArtifact")
 
   @@index([provider, createdAt(sort: Desc)])
   @@index([refCount, retentionUntil])
@@ -898,6 +901,15 @@ model ScoreSnapshot {
   publishedAt         DateTime?              @map("published_at") @db.Timestamptz(3)
   /** Optional V2 evidence manifest this snapshot was computed from. */
   evidenceManifestId  String?                @map("evidence_manifest_id") @db.Uuid
+  /**
+   * Ability catalog execution identity (Phase 3B.4).
+   * STATIC/LEGACY: no release FK. RELEASE: FK + digests required.
+   */
+  abilityCatalogExecutionMode String? @map("ability_catalog_execution_mode")
+  abilityCatalogVersionId     String? @map("ability_catalog_version_id")
+  abilityCatalogReleaseId     String? @map("ability_catalog_release_id") @db.Uuid
+  abilityCatalogContentDigest String? @map("ability_catalog_content_digest")
+  abilityCatalogReleaseKey    String? @map("ability_catalog_release_key")
 
   character              Character                   @relation(fields: [characterId], references: [id])
   season                 Season                      @relation(fields: [seasonId], references: [id])
@@ -907,11 +919,13 @@ model ScoreSnapshot {
   analysisBatch          ScoreAnalysisBatch?         @relation(fields: [analysisBatchId], references: [id])
   publishedScorePointers CharacterPublishedScore[]   @relation("PublishedSnapshotPointer")
   evidenceManifest       EvidenceManifest?           @relation(fields: [evidenceManifestId], references: [id])
+  abilityCatalogRelease  AbilityCatalogRelease?      @relation("ScoreSnapshotAbilityCatalogRelease", fields: [abilityCatalogReleaseId], references: [id], onDelete: Restrict)
 
   @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey, inputFingerprint])
   @@index([characterId, calculatedAt(sort: Desc)])
   @@index([characterId, isPublic, calculatedAt(sort: Desc)])
   @@index([evidenceManifestId])
+  @@index([abilityCatalogReleaseId])
   @@map("score_snapshots")
 }
 
@@ -1126,6 +1140,14 @@ model User {
   scoringEvidenceExports ScoringEvidenceExport[]
   shadowCanariesRequested ScoringShadowCanary[] @relation("ShadowCanaryRequestedBy")
   scoreContextRevisions  SeasonScoreContextRevision[]
+  abilityCatalogSourceBaselines AbilityCatalogSourceBaseline[]
+  abilityCatalogReviewBatches   AbilityCatalogReviewBatch[]
+  abilityCatalogReviewItems     AbilityCatalogReviewItem[]
+  abilityCatalogDraftRules      AbilityCatalogDraftRule[]
+  abilityCatalogDecisionEvents  AbilityCatalogReviewDecisionEvent[]
+  abilityCatalogReleasesCreated AbilityCatalogRelease[] @relation("AbilityCatalogReleaseCreatedBy")
+  abilityCatalogReleaseReplaysCreated AbilityCatalogReleaseReplay[] @relation("AbilityCatalogReleaseReplayCreatedBy")
+  abilityCatalogReleaseActivations AbilityCatalogReleaseActivation[] @relation("AbilityCatalogReleaseActivationBy")
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -2415,14 +2437,27 @@ model CharacterScore {
 
   contextDistributionSnapshotId String? @map("context_distribution_snapshot_id") @db.Uuid
 
+  /**
+   * Ability catalog execution pin (Phase 3B.4).
+   * Product authority prefers STATIC. RELEASE rows coexist without overwriting STATIC.
+   */
+  abilityCatalogExecutionMode String  @default("STATIC") @map("ability_catalog_execution_mode")
+  abilityCatalogExecutionKey  String  @default("static") @map("ability_catalog_execution_key")
+  abilityCatalogVersionId     String? @map("ability_catalog_version_id")
+  abilityCatalogReleaseId     String? @map("ability_catalog_release_id") @db.Uuid
+  abilityCatalogContentDigest String? @map("ability_catalog_content_digest")
+  abilityCatalogReleaseKey    String? @map("ability_catalog_release_key")
+
   character       Character                     @relation(fields: [characterId], references: [id], onDelete: Cascade)
   season          Season                        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   contextRevision SeasonScoreContextRevision?   @relation(fields: [contextRevisionId], references: [id], onDelete: SetNull)
   contextDistributionSnapshot SeasonMedianKeyDistributionSnapshot? @relation(fields: [contextDistributionSnapshotId], references: [id], onDelete: SetNull)
+  abilityCatalogRelease AbilityCatalogRelease? @relation("CharacterScoreAbilityCatalogRelease", fields: [abilityCatalogReleaseId], references: [id], onDelete: Restrict)
 
-  @@unique([characterId, seasonId, scoringVersion, contextRevisionKey], map: "character_scores_ctx_rev_uidx")
+  @@unique([characterId, seasonId, scoringVersion, contextRevisionKey, abilityCatalogExecutionKey], map: "character_scores_ctx_rev_exec_uidx")
   @@index([characterId, seasonId])
   @@index([seasonId, calculatedAt])
+  @@index([abilityCatalogReleaseId])
   @@map("character_scores")
 }
 
@@ -2644,4 +2679,351 @@ model CharacterBoostAssessment {
   @@unique([characterId, seasonId, detectorVersion, evidenceFingerprint], map: "character_boost_assessments_fingerprint_uidx")
   @@index([characterId, seasonId, calculatedAt(sort: Desc)])
   @@map("character_boost_assessments")
+}
+
+/**
+ * Designated temporal SOURCE BASELINE for ability-catalog refresh (not an AbilityRule release).
+ * Snapshot bytes are content-addressed via RawArtifact (provider INTERNAL); local paths are not durable alone.
+ */
+model AbilityCatalogSourceBaseline {
+  id                 String   @id @default(uuid()) @db.Uuid
+  source             String
+  sourceRevision     String   @map("source_revision")
+  wowBuild           String?  @map("wow_build")
+  dataMode           String?  @map("data_mode")
+  retrievedAt        DateTime @map("retrieved_at") @db.Timestamptz(3)
+  schemaVersion      String?  @map("schema_version")
+  extractorVersion   String?  @map("extractor_version")
+  contentHash        String   @map("content_hash")
+  artifactId         String?  @map("artifact_id") @db.Uuid
+  isActive           Boolean  @default(true) @map("is_active")
+  notes              String?  @db.Text
+  designatedByUserId String?  @map("designated_by_user_id") @db.Uuid
+  designatedAt       DateTime @default(now()) @map("designated_at") @db.Timestamptz(3)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  designatedBy User? @relation(fields: [designatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([source, contentHash])
+  @@index([source, isActive, designatedAt(sort: Desc)])
+  @@map("ability_catalog_source_baselines")
+}
+
+enum AbilityCatalogReviewBatchStatus {
+  OPEN
+  REVIEWED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum AbilityCatalogReviewItemKind {
+  NEW_ABILITY_CANDIDATE
+  SPELL_BINDING_REVIEW
+  TOPOLOGY_REVIEW
+  REMOVAL_REVIEW
+}
+
+enum AbilityCatalogDraftStatus {
+  NEEDS_METADATA
+  READY_FOR_PUBLISH_REVIEW
+}
+
+enum AbilityCatalogDraftSource {
+  REVIEW
+  MANUAL
+}
+
+/**
+ * Immutable imported review batch from a PINNED shadow report. Publication never occurs from this row.
+ */
+model AbilityCatalogReviewBatch {
+  id                   String                         @id @default(uuid()) @db.Uuid
+  /** SHA-256 of the imported PINNED shadow report bytes (source snapshot evidence). Not unique: same source may yield multiple plans over time when decisions exist. */
+  reportDigest         String                         @map("report_digest")
+  /** SHA-256 of normalized review-plan semantics (schema version + items). Idempotency key for current interpretation. */
+  reviewPlanDigest     String                         @unique @map("review_plan_digest")
+  reportArtifactId     String?                        @map("report_artifact_id") @db.Uuid
+  datasetKind          String                         @map("dataset_kind")
+  wowBuild             String?                        @map("wow_build")
+  simcRevision         String?                        @map("simc_revision")
+  blizzardNamespace    String?                        @map("blizzard_namespace")
+  blizzardRevision     String?                        @map("blizzard_revision")
+  sourceIdentities     Json                           @map("source_identities")
+  status               AbilityCatalogReviewBatchStatus @default(OPEN)
+  summaryCounts        Json                           @map("summary_counts")
+  importedByUserId     String?                        @map("imported_by_user_id") @db.Uuid
+  createdAt            DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  importedBy User?                         @relation(fields: [importedByUserId], references: [id], onDelete: SetNull)
+  items      AbilityCatalogReviewItem[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([simcRevision, wowBuild])
+  @@index([reportDigest])
+  @@map("ability_catalog_review_batches")
+}
+
+model AbilityCatalogReviewItem {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  batchId               String                      @map("batch_id") @db.Uuid
+  kind                  AbilityCatalogReviewItemKind
+  identityKey           String                      @map("identity_key")
+  primarySpellId        Int?                        @map("primary_spell_id")
+  name                  String
+  matchedCanonicalKey   String?                     @map("matched_canonical_key")
+  classSlug             String?                     @map("class_slug")
+  specSlugs             Json                        @default("[]") @map("spec_slugs")
+  raceSlugs             Json                        @default("[]") @map("race_slugs")
+  eligibilityState      String?                     @map("eligibility_state")
+  eligibilityReasons    Json                        @default("[]") @map("eligibility_reasons")
+  reviewReason          String                      @map("review_reason")
+  evidence              Json
+  sourceProvenance      Json                        @map("source_provenance")
+  decisionAction        String?                     @map("decision_action")
+  decisionNote          String?                     @map("decision_note") @db.Text
+  decidedAt             DateTime?                   @map("decided_at") @db.Timestamptz(3)
+  decidedByUserId       String?                     @map("decided_by_user_id") @db.Uuid
+  version               Int                         @default(1)
+  importedAt            DateTime                    @default(now()) @map("imported_at") @db.Timestamptz(3)
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  batch      AbilityCatalogReviewBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  decidedBy  User?                               @relation(fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  draftRule  AbilityCatalogDraftRule?
+  draftTopology AbilityCatalogDraftTopology?
+  decisionEvents AbilityCatalogReviewDecisionEvent[]
+
+  @@unique([batchId, identityKey])
+  @@index([batchId, kind, decisionAction])
+  @@index([primarySpellId])
+  @@index([classSlug])
+  @@map("ability_catalog_review_items")
+}
+
+model AbilityCatalogDraftRule {
+  id               String                   @id @default(uuid()) @db.Uuid
+  reviewItemId     String?                  @unique @map("review_item_id") @db.Uuid
+  source           AbilityCatalogDraftSource @default(REVIEW) @map("source")
+  canonicalKey     String?                  @map("canonical_key")
+  name             String
+  spellIds         Json                     @default("[]") @map("spell_ids")
+  bindings         Json                     @default("[]")
+  iconName         String?                  @map("icon_name")
+  classSlug        String?                  @map("class_slug")
+  specSlugs        Json                     @default("[]") @map("spec_slugs")
+  raceSlugs        Json                     @default("[]") @map("race_slugs")
+  category         String?
+  dimensionTags    Json                     @default("[]") @map("dimension_tags")
+  availability     String?
+  cooldownSeconds  Int?                     @map("cooldown_seconds")
+  charges          Int?
+  sourceOwnership  String?                  @map("source_ownership")
+  provenance       Json                     @default("{}")
+  validityBuild    String?                  @map("validity_build")
+  notes            String?                  @db.Text
+  status           AbilityCatalogDraftStatus @default(NEEDS_METADATA)
+  version          Int                      @default(1)
+  createdByUserId  String?                  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reviewItem AbilityCatalogReviewItem? @relation(fields: [reviewItemId], references: [id], onDelete: Cascade)
+  createdBy  User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([canonicalKey])
+  @@index([status])
+  @@index([source, status])
+  @@map("ability_catalog_draft_rules")
+}
+
+model AbilityCatalogDraftTopology {
+  id           String   @id @default(uuid()) @db.Uuid
+  reviewItemId String   @unique @map("review_item_id") @db.Uuid
+  kind         String
+  slug         String
+  displayName  String?  @map("display_name")
+  status       String   @default("PENDING")
+  evidence     Json     @default("{}")
+  version      Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reviewItem AbilityCatalogReviewItem @relation(fields: [reviewItemId], references: [id], onDelete: Cascade)
+
+  @@index([kind, slug])
+  @@map("ability_catalog_draft_topology")
+}
+
+model AbilityCatalogReviewDecisionEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  itemId      String   @map("item_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorType   String   @map("actor_type")
+  previousState Json   @map("previous_state")
+  newState    Json     @map("new_state")
+  note        String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  item  AbilityCatalogReviewItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  actor User?                    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, createdAt(sort: Desc)])
+  @@map("ability_catalog_review_decision_events")
+}
+
+/**
+ * Immutable compiled ability catalog release (Phase 3B.2+).
+ * Not a review batch, draft, or source baseline — complete scoring catalog identity.
+ * ACTIVE/SUPERSEDED used by Phase 3B.5 test-env activation (at most one ACTIVE).
+ */
+enum AbilityCatalogReleaseStatus {
+  DRAFT_BUILD
+  VALIDATED
+  REJECTED
+  ACTIVE
+  SUPERSEDED
+}
+
+model AbilityCatalogRelease {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  releaseKey           String                      @unique @map("release_key")
+  schemaVersion        String                      @map("schema_version")
+  contentDigest        String                      @unique @map("content_digest")
+  topologyDigest       String                      @map("topology_digest")
+  /** SHA-256 of CAS semantic content bytes; equals contentDigest when CAS stores stableStringify(content). */
+  casContentHash       String                      @map("cas_content_hash")
+  gameVersion          String                      @map("game_version")
+  wowBuild             String                      @map("wow_build")
+  seasonSlug           String                      @map("season_slug")
+  previousReleaseId    String?                     @map("previous_release_id") @db.Uuid
+  artifactId           String                      @map("artifact_id") @db.Uuid
+  ruleCount            Int                         @map("rule_count")
+  classCount           Int                         @map("class_count")
+  specCount            Int                         @map("spec_count")
+  raceCount            Int                         @map("race_count")
+  status               AbilityCatalogReleaseStatus
+  /** Artifact manifest copy (bootstrap / curated entries). Semantic after create. */
+  manifest             Json
+  /** BOOTSTRAP sentinel or curated machine-readable diff. */
+  diff                 Json
+  notes                String?                     @db.Text
+  /** Compile-time operational timestamp — NOT part of CAS semantic bytes. */
+  generatedAt          DateTime                    @map("generated_at") @db.Timestamptz(3)
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdByUserId      String?                     @map("created_by_user_id") @db.Uuid
+  validatedAt          DateTime?                   @map("validated_at") @db.Timestamptz(3)
+  validationStatus     String?                     @map("validation_status")
+  validationErrorCount Int?                        @map("validation_error_count")
+  validationWarningCount Int?                      @map("validation_warning_count")
+  validationReportDigest String?                   @map("validation_report_digest")
+  validationReportArtifactId String?               @map("validation_report_artifact_id") @db.Uuid
+  validatorVersion     String?                     @map("validator_version")
+  /** Set when first activated (operational denorm — not semantic CAS). */
+  publishedAt          DateTime?                   @map("published_at") @db.Timestamptz(3)
+  /** Operational annotations only — never semantic catalog content. */
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  previousRelease AbilityCatalogRelease?  @relation("AbilityCatalogReleaseLineage", fields: [previousReleaseId], references: [id], onDelete: Restrict)
+  successorReleases AbilityCatalogRelease[] @relation("AbilityCatalogReleaseLineage")
+  artifact        RawArtifact             @relation("AbilityCatalogReleaseArtifact", fields: [artifactId], references: [id], onDelete: Restrict)
+  validationReportArtifact RawArtifact?   @relation("AbilityCatalogReleaseValidationArtifact", fields: [validationReportArtifactId], references: [id], onDelete: Restrict)
+  createdBy       User?                   @relation("AbilityCatalogReleaseCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  replaysAsBase   AbilityCatalogReleaseReplay[] @relation("AbilityCatalogReleaseReplayBase")
+  replaysAsCandidate AbilityCatalogReleaseReplay[] @relation("AbilityCatalogReleaseReplayCandidate")
+  scoreSnapshots  ScoreSnapshot[] @relation("ScoreSnapshotAbilityCatalogRelease")
+  characterScores CharacterScore[] @relation("CharacterScoreAbilityCatalogRelease")
+  activationsAsTarget AbilityCatalogReleaseActivation[] @relation("AbilityCatalogReleaseActivationTarget")
+  activationsAsPrevious AbilityCatalogReleaseActivation[] @relation("AbilityCatalogReleaseActivationPrevious")
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([wowBuild, createdAt(sort: Desc)])
+  @@index([previousReleaseId])
+  @@map("ability_catalog_releases")
+}
+
+enum AbilityCatalogReleaseActivationType {
+  PUBLISH
+  ROLLBACK
+}
+
+/**
+ * Durable activation / rollback history (Phase 3B.5).
+ * Does not store catalog bytes — release artifact remains immutable.
+ */
+model AbilityCatalogReleaseActivation {
+  id                   String                             @id @default(uuid()) @db.Uuid
+  releaseId            String                             @map("release_id") @db.Uuid
+  previousReleaseId    String?                            @map("previous_release_id") @db.Uuid
+  type                 AbilityCatalogReleaseActivationType
+  reason               String?
+  notes                String?                            @db.Text
+  /** Admin-confirmed contentDigest of the activated release. */
+  confirmationDigest   String                             @map("confirmation_digest")
+  activatedAt          DateTime                           @default(now()) @map("activated_at") @db.Timestamptz(3)
+  activatedByUserId    String?                            @map("activated_by_user_id") @db.Uuid
+  createdAt            DateTime                           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  release         AbilityCatalogRelease  @relation("AbilityCatalogReleaseActivationTarget", fields: [releaseId], references: [id], onDelete: Restrict)
+  previousRelease AbilityCatalogRelease? @relation("AbilityCatalogReleaseActivationPrevious", fields: [previousReleaseId], references: [id], onDelete: Restrict)
+  activatedBy     User?                  @relation("AbilityCatalogReleaseActivationBy", fields: [activatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([releaseId, activatedAt(sort: Desc)])
+  @@index([activatedAt(sort: Desc)])
+  @@map("ability_catalog_release_activations")
+}
+
+/**
+ * Shadow release-vs-release scoring replay (Phase 3B.3).
+ * Diagnostic only — never mutates ScoreSnapshot / profiles / Trust.
+ * CAS stores the detailed report; row holds identity + summary for gates.
+ * Why not CAS alone: need indexed query by candidate/base, idempotency key,
+ * status for validation gates, and durable linkage without scanning blobs.
+ */
+enum AbilityCatalogReleaseReplayStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+}
+
+enum AbilityCatalogReplayBaseKind {
+  STATIC
+  RELEASE
+}
+
+model AbilityCatalogReleaseReplay {
+  id                   String                            @id @default(uuid()) @db.Uuid
+  /** Idempotency key: baseIdentity|candidateId|corpusDigest|engineVersion */
+  idempotencyKey       String                            @unique @map("idempotency_key")
+  baseKind             AbilityCatalogReplayBaseKind      @map("base_kind")
+  baseReleaseId        String?                           @map("base_release_id") @db.Uuid
+  candidateReleaseId   String                            @map("candidate_release_id") @db.Uuid
+  corpusDigest         String                            @map("corpus_digest")
+  replayInputDigest    String                            @map("replay_input_digest")
+  replayEngineVersion  String                            @map("replay_engine_version")
+  status               AbilityCatalogReleaseReplayStatus
+  reportArtifactId     String?                           @map("report_artifact_id") @db.Uuid
+  reportDigest         String?                           @map("report_digest")
+  /** Compact summary for admin/gate APIs (not full per-analysis detail). */
+  summary              Json
+  timing               Json?
+  errorSummary         String?                           @map("error_summary") @db.Text
+  createdByUserId      String?                           @map("created_by_user_id") @db.Uuid
+  startedAt            DateTime                          @map("started_at") @db.Timestamptz(3)
+  completedAt          DateTime?                         @map("completed_at") @db.Timestamptz(3)
+  createdAt            DateTime                          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  baseRelease      AbilityCatalogRelease? @relation("AbilityCatalogReleaseReplayBase", fields: [baseReleaseId], references: [id], onDelete: Restrict)
+  candidateRelease AbilityCatalogRelease  @relation("AbilityCatalogReleaseReplayCandidate", fields: [candidateReleaseId], references: [id], onDelete: Restrict)
+  reportArtifact   RawArtifact?           @relation("AbilityCatalogReleaseReplayReportArtifact", fields: [reportArtifactId], references: [id], onDelete: Restrict)
+  createdBy        User?                  @relation("AbilityCatalogReleaseReplayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([candidateReleaseId, createdAt(sort: Desc)])
+  @@index([baseReleaseId, candidateReleaseId])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("ability_catalog_release_replays")
 }

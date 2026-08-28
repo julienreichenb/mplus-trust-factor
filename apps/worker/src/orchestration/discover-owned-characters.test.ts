@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { OWNED_CHARACTER_RELEVANCE_POLICY_V1 } from "@mplus/config";
 import { QUEUE_NAMES } from "@mplus/contracts";
+import { mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 import { runDiscoverOwnedCharacters } from "./discover-owned-characters.js";
 import {
   loadCharacterRefreshEligibilitySignals,
@@ -129,6 +130,7 @@ function seasonDungeonPrismaMocks(seasonId = "season-1") {
 /** Prisma stubs required once discovery persists eligibility evidence. */
 function eligibilityPersistPrismaMocks() {
   return {
+    ...mockActiveBootstrapCatalogReleasePrisma(),
     character: {
       update: vi.fn(async () => ({})),
       findUnique: vi.fn(async () => null),
@@ -633,6 +635,7 @@ describe("runDiscoverOwnedCharacters", () => {
     const enqueueRefreshCharacter = vi.fn();
     const container = {
       prisma: {
+        ...mockActiveBootstrapCatalogReleasePrisma(),
         battleNetAccount: {
           findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
           update: vi.fn(async () => ({})),
@@ -1066,6 +1069,7 @@ describe("runDiscoverOwnedCharacters", () => {
     });
 
     const prisma = {
+      ...mockActiveBootstrapCatalogReleasePrisma(),
       battleNetAccount: {
         findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
         update: vi.fn(async () => ({})),

@@ -65,7 +65,7 @@ function headerRoutes() {
     { path: "/admin", name: "admin-root", component: { template: "<div />" } },
     { path: "/admin/scoring/:tab?", name: "admin-scoring", component: { template: "<div />" } },
     {
-      path: "/admin/ability-catalog",
+      path: "/admin/ability-catalog/:tab?",
       name: "admin-ability-catalog",
       component: { template: "<div />" },
     },
@@ -387,6 +387,9 @@ describe("AppHeader admin navigation", () => {
       "/admin/scoring/models",
       "/admin/scoring/calibration",
       "/admin/ability-catalog",
+      "/admin/ability-catalog/catalog",
+      "/admin/ability-catalog/review",
+      "/admin/ability-catalog/releases",
       "/admin/users",
       "/admin/bulk-processing",
       "/admin/faq",

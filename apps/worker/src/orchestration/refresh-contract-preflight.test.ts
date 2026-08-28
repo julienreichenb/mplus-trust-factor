@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { hashRefreshContract, type RefreshCharacterJob } from "@mplus/contracts";
+import { BOOTSTRAP_TEST_RELEASE_PIN } from "@mplus/test-utils";
 import { decideScoreRefresh } from "@mplus/config";
 import {
   REFRESH_CONTRACT_PREFLIGHT_MISMATCH,
@@ -46,6 +47,7 @@ function matchingHash(providerMode: "fixture" | "live" = "live"): string {
     providerMode,
     zoneId: providerMode === "live" ? 39 : undefined,
     partition: null,
+    abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
   }).hash;
 }
 
@@ -62,6 +64,7 @@ function buildJob(overrides: Partial<RefreshCharacterJob> = {}): RefreshCharacte
     triggerSource: "PROFILE_READ",
     authoritativeSeasonId: 13,
     authoritativeSeasonSlug: "blizzard-season-13",
+    abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     ...overrides,
   } as RefreshCharacterJob;
 }
@@ -130,6 +133,7 @@ describe("refresh contract preflight barrier", () => {
       providerMode: "live",
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     const result = await runRefreshContractPreflight(
       buildDeps("live"),
@@ -158,6 +162,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     const staleHash = resolveActiveRefreshContract({
       scoringModelKey: "default",
@@ -167,6 +172,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     }).hash;
 
     await expect(
@@ -242,6 +248,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     const worker = resolveActiveRefreshContract({
       scoringModelKey: "default",
@@ -251,6 +258,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     expect(api.hash).toBe(worker.hash);
     expect(hashRefreshContract(api.contract)).toBe(api.hash);
@@ -265,6 +273,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     const publication = resolveActiveRefreshContract({
       scoringModelKey: "default",
@@ -274,6 +283,7 @@ describe("refresh contract preflight barrier", () => {
       env: liveEnv(),
       zoneId: 39,
       partition: null,
+      abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
     });
     expect(preflight.hash).not.toBe(publication.hash);
     expect(Boolean(preflight.hash && preflight.hash !== publication.hash)).toBe(true);

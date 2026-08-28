@@ -8,12 +8,14 @@ import {
   resolveEffectiveScoringSeason,
   resolveScoringCatalogDiscoverer,
   resolveActiveRefreshContract,
+  resolveEnqueueAbilityCatalogExecutionPin,
   runRefreshEligibilityGate,
   RefreshEligibilityError,
   type CancelRefreshJobResult,
   type KillAllRefreshJobsResult,
   type PrioritizeRefreshJobResult,
 } from "@mplus/worker";
+import { AbilityCatalogPinError } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
@@ -649,12 +651,25 @@ export class AdminRefreshJobsService {
         version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
       };
 
+    let abilityCatalogExecutionPin;
+    try {
+      abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+        prisma: this.prisma(),
+      });
+    } catch (err) {
+      if (err instanceof AbilityCatalogPinError) {
+        throw HttpError.conflict(err.code, err.message);
+      }
+      throw err;
+    }
+
     const { hash } = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
       activeSeasonId: authority.slug,
       providerMode: this.container.env.PROVIDER_MODE,
       zoneId: effective.wclZoneId,
+      abilityCatalogExecutionPin,
     });
 
     const result = await this.container.producers.enqueueRefreshCharacter({
@@ -672,6 +687,7 @@ export class AdminRefreshJobsService {
       authoritativeSeasonSlug: authority.slug,
       authoritySource: authority.authoritySource,
       correlationId: null,
+      abilityCatalogExecutionPin,
     });
 
     await writeAuditEvent(this.prisma(), {

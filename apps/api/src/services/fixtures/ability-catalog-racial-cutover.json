@@ -1,0 +1,3244 @@
+{
+  "extractedAt": "2026-08-17T04:25:27.314Z",
+  "source": "local mplus_trust character_run_digests (frozen; no live WCL)",
+  "note": "Trimmed frozen digests retaining all shared.racial / Shadowmeld activations",
+  "count": 3,
+  "racialActivationCounts": [
+    {
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "racialDefensive": 1,
+      "racialOffensive": 0
+    },
+    {
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "racialDefensive": 1,
+      "racialOffensive": 0
+    },
+    {
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "racialDefensive": 2,
+      "racialOffensive": 0
+    }
+  ],
+  "digests": [
+    {
+      "role": null,
+      "timed": true,
+      "fightId": 10,
+      "utility": {
+        "actions": [
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "demon-hunter.interrupt.disrupt",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 1,
+            "canonicalName": "Disrupt",
+            "fightOffsetMs": 14298,
+            "sourceActorId": 1,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 183752,
+            "rawTimestampMs": 12920758,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              183752
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.interrupt.disrupt:12920758:5",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "interrupt"
+            ],
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "demon-hunter.interrupt.disrupt",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 1,
+            "canonicalName": "Disrupt",
+            "fightOffsetMs": 33660,
+            "sourceActorId": 1,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 183752,
+            "rawTimestampMs": 12940120,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              183752
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.interrupt.disrupt:12940120:18",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "interrupt"
+            ],
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "demon-hunter.interrupt.disrupt",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 1,
+            "canonicalName": "Disrupt",
+            "fightOffsetMs": 93834,
+            "sourceActorId": 1,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 183752,
+            "rawTimestampMs": 13000294,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              183752
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.interrupt.disrupt:13000294:28",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "interrupt"
+            ],
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "ATTEMPT",
+            "abilityKey": "demon-hunter.interrupt.disrupt",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 1,
+            "canonicalName": "Disrupt",
+            "fightOffsetMs": 112106,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 183752,
+            "rawTimestampMs": 13018566,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              183752
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.interrupt.disrupt:13018566:34",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "demon-hunter.interrupt.disrupt",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 1,
+            "canonicalName": "Disrupt",
+            "fightOffsetMs": 136721,
+            "sourceActorId": 1,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 183752,
+            "rawTimestampMs": 13043181,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              183752
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.interrupt.disrupt:13043181:41",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "interrupt"
+            ],
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null
+          }
+        ],
+        "limitations": [],
+        "completeness": "COMPLETE",
+        "hostileCastEvents": [
+          {
+            "eventId": "HostileCasts:9528:12920374",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12920374,
+            "fightOffsetMs": 13914,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9529:12925650",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12925650,
+            "fightOffsetMs": 19190,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9530:12926462",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12926462,
+            "fightOffsetMs": 20002,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9531:12928002",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928002,
+            "fightOffsetMs": 21542,
+            "sourceActorId": -1,
+            "targetActorId": 103
+          },
+          {
+            "eventId": "HostileCasts:9532:12928018",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928018,
+            "fightOffsetMs": 21558,
+            "sourceActorId": -1,
+            "targetActorId": 3
+          }
+        ],
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_INTERRUPTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Interrupts"
+            ],
+            "requiredDatasets": [
+              "Interrupts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_DISPELS",
+            "limitations": [],
+            "presentDatasets": [
+              "Dispels"
+            ],
+            "requiredDatasets": [
+              "Dispels"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_CROWD_CONTROL",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Debuffs"
+            ],
+            "incompleteDatasets": [
+              "Debuffs"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_COMBAT_RES",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          }
+        ]
+      },
+      "keyLevel": 23,
+      "runScore": 530.67823863636,
+      "specSlug": "devourer",
+      "survival": {
+        "deaths": [
+          {
+            "deathEventId": "FX29tqHvg6AZPRWm:10:102:1:death:13317866:1",
+            "fightOffsetMs": 411406,
+            "sourceActorId": -1,
+            "rawTimestampMs": 13317866,
+            "evidenceEventId": "Deaths:9102:13317866",
+            "killingAbilityName": "Unknown Ability",
+            "participantActorId": 1,
+            "killingAbilitySpellId": 0,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:13317866:11"
+          }
+        ],
+        "limitations": [
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS",
+          "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+          "DATASET_TRUNCATED:Healing",
+          "MAX_HP_CONTEXT_UNAVAILABLE",
+          "STOP:MAX_PAGES",
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS",
+          "MAX_HP_CONTEXT_UNAVAILABLE"
+        ],
+        "completeness": "PARTIAL",
+        "activeCombatMs": 1124791,
+        "fightDurationMs": 1936275,
+        "pressureWindows": [
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [],
+              "defensivesBefore": [
+                "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.defensive-minor.blur:12927740:3"
+              ],
+              "defensivesDuring": [
+                "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.defensive-minor.blur:12947289:8"
+              ],
+              "noRecoveryResponse": true,
+              "externalDefensivesReceived": [],
+              "noPersonalDefensiveResponse": false
+            },
+            "derivation": {
+              "hitCount": 45,
+              "maxHpUsed": 521484,
+              "totalDamage": 1625496,
+              "windowEndMs": 12948656,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 140181,
+              "windowStartMs": 12930108,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:1835:12930108",
+                "DamageTaken:1836:12931104",
+                "DamageTaken:1837:12932119",
+                "DamageTaken:1838:12932644",
+                "DamageTaken:1839:12933108",
+                "DamageTaken:1840:12933658",
+                "DamageTaken:1841:12933673",
+                "DamageTaken:1842:12933673",
+                "DamageTaken:1843:12934652",
+                "DamageTaken:1844:12934663",
+                "DamageTaken:1845:12935101",
+                "DamageTaken:1846:12935647",
+                "DamageTaken:1847:12935647",
+                "DamageTaken:1848:12935647",
+                "DamageTaken:1849:12936662",
+                "DamageTaken:1850:12936663",
+                "DamageTaken:1851:12936663",
+                "DamageTaken:1852:12937650",
+                "DamageTaken:1853:12937650",
+                "DamageTaken:1854:12937650",
+                "DamageTaken:1855:12938643",
+                "DamageTaken:1856:12938660",
+                "DamageTaken:1857:12938660",
+                "DamageTaken:1858:12939649",
+                "DamageTaken:1859:12939665",
+                "DamageTaken:1860:12939665",
+                "DamageTaken:1861:12940644",
+                "DamageTaken:1862:12940657",
+                "DamageTaken:1863:12940657",
+                "DamageTaken:1864:12941455",
+                "DamageTaken:1865:12941649",
+                "DamageTaken:1866:12941664",
+                "DamageTaken:1867:12941664",
+                "DamageTaken:1868:12942449",
+                "DamageTaken:1869:12942647",
+                "DamageTaken:1870:12942660",
+                "DamageTaken:1871:12943438",
+                "DamageTaken:1872:12943650",
+                "DamageTaken:1873:12944452",
+                "DamageTaken:1874:12944638",
+                "DamageTaken:1875:12945452",
+                "DamageTaken:1876:12945665",
+                "DamageTaken:1877:12946456",
+                "DamageTaken:1878:12946654",
+                "DamageTaken:1879:12947656"
+              ],
+              "fightOffsetEndMs": 42196,
+              "rollingDamageSum": 1625496,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 23648,
+              "peakHitRatioOfMaxHp": 0.2688116989207723,
+              "sustainedByHitDensity": true,
+              "rollingDamageRatioOfMaxHp": 3.117058241480084,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Gueameu",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:12930108:1",
+            "participantActorId": 1
+          },
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [],
+              "defensivesBefore": [],
+              "defensivesDuring": [],
+              "noRecoveryResponse": true,
+              "externalDefensivesReceived": [],
+              "noPersonalDefensiveResponse": true
+            },
+            "derivation": {
+              "hitCount": 3,
+              "maxHpUsed": 521484,
+              "totalDamage": 217524,
+              "windowEndMs": 12967086,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 126508,
+              "windowStartMs": 12964081,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:1880:12964081",
+                "DamageTaken:1881:12965081",
+                "DamageTaken:1882:12966086"
+              ],
+              "fightOffsetEndMs": 60626,
+              "rollingDamageSum": 217524,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 57621,
+              "peakHitRatioOfMaxHp": 0.2425922942985787,
+              "sustainedByHitDensity": false,
+              "rollingDamageRatioOfMaxHp": 0.417124974112341,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Gueameu",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:12964081:2",
+            "participantActorId": 1
+          }
+        ],
+        "damageTakenTotal": 40682602,
+        "externalsReceived": [
+          {
+            "fightId": 10,
+            "abilityKey": "priest.external-defensive.pain-suppression",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Pain Suppression",
+            "casterActorId": 99,
+            "fightOffsetMs": 1557125,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": 1,
+            "activationKind": "EXTERNAL_DEFENSIVE_RECEIVED",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 33206,
+            "rawTimestampMs": 14463585,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "EXTERNAL_BUFF",
+            "evidenceEventIds": [
+              "Buffs:513:33206:14463585",
+              "Casts:1292:33206:14463585"
+            ],
+            "observedSpellIds": [
+              33206
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "EXTERNAL_RECEIVED",
+            "defensiveCategory": "EXTERNAL_DEFENSIVE",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "Gueameu",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:priest.external-defensive.pain-suppression:14463585:221",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": true,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:14457976:43",
+            "creditsSurvivalUsageToRecipient": false
+          }
+        ],
+        "activeHealingEvents": [],
+        "recoveryActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "shared.consumable.healing-potion",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Healing Potion",
+            "casterActorId": 1,
+            "fightOffsetMs": 272018,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "RECOVERY",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 431416,
+            "rawTimestampMs": 13178478,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "activationSource": "CAST",
+            "evidenceEventIds": [
+              "Casts:1799:1234768:13178478"
+            ],
+            "observedSpellIds": [
+              1234768
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "AFTER_PRESSURE_RECOVERY",
+            "defensiveCategory": "CONSUMABLE",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Gueameu",
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:shared.consumable.healing-potion:13178478:42",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:13171353:9",
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ],
+        "damageTakenEventCount": 1271,
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DAMAGE_TAKEN",
+            "limitations": [],
+            "presentDatasets": [
+              "DamageTaken"
+            ],
+            "requiredDatasets": [
+              "DamageTaken"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEATHS",
+            "limitations": [],
+            "presentDatasets": [
+              "Deaths"
+            ],
+            "requiredDatasets": [
+              "Deaths"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEFENSIVE_ACTIVATIONS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "INCOMPLETE",
+            "capability": "SURVIVAL_RECOVERY_ACTIVATIONS",
+            "limitations": [
+              "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+              "DATASET_TRUNCATED:Healing",
+              "STOP:MAX_PAGES"
+            ],
+            "presentDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "incompleteDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "PARTICIPANT_METADATA",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "requiredDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "ACTOR_OWNERSHIP",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData"
+            ],
+            "requiredDatasets": [
+              "masterData"
+            ],
+            "incompleteDatasets": []
+          }
+        ],
+        "personalDefensiveActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "shared.racial.shadowmeld",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Shadowmeld",
+            "casterActorId": 1,
+            "fightOffsetMs": 289072,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": 1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 58984,
+            "rawTimestampMs": 13195532,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:394:58984:13195530",
+              "Buffs:395:58984:13196379",
+              "Casts:1153:58984:13195532"
+            ],
+            "observedSpellIds": [
+              58984
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast",
+              "removebuff"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Gueameu",
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": "Gueameu",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:shared.racial.shadowmeld:13195532:44",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "demon-hunter.defensive-minor.blur",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Blur",
+            "casterActorId": 1,
+            "fightOffsetMs": 21280,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 198589,
+            "rawTimestampMs": 12927740,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "activationSource": "CAST",
+            "evidenceEventIds": [
+              "Casts:1326:198589:12927740"
+            ],
+            "observedSpellIds": [
+              198589
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "BEFORE_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Gueameu",
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.defensive-minor.blur:12927740:3",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:12930108:1",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "demon-hunter.defensive-minor.blur",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Blur",
+            "casterActorId": 1,
+            "fightOffsetMs": 40829,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 198589,
+            "rawTimestampMs": 12947289,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "activationSource": "CAST",
+            "evidenceEventIds": [
+              "Casts:1328:198589:12947289"
+            ],
+            "observedSpellIds": [
+              198589
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Gueameu",
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.defensive-minor.blur:12947289:8",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:12930108:1",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "demon-hunter.defensive-minor.blur",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Blur",
+            "casterActorId": 1,
+            "fightOffsetMs": 102806,
+            "sourceActorId": 1,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 198589,
+            "rawTimestampMs": 13009266,
+            "reportRevision": 102,
+            "sourceSpecSlug": "devourer",
+            "attributedToPet": false,
+            "sourceClassSlug": "demonhunter",
+            "activationSource": "CAST",
+            "evidenceEventIds": [
+              "Casts:1334:198589:13009266"
+            ],
+            "observedSpellIds": [
+              198589
+            ],
+            "recipientActorId": 1,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "participantActorId": 1,
+            "casterCharacterName": "Gueameu",
+            "sourceCharacterName": "Gueameu",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:1:demon-hunter.defensive-minor.blur:13009266:12",
+            "recipientCharacterName": "Gueameu",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:1:pw:13001653:3",
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ]
+      },
+      "classSlug": "demonhunter",
+      "createdAt": "2026-08-16T13:03:39.467Z",
+      "realmSlug": "kazzak",
+      "regionCode": "EU",
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "characterId": null,
+      "completedAt": "2026-07-10T14:57:31.571Z",
+      "contentHash": "29bf03e03b32d75c4ac745f92babd7e33d1433d8693a658d1220a2411c116124",
+      "dungeonSlug": "windrunner-spire",
+      "performance": {
+        "rawDps": null,
+        "partition": null,
+        "limitations": [
+          "ranking_parse_absent",
+          "no_offensive_activations"
+        ],
+        "completeness": "UNAVAILABLE",
+        "parseSemantic": "UNAVAILABLE",
+        "activeCombatMs": 1428269,
+        "parsePercentile": null,
+        "rankingProvenance": {
+          "source": "ABSENT",
+          "artifactId": null,
+          "contentHash": null,
+          "schemaVersion": "1.0.0",
+          "providerContractVersion": "wcl-ranking-parse-v1"
+        },
+        "activeCombatMethod": "hostile_cast_activity",
+        "offensiveActivations": []
+      },
+      "characterName": "Gueameu",
+      "schemaVersion": "participant-scoring-digest-v1",
+      "catalogVersion": "12.0.0/midnight-season-1",
+      "reportRevision": 102,
+      "loadoutEvidence": {
+        "source": "COMBATANT_INFO",
+        "raceSlug": null,
+        "evidenceState": "PRESENT",
+        "blizzardSpecId": 1480,
+        "talentSpellIds": [],
+        "raceEvidenceState": "UNKNOWN",
+        "talentTreeNodeIds": [
+          112838,
+          112839,
+          112841,
+          112844,
+          112845,
+          112846,
+          112847,
+          112848,
+          112849,
+          112851,
+          112852,
+          112853,
+          112859,
+          112862,
+          112863,
+          112918,
+          112919,
+          112921,
+          112925,
+          112926,
+          112927,
+          117755,
+          117758,
+          117759,
+          117762,
+          117767,
+          132278,
+          132280,
+          132281,
+          132282,
+          132283,
+          132284,
+          132285,
+          132286,
+          132287,
+          132288,
+          132289,
+          133106,
+          133107,
+          133110,
+          133370,
+          133511,
+          133512,
+          133538,
+          134149,
+          134251,
+          134272,
+          134280,
+          134330,
+          135659,
+          135660,
+          135661,
+          135662,
+          135663,
+          135664,
+          135665,
+          135667,
+          135669,
+          135670,
+          135671,
+          135672,
+          135673,
+          136131,
+          136501,
+          136502,
+          136690,
+          136691,
+          136693,
+          136697,
+          136699,
+          136810,
+          137014,
+          137015,
+          137016
+        ]
+      },
+      "ownedPetActorIds": [
+        5,
+        62,
+        63,
+        105,
+        237,
+        1306,
+        1317
+      ],
+      "participantActorId": 1,
+      "extractorCompatVersion": "participant-digest-extractors-v4",
+      "capabilityPackageArtifactId": "f79a4300-6946-4446-89fa-1755380a583f",
+      "capabilityPackageContentHash": "29ebf0dd91cbe159b84702237e7cc97cc2e26505c858266f96c5fa4a47a5d02c"
+    },
+    {
+      "role": null,
+      "timed": true,
+      "fightId": 10,
+      "utility": {
+        "actions": [
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "druid.movement-utility.dash",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 3,
+            "canonicalName": "Dash",
+            "fightOffsetMs": 8134,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": 3,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 1850,
+            "rawTimestampMs": 12914594,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "utilityCategory": "OTHER_UTILITY",
+            "observedSpellIds": [
+              1850
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:3:druid.movement-utility.dash:12914594:3",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": "Rain"
+          },
+          {
+            "fightId": 10,
+            "outcome": "ATTEMPT",
+            "abilityKey": "druid.interrupt.skull-bash",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 3,
+            "canonicalName": "Skull Bash",
+            "fightOffsetMs": 25505,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 106839,
+            "rawTimestampMs": 12931965,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              93985,
+              106839
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:3:druid.interrupt.skull-bash:12931965:11",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "druid.hard-cc.incapacitating-roar",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 3,
+            "canonicalName": "Incapacitating Roar",
+            "fightOffsetMs": 31846,
+            "sourceActorId": 3,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 99,
+            "rawTimestampMs": 12938306,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "utilityCategory": "STOP",
+            "observedSpellIds": [
+              99
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:3:druid.hard-cc.incapacitating-roar:12938306:14",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applydebuff",
+              "cast"
+            ],
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "druid.interrupt.skull-bash",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 3,
+            "canonicalName": "Skull Bash",
+            "fightOffsetMs": 85194,
+            "sourceActorId": 3,
+            "sourceDataset": "Interrupts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 106839,
+            "rawTimestampMs": 12991654,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              93985,
+              106839
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:3:druid.interrupt.skull-bash:12991654:25",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "interrupt"
+            ],
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "ATTEMPT",
+            "abilityKey": "druid.interrupt.skull-bash",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 3,
+            "canonicalName": "Skull Bash",
+            "fightOffsetMs": 101462,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": 108,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 106839,
+            "rawTimestampMs": 13007922,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "utilityCategory": "INTERRUPT",
+            "observedSpellIds": [
+              93985,
+              106839
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:3:druid.interrupt.skull-bash:13007922:32",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null
+          }
+        ],
+        "limitations": [],
+        "completeness": "COMPLETE",
+        "hostileCastEvents": [
+          {
+            "eventId": "HostileCasts:9528:12920374",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12920374,
+            "fightOffsetMs": 13914,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9529:12925650",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12925650,
+            "fightOffsetMs": 19190,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9530:12926462",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12926462,
+            "fightOffsetMs": 20002,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9531:12928002",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928002,
+            "fightOffsetMs": 21542,
+            "sourceActorId": -1,
+            "targetActorId": 103
+          },
+          {
+            "eventId": "HostileCasts:9532:12928018",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928018,
+            "fightOffsetMs": 21558,
+            "sourceActorId": -1,
+            "targetActorId": 3
+          }
+        ],
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_INTERRUPTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Interrupts"
+            ],
+            "requiredDatasets": [
+              "Interrupts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_DISPELS",
+            "limitations": [],
+            "presentDatasets": [
+              "Dispels"
+            ],
+            "requiredDatasets": [
+              "Dispels"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_CROWD_CONTROL",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Debuffs"
+            ],
+            "incompleteDatasets": [
+              "Debuffs"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_COMBAT_RES",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          }
+        ]
+      },
+      "keyLevel": 23,
+      "runScore": 530.67823863636,
+      "specSlug": "guardian",
+      "survival": {
+        "deaths": [],
+        "limitations": [
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS",
+          "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+          "DATASET_TRUNCATED:Healing",
+          "MAX_HP_CONTEXT_UNAVAILABLE",
+          "STOP:MAX_PAGES",
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS"
+        ],
+        "completeness": "PARTIAL",
+        "activeCombatMs": 1785780,
+        "fightDurationMs": 1936275,
+        "pressureWindows": [
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [],
+              "defensivesBefore": [],
+              "defensivesDuring": [
+                "FX29tqHvg6AZPRWm:10:102:3:druid.defensive-minor.barkskin:12921338:2"
+              ],
+              "noRecoveryResponse": true,
+              "externalDefensivesReceived": [
+                "FX29tqHvg6AZPRWm:10:102:3:evoker.external-defensive.rescue:12915940:1"
+              ],
+              "noPersonalDefensiveResponse": false
+            },
+            "derivation": {
+              "hitCount": 35,
+              "maxHpUsed": 838288,
+              "totalDamage": 1119610,
+              "windowEndMs": 12933512,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 214153,
+              "windowStartMs": 12920375,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:3106:12920375",
+                "DamageTaken:3107:12920375",
+                "DamageTaken:3108:12921384",
+                "DamageTaken:3109:12922079",
+                "DamageTaken:3110:12922382",
+                "DamageTaken:3111:12923393",
+                "DamageTaken:3112:12923913",
+                "DamageTaken:3113:12924096",
+                "DamageTaken:3114:12924381",
+                "DamageTaken:3115:12925385",
+                "DamageTaken:3116:12925784",
+                "DamageTaken:3117:12926093",
+                "DamageTaken:3118:12926406",
+                "DamageTaken:3119:12926917",
+                "DamageTaken:3120:12926968",
+                "DamageTaken:3121:12927384",
+                "DamageTaken:3122:12927679",
+                "DamageTaken:3123:12927679",
+                "DamageTaken:3124:12927931",
+                "DamageTaken:3125:12928102",
+                "DamageTaken:3126:12928375",
+                "DamageTaken:3127:12929379",
+                "DamageTaken:3128:12929709",
+                "DamageTaken:3129:12930389",
+                "DamageTaken:3130:12930519",
+                "DamageTaken:3131:12931151",
+                "DamageTaken:3132:12931354",
+                "DamageTaken:3133:12931511",
+                "DamageTaken:3134:12931572",
+                "DamageTaken:3135:12931572",
+                "DamageTaken:3136:12931693",
+                "DamageTaken:3137:12932034",
+                "DamageTaken:3138:12932080",
+                "DamageTaken:3139:12932160",
+                "DamageTaken:3140:12932512"
+              ],
+              "fightOffsetEndMs": 27052,
+              "rollingDamageSum": 1119610,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 13915,
+              "peakHitRatioOfMaxHp": 0.2554647090260149,
+              "sustainedByHitDensity": true,
+              "rollingDamageRatioOfMaxHp": 1.335591109499361,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Rain",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12920375:57",
+            "participantActorId": 3
+          },
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [],
+              "defensivesBefore": [],
+              "defensivesDuring": [],
+              "noRecoveryResponse": true,
+              "externalDefensivesReceived": [],
+              "noPersonalDefensiveResponse": true
+            },
+            "derivation": {
+              "hitCount": 89,
+              "maxHpUsed": 1124000,
+              "totalDamage": 1324270,
+              "windowEndMs": 12971624,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 85632,
+              "windowStartMs": 12940856,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:3173:12940856",
+                "DamageTaken:3174:12941012",
+                "DamageTaken:3175:12941085",
+                "DamageTaken:3176:12941177",
+                "DamageTaken:3177:12941291",
+                "DamageTaken:3178:12941579",
+                "DamageTaken:3179:12941850",
+                "DamageTaken:3180:12941897",
+                "DamageTaken:3181:12942089",
+                "DamageTaken:3182:12942115",
+                "DamageTaken:3183:12942411",
+                "DamageTaken:3184:12942843",
+                "DamageTaken:3185:12943027",
+                "DamageTaken:3186:12943062",
+                "DamageTaken:3187:12943183",
+                "DamageTaken:3188:12943266",
+                "DamageTaken:3189:12943598",
+                "DamageTaken:3190:12943855",
+                "DamageTaken:3191:12943993",
+                "DamageTaken:3192:12944097",
+                "DamageTaken:3193:12944122",
+                "DamageTaken:3194:12944824",
+                "DamageTaken:3195:12944847",
+                "DamageTaken:3196:12945004",
+                "DamageTaken:3197:12945060",
+                "DamageTaken:3198:12945181",
+                "DamageTaken:3199:12945275",
+                "DamageTaken:3200:12945596",
+                "DamageTaken:3201:12945845",
+                "DamageTaken:3202:12945912",
+                "DamageTaken:3203:12946093",
+                "DamageTaken:3204:12946105",
+                "DamageTaken:3205:12947186",
+                "DamageTaken:3206:12947289",
+                "DamageTaken:3207:12947616",
+                "DamageTaken:3208:12947890",
+                "DamageTaken:3209:12948700",
+                "DamageTaken:3210:12949109",
+                "DamageTaken:3211:12949123",
+                "DamageTaken:3212:12949290",
+                "DamageTaken:3213:12949903",
+                "DamageTaken:3214:12950116",
+                "DamageTaken:3215:12950190",
+                "DamageTaken:3216:12950799",
+                "DamageTaken:3217:12950910",
+                "DamageTaken:3218:12951100",
+                "DamageTaken:3219:12951118",
+                "DamageTaken:3220:12951286",
+                "DamageTaken:3221:12951916",
+                "DamageTaken:3222:12952111",
+                "DamageTaken:3223:12952185",
+                "DamageTaken:3224:12952914",
+                "DamageTaken:3225:12952914",
+                "DamageTaken:3226:12953103",
+                "DamageTaken:3227:12953130",
+                "DamageTaken:3228:12953290",
+                "DamageTaken:3229:12953929",
+                "DamageTaken:3230:12954145",
+                "DamageTaken:3231:12954229",
+                "DamageTaken:3232:12954926",
+                "DamageTaken:3233:12954951",
+                "DamageTaken:3234:12955107",
+                "DamageTaken:3235:12955138",
+                "DamageTaken:3236:12955297",
+                "DamageTaken:3237:12955933",
+                "DamageTaken:3238:12956123",
+                "DamageTaken:3239:12956336",
+                "DamageTaken:3240:12956943",
+                "DamageTaken:3241:12956956",
+                "DamageTaken:3242:12957132",
+                "DamageTaken:3243:12957144",
+                "DamageTaken:3244:12957334",
+                "DamageTaken:3245:12958132",
+                "DamageTaken:3253:12960541",
+                "DamageTaken:3254:12960936",
+                "DamageTaken:3255:12961150",
+                "DamageTaken:3256:12961638",
+                "DamageTaken:3257:12961720",
+                "DamageTaken:3258:12962138",
+                "DamageTaken:3259:12962344",
+                "DamageTaken:3260:12963167",
+                "DamageTaken:3261:12964061",
+                "DamageTaken:3262:12964285",
+                "DamageTaken:3263:12964335",
+                "DamageTaken:3264:12965286",
+                "DamageTaken:3265:12966428",
+                "DamageTaken:3266:12968611",
+                "DamageTaken:3267:12969621",
+                "DamageTaken:3268:12970624"
+              ],
+              "fightOffsetEndMs": 65164,
+              "rollingDamageSum": 1324270,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 34396,
+              "peakHitRatioOfMaxHp": 0.07618505338078292,
+              "sustainedByHitDensity": true,
+              "rollingDamageRatioOfMaxHp": 1.17817615658363,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Rain",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12940856:58",
+            "participantActorId": 3
+          }
+        ],
+        "damageTakenTotal": 105295914,
+        "externalsReceived": [
+          {
+            "fightId": 10,
+            "abilityKey": "evoker.external-defensive.rescue",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Rescue",
+            "casterActorId": 101,
+            "fightOffsetMs": 9480,
+            "sourceActorId": 101,
+            "sourceDataset": "Casts",
+            "targetActorId": 3,
+            "activationKind": "EXTERNAL_DEFENSIVE_RECEIVED",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 370665,
+            "rawTimestampMs": 12915940,
+            "reportRevision": 102,
+            "sourceSpecSlug": "augmentation",
+            "attributedToPet": false,
+            "sourceClassSlug": "evoker",
+            "activationSource": "EXTERNAL_BUFF",
+            "evidenceEventIds": [
+              "Casts:1432:370665:12915940",
+              "Debuffs:9115:370665:12915940"
+            ],
+            "observedSpellIds": [
+              370665
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "EXTERNAL_RECEIVED",
+            "defensiveCategory": "EXTERNAL_DEFENSIVE",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applydebuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "filthypiggie",
+            "sourceCharacterName": "filthypiggie",
+            "targetCharacterName": "Rain",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:evoker.external-defensive.rescue:12915940:1",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": true,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12920375:57",
+            "creditsSurvivalUsageToRecipient": false
+          }
+        ],
+        "activeHealingEvents": [],
+        "recoveryActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "druid.self-heal.frenzied-regeneration",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Frenzied Regeneration",
+            "casterActorId": 3,
+            "fightOffsetMs": 81034,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "RECOVERY",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 22842,
+            "rawTimestampMs": 12987494,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:15:22842:12987494",
+              "Casts:923:22842:12987494"
+            ],
+            "observedSpellIds": [
+              22842
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "AFTER_PRESSURE_RECOVERY",
+            "defensiveCategory": "SELF_HEAL",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:druid.self-heal.frenzied-regeneration:12987494:9",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12982704:59",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "druid.self-heal.frenzied-regeneration",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Frenzied Regeneration",
+            "casterActorId": 3,
+            "fightOffsetMs": 107026,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "RECOVERY",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 22842,
+            "rawTimestampMs": 13013486,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:20:22842:13013486",
+              "Casts:927:22842:13013486"
+            ],
+            "observedSpellIds": [
+              22842
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "AFTER_PRESSURE_RECOVERY",
+            "defensiveCategory": "SELF_HEAL",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:druid.self-heal.frenzied-regeneration:13013486:13",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:13006928:61",
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ],
+        "damageTakenEventCount": 4555,
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DAMAGE_TAKEN",
+            "limitations": [],
+            "presentDatasets": [
+              "DamageTaken"
+            ],
+            "requiredDatasets": [
+              "DamageTaken"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEATHS",
+            "limitations": [],
+            "presentDatasets": [
+              "Deaths"
+            ],
+            "requiredDatasets": [
+              "Deaths"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEFENSIVE_ACTIVATIONS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "INCOMPLETE",
+            "capability": "SURVIVAL_RECOVERY_ACTIVATIONS",
+            "limitations": [
+              "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+              "DATASET_TRUNCATED:Healing",
+              "STOP:MAX_PAGES"
+            ],
+            "presentDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "incompleteDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "PARTICIPANT_METADATA",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "requiredDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "ACTOR_OWNERSHIP",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData"
+            ],
+            "requiredDatasets": [
+              "masterData"
+            ],
+            "incompleteDatasets": []
+          }
+        ],
+        "personalDefensiveActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "shared.racial.shadowmeld",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Shadowmeld",
+            "casterActorId": 3,
+            "fightOffsetMs": 807429,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": 3,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 58984,
+            "rawTimestampMs": 13713889,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:448:58984:13713889",
+              "Buffs:449:58984:13715085",
+              "Casts:1204:58984:13713889"
+            ],
+            "observedSpellIds": [
+              58984
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast",
+              "removebuff"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": "Rain",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:shared.racial.shadowmeld:13713889:124",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:13708943:76",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "druid.defensive-minor.barkskin",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Barkskin",
+            "casterActorId": 3,
+            "fightOffsetMs": 14878,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 22812,
+            "rawTimestampMs": 12921338,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:2:22812:12921338",
+              "Casts:916:22812:12921338"
+            ],
+            "observedSpellIds": [
+              22812
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:druid.defensive-minor.barkskin:12921338:2",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12920375:57",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "druid.defensive-minor.barkskin",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Barkskin",
+            "casterActorId": 3,
+            "fightOffsetMs": 94616,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 22812,
+            "rawTimestampMs": 13001076,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:18:22812:13001076",
+              "Casts:925:22812:13001076"
+            ],
+            "observedSpellIds": [
+              22812
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:druid.defensive-minor.barkskin:13001076:11",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:12996534:60",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "druid.defensive-minor.barkskin",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Barkskin",
+            "casterActorId": 3,
+            "fightOffsetMs": 152992,
+            "sourceActorId": 3,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 22812,
+            "rawTimestampMs": 13059452,
+            "reportRevision": 102,
+            "sourceSpecSlug": "guardian",
+            "attributedToPet": false,
+            "sourceClassSlug": "druid",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:23:22812:13059452",
+              "Casts:929:22812:13059452"
+            ],
+            "observedSpellIds": [
+              22812
+            ],
+            "recipientActorId": 3,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 3,
+            "casterCharacterName": "Rain",
+            "sourceCharacterName": "Rain",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:3:druid.defensive-minor.barkskin:13059452:17",
+            "recipientCharacterName": "Rain",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:3:pw:13043959:62",
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ]
+      },
+      "classSlug": "druid",
+      "createdAt": "2026-08-16T13:03:39.467Z",
+      "realmSlug": "kazzak",
+      "regionCode": "EU",
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "characterId": null,
+      "completedAt": "2026-07-10T14:57:31.571Z",
+      "contentHash": "c6bb68752d235526e690ce33f1955f514480bba23d2f21c4cf67400a79df2af5",
+      "dungeonSlug": "windrunner-spire",
+      "performance": {
+        "rawDps": null,
+        "partition": null,
+        "limitations": [
+          "ranking_parse_absent"
+        ],
+        "completeness": "UNAVAILABLE",
+        "parseSemantic": "UNAVAILABLE",
+        "activeCombatMs": 1428269,
+        "parsePercentile": null,
+        "rankingProvenance": {
+          "source": "ABSENT",
+          "artifactId": null,
+          "contentHash": null,
+          "schemaVersion": "1.0.0",
+          "providerContractVersion": "wcl-ranking-parse-v1"
+        },
+        "activeCombatMethod": "hostile_cast_activity",
+        "offensiveActivations": [
+          {
+            "timestampMs": 12925129,
+            "activationId": "druid.offensive.incarnation-guardian-of-ursoc:12925129:Casts:7:12925129:102558",
+            "canonicalKey": "druid.offensive.incarnation-guardian-of-ursoc",
+            "fightOffsetMs": 18669,
+            "targetActorId": -1,
+            "primarySpellId": 102558,
+            "observedSpellIds": [
+              102558
+            ],
+            "contributingSpellIds": [
+              102558,
+              102558
+            ],
+            "rawMatchedEventCount": 2
+          },
+          {
+            "timestampMs": 13071712,
+            "activationId": "druid.offensive.incarnation-guardian-of-ursoc:13071712:Casts:113:13071712:102558",
+            "canonicalKey": "druid.offensive.incarnation-guardian-of-ursoc",
+            "fightOffsetMs": 165252,
+            "targetActorId": -1,
+            "primarySpellId": 102558,
+            "observedSpellIds": [
+              102558
+            ],
+            "contributingSpellIds": [
+              102558,
+              102558
+            ],
+            "rawMatchedEventCount": 2
+          }
+        ]
+      },
+      "characterName": "Rain",
+      "schemaVersion": "participant-scoring-digest-v1",
+      "catalogVersion": "12.0.0/midnight-season-1",
+      "reportRevision": 102,
+      "loadoutEvidence": {
+        "source": "COMBATANT_INFO",
+        "raceSlug": null,
+        "evidenceState": "PRESENT",
+        "blizzardSpecId": 104,
+        "talentSpellIds": [],
+        "raceEvidenceState": "UNKNOWN",
+        "talentTreeNodeIds": [
+          103190,
+          103191,
+          103193,
+          103195,
+          103198,
+          103199,
+          103201,
+          103203,
+          103205,
+          103206,
+          103209,
+          103210,
+          103212,
+          103213,
+          103214,
+          103215,
+          103216,
+          103221,
+          103223,
+          103225,
+          103226,
+          103228,
+          103229,
+          103231,
+          103276,
+          103277,
+          103284,
+          103287,
+          103292,
+          103296,
+          103297,
+          103298,
+          103301,
+          103303,
+          103305,
+          103306,
+          103307,
+          103308,
+          103309,
+          103311,
+          103312,
+          103313,
+          103314,
+          103316,
+          103318,
+          103320,
+          103322,
+          114300,
+          114700,
+          114701,
+          117176,
+          117177,
+          117179,
+          117181,
+          117183,
+          117190,
+          117192,
+          117193,
+          117204,
+          117205,
+          117769,
+          123295,
+          123794,
+          123795,
+          123796,
+          128580,
+          128581,
+          128584,
+          128586,
+          128589,
+          128591,
+          135488,
+          135491,
+          135568,
+          135976,
+          135977,
+          135978,
+          136806
+        ]
+      },
+      "ownedPetActorIds": [
+        32
+      ],
+      "participantActorId": 3,
+      "extractorCompatVersion": "participant-digest-extractors-v4",
+      "capabilityPackageArtifactId": "f79a4300-6946-4446-89fa-1755380a583f",
+      "capabilityPackageContentHash": "29ebf0dd91cbe159b84702237e7cc97cc2e26505c858266f96c5fa4a47a5d02c"
+    },
+    {
+      "role": null,
+      "timed": true,
+      "fightId": 10,
+      "utility": {
+        "actions": [
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "priest.movement-utility.angelic-feather",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 99,
+            "canonicalName": "Angelic Feather",
+            "fightOffsetMs": 7970,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": null,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 121536,
+            "rawTimestampMs": 12914430,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "utilityCategory": "OTHER_UTILITY",
+            "observedSpellIds": [
+              121536
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:99:priest.movement-utility.angelic-feather:12914430:2",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "priest.movement-utility.angelic-feather",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 99,
+            "canonicalName": "Angelic Feather",
+            "fightOffsetMs": 14525,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": null,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 121536,
+            "rawTimestampMs": 12920985,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "utilityCategory": "OTHER_UTILITY",
+            "observedSpellIds": [
+              121536
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:99:priest.movement-utility.angelic-feather:12920985:6",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast"
+            ],
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "priest.group-utility.power-infusion",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 99,
+            "canonicalName": "Power Infusion",
+            "fightOffsetMs": 24546,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": 101,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 10060,
+            "rawTimestampMs": 12931006,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "utilityCategory": "OTHER_UTILITY",
+            "observedSpellIds": [
+              10060
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:99:priest.group-utility.power-infusion:12931006:9",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "filthypiggie"
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "priest.group-utility.power-infusion",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 99,
+            "canonicalName": "Power Infusion",
+            "fightOffsetMs": 24566,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": 99,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 10060,
+            "rawTimestampMs": 12931026,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "utilityCategory": "OTHER_UTILITY",
+            "observedSpellIds": [
+              10060
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:99:priest.group-utility.power-infusion:12931026:10",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "Liiripom"
+          },
+          {
+            "fightId": 10,
+            "outcome": "SUCCESS",
+            "abilityKey": "priest.dispel.purify",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "dungeonSlug": "windrunner-spire",
+            "limitations": [],
+            "ownerActorId": 99,
+            "canonicalName": "Purify",
+            "fightOffsetMs": 27562,
+            "sourceActorId": 99,
+            "sourceDataset": "Dispels",
+            "targetActorId": 99,
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 527,
+            "rawTimestampMs": 12934022,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "utilityCategory": "DEFENSIVE_DISPEL",
+            "observedSpellIds": [
+              527
+            ],
+            "canonicalActionId": "FX29tqHvg6AZPRWm:10:102:99:priest.dispel.purify:12934022:12",
+            "normalizerVersion": "utility-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "cast",
+              "dispel"
+            ],
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "Liiripom"
+          }
+        ],
+        "limitations": [],
+        "completeness": "COMPLETE",
+        "hostileCastEvents": [
+          {
+            "eventId": "HostileCasts:9528:12920374",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12920374,
+            "fightOffsetMs": 13914,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9529:12925650",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12925650,
+            "fightOffsetMs": 19190,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9530:12926462",
+            "spellId": 1216135,
+            "eventType": "begincast",
+            "timestampMs": 12926462,
+            "fightOffsetMs": 20002,
+            "sourceActorId": 108,
+            "targetActorId": -1
+          },
+          {
+            "eventId": "HostileCasts:9531:12928002",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928002,
+            "fightOffsetMs": 21542,
+            "sourceActorId": -1,
+            "targetActorId": 103
+          },
+          {
+            "eventId": "HostileCasts:9532:12928018",
+            "spellId": 145629,
+            "eventType": "cast",
+            "timestampMs": 12928018,
+            "fightOffsetMs": 21558,
+            "sourceActorId": -1,
+            "targetActorId": 3
+          }
+        ],
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_INTERRUPTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Interrupts"
+            ],
+            "requiredDatasets": [
+              "Interrupts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_DISPELS",
+            "limitations": [],
+            "presentDatasets": [
+              "Dispels"
+            ],
+            "requiredDatasets": [
+              "Dispels"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_CROWD_CONTROL",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Debuffs"
+            ],
+            "incompleteDatasets": [
+              "Debuffs"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_COMBAT_RES",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts"
+            ],
+            "requiredDatasets": [
+              "Casts"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          }
+        ]
+      },
+      "keyLevel": 23,
+      "runScore": 530.67823863636,
+      "specSlug": "discipline",
+      "survival": {
+        "deaths": [],
+        "limitations": [
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS",
+          "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+          "DATASET_TRUNCATED:Healing",
+          "MAX_HP_CONTEXT_UNAVAILABLE",
+          "STOP:MAX_PAGES",
+          "CAPABILITY_INCOMPLETE:SURVIVAL_RECOVERY_ACTIVATIONS"
+        ],
+        "completeness": "PARTIAL",
+        "activeCombatMs": 945033,
+        "fightDurationMs": 1936275,
+        "pressureWindows": [
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [
+                "FX29tqHvg6AZPRWm:10:102:99:priest.self-heal.desperate-prayer:12933051:5"
+              ],
+              "defensivesBefore": [],
+              "defensivesDuring": [
+                "FX29tqHvg6AZPRWm:10:102:99:priest.defensive-minor.fade:12944583:6"
+              ],
+              "noRecoveryResponse": false,
+              "externalDefensivesReceived": [],
+              "noPersonalDefensiveResponse": false
+            },
+            "derivation": {
+              "hitCount": 17,
+              "maxHpUsed": 519527,
+              "totalDamage": 1501112,
+              "windowEndMs": 12949935,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 155957,
+              "windowStartMs": 12930305,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:7661:12930305",
+                "DamageTaken:7662:12931310",
+                "DamageTaken:7663:12932315",
+                "DamageTaken:7664:12932644",
+                "DamageTaken:7665:12933308",
+                "DamageTaken:7666:12933658",
+                "DamageTaken:7667:12934314",
+                "DamageTaken:7668:12935296",
+                "DamageTaken:7669:12937699",
+                "DamageTaken:7670:12938712",
+                "DamageTaken:7671:12941255",
+                "DamageTaken:7672:12942248",
+                "DamageTaken:7673:12943266",
+                "DamageTaken:7674:12944246",
+                "DamageTaken:7675:12945251",
+                "DamageTaken:7676:12946251",
+                "DamageTaken:7677:12948935"
+              ],
+              "fightOffsetEndMs": 43475,
+              "rollingDamageSum": 1501112,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 23845,
+              "peakHitRatioOfMaxHp": 0.3001903654670499,
+              "sustainedByHitDensity": true,
+              "rollingDamageRatioOfMaxHp": 2.88938207253906,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Liiripom",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:99:pw:12930305:106",
+            "participantActorId": 99
+          },
+          {
+            "response": {
+              "deathEventIds": [],
+              "recoveryAfter": [],
+              "defensivesBefore": [],
+              "defensivesDuring": [],
+              "noRecoveryResponse": true,
+              "externalDefensivesReceived": [],
+              "noPersonalDefensiveResponse": true
+            },
+            "derivation": {
+              "hitCount": 3,
+              "maxHpUsed": 519527,
+              "totalDamage": 199620,
+              "windowEndMs": 12966883,
+              "configVersion": "survival-one-fight-pressure-config-v1",
+              "peakHitDamage": 147289,
+              "windowStartMs": 12963898,
+              "rollingWindowMs": 5000,
+              "evidenceEventIds": [
+                "DamageTaken:7679:12963898",
+                "DamageTaken:7680:12964882",
+                "DamageTaken:7681:12965883"
+              ],
+              "fightOffsetEndMs": 60423,
+              "rollingDamageSum": 199620,
+              "derivationVersion": "pressure-window-derivation-v1",
+              "fightOffsetStartMs": 57438,
+              "peakHitRatioOfMaxHp": 0.2835059583043807,
+              "sustainedByHitDensity": false,
+              "rollingDamageRatioOfMaxHp": 0.3842341206520546,
+              "isolatedByLowAbsoluteDamage": false,
+              "sustainedByRollingThreshold": true
+            },
+            "limitations": [
+              "SOME_DAMAGE_AMOUNTS_MISSING_OR_ZERO"
+            ],
+            "windowClass": "SUSTAINED_PRESSURE",
+            "characterName": "Liiripom",
+            "pressureWindowId": "FX29tqHvg6AZPRWm:10:102:99:pw:12963898:107",
+            "participantActorId": 99
+          }
+        ],
+        "damageTakenTotal": 23057925,
+        "externalsReceived": [
+          {
+            "fightId": 10,
+            "abilityKey": "evoker.external-defensive.rescue",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Rescue",
+            "casterActorId": 101,
+            "fightOffsetMs": 805110,
+            "sourceActorId": 101,
+            "sourceDataset": "Casts",
+            "targetActorId": 99,
+            "activationKind": "EXTERNAL_DEFENSIVE_RECEIVED",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 370665,
+            "rawTimestampMs": 13711570,
+            "reportRevision": 102,
+            "sourceSpecSlug": "augmentation",
+            "attributedToPet": false,
+            "sourceClassSlug": "evoker",
+            "activationSource": "EXTERNAL_BUFF",
+            "evidenceEventIds": [
+              "Casts:1603:370665:13711570",
+              "Debuffs:9117:370665:13711570"
+            ],
+            "observedSpellIds": [
+              370665
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "EXTERNAL_DEFENSIVE",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applydebuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "filthypiggie",
+            "sourceCharacterName": "filthypiggie",
+            "targetCharacterName": "Liiripom",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:evoker.external-defensive.rescue:13711570:123",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": true,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": false
+          }
+        ],
+        "activeHealingEvents": [],
+        "recoveryActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "priest.self-heal.desperate-prayer",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Desperate Prayer",
+            "casterActorId": 99,
+            "fightOffsetMs": 26591,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "RECOVERY",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 19236,
+            "rawTimestampMs": 12933051,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:8:19236:12933051",
+              "Casts:919:19236:12933051"
+            ],
+            "observedSpellIds": [
+              19236
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "AFTER_PRESSURE_RECOVERY",
+            "defensiveCategory": "SELF_HEAL",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:priest.self-heal.desperate-prayer:12933051:5",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:99:pw:12930305:106",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "priest.self-heal.desperate-prayer",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Desperate Prayer",
+            "casterActorId": 99,
+            "fightOffsetMs": 205328,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "RECOVERY",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 19236,
+            "rawTimestampMs": 13111788,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:38:19236:13111788",
+              "Casts:939:19236:13111788"
+            ],
+            "observedSpellIds": [
+              19236
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "SELF_HEAL",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:priest.self-heal.desperate-prayer:13111788:31",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ],
+        "damageTakenEventCount": 461,
+        "capabilityCompleteness": [
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DAMAGE_TAKEN",
+            "limitations": [],
+            "presentDatasets": [
+              "DamageTaken"
+            ],
+            "requiredDatasets": [
+              "DamageTaken"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEATHS",
+            "limitations": [],
+            "presentDatasets": [
+              "Deaths"
+            ],
+            "requiredDatasets": [
+              "Deaths"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "SURVIVAL_DEFENSIVE_ACTIVATIONS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "INCOMPLETE",
+            "capability": "SURVIVAL_RECOVERY_ACTIVATIONS",
+            "limitations": [
+              "DATASET_INCOMPLETE:Healing:MAX_PAGES",
+              "DATASET_TRUNCATED:Healing",
+              "STOP:MAX_PAGES"
+            ],
+            "presentDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ],
+            "incompleteDatasets": [
+              "Casts",
+              "Buffs",
+              "Healing"
+            ]
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_CASTS",
+            "limitations": [],
+            "presentDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Casts",
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "UTILITY_EXTERNAL_TARGET_CONTEXT",
+            "limitations": [],
+            "presentDatasets": [
+              "Buffs"
+            ],
+            "requiredDatasets": [
+              "Buffs"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "PARTICIPANT_METADATA",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "requiredDatasets": [
+              "masterData",
+              "CombatantInfo"
+            ],
+            "incompleteDatasets": []
+          },
+          {
+            "status": "COMPLETE",
+            "capability": "ACTOR_OWNERSHIP",
+            "limitations": [],
+            "presentDatasets": [
+              "masterData"
+            ],
+            "requiredDatasets": [
+              "masterData"
+            ],
+            "incompleteDatasets": []
+          }
+        ],
+        "personalDefensiveActivations": [
+          {
+            "fightId": 10,
+            "abilityKey": "shared.racial.shadowmeld",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Shadowmeld",
+            "casterActorId": 99,
+            "fightOffsetMs": 263425,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": 99,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 58984,
+            "rawTimestampMs": 13169885,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:391:58984:13169885",
+              "Buffs:392:58984:13170128",
+              "Casts:1151:58984:13169885"
+            ],
+            "observedSpellIds": [
+              58984
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast",
+              "removebuff"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "Liiripom",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:shared.racial.shadowmeld:13169885:40",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "shared.racial.shadowmeld",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Shadowmeld",
+            "casterActorId": 99,
+            "fightOffsetMs": 1356012,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": 99,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 58984,
+            "rawTimestampMs": 14262472,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:497:58984:14262472",
+              "Buffs:498:58984:14262712",
+              "Casts:1278:58984:14262472"
+            ],
+            "observedSpellIds": [
+              58984
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast",
+              "removebuff"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": "Liiripom",
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:shared.racial.shadowmeld:14262472:201",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "priest.defensive-minor.fade",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Fade",
+            "casterActorId": 99,
+            "fightOffsetMs": 38123,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 586,
+            "rawTimestampMs": 12944583,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:11:586:12944583",
+              "Casts:922:586:12944583"
+            ],
+            "observedSpellIds": [
+              586
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:priest.defensive-minor.fade:12944583:6",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:99:pw:12930305:106",
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "priest.defensive-minor.fade",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Fade",
+            "casterActorId": 99,
+            "fightOffsetMs": 92905,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 586,
+            "rawTimestampMs": 12999365,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:17:586:12999365",
+              "Casts:924:586:12999365"
+            ],
+            "observedSpellIds": [
+              586
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "UNRELATED",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:priest.defensive-minor.fade:12999365:10",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": null,
+            "creditsSurvivalUsageToRecipient": true
+          },
+          {
+            "fightId": 10,
+            "abilityKey": "priest.defensive-minor.fade",
+            "petActorId": null,
+            "reportCode": "FX29tqHvg6AZPRWm",
+            "limitations": [],
+            "canonicalName": "Fade",
+            "casterActorId": 99,
+            "fightOffsetMs": 155363,
+            "sourceActorId": 99,
+            "sourceDataset": "Casts",
+            "targetActorId": -1,
+            "activationKind": "PERSONAL_DEFENSIVE",
+            "catalogVersion": "12.0.0/midnight-season-1",
+            "primarySpellId": 586,
+            "rawTimestampMs": 13061823,
+            "reportRevision": 102,
+            "sourceSpecSlug": "discipline",
+            "attributedToPet": false,
+            "sourceClassSlug": "priest",
+            "activationSource": "CAST_AND_BUFF",
+            "evidenceEventIds": [
+              "Buffs:24:586:13061823",
+              "Casts:930:586:13061823"
+            ],
+            "observedSpellIds": [
+              586
+            ],
+            "recipientActorId": 99,
+            "responseRelation": "DURING_PRESSURE",
+            "defensiveCategory": "DEFENSIVE_MINOR",
+            "normalizerVersion": "survival-action-normalizer-v1",
+            "evidenceEventTypes": [
+              "applybuff",
+              "cast"
+            ],
+            "participantActorId": 99,
+            "casterCharacterName": "Liiripom",
+            "sourceCharacterName": "Liiripom",
+            "targetCharacterName": null,
+            "canonicalActivationId": "FX29tqHvg6AZPRWm:10:102:99:priest.defensive-minor.fade:13061823:18",
+            "recipientCharacterName": "Liiripom",
+            "creditsCasterForUtility": false,
+            "relatedPressureWindowId": "FX29tqHvg6AZPRWm:10:102:99:pw:13057428:110",
+            "creditsSurvivalUsageToRecipient": true
+          }
+        ]
+      },
+      "classSlug": "priest",
+      "createdAt": "2026-08-16T13:03:39.467Z",
+      "realmSlug": "silvermoon",
+      "regionCode": "EU",
+      "reportCode": "FX29tqHvg6AZPRWm",
+      "characterId": null,
+      "completedAt": "2026-07-10T14:57:31.571Z",
+      "contentHash": "27f88f0100738c49c1e4fb12fe6409e0bbf4a9a3c14e7d0ef92ddbde65b2b353",
+      "dungeonSlug": "windrunner-spire",
+      "performance": {
+        "rawDps": null,
+        "partition": null,
+        "limitations": [
+          "ranking_parse_absent"
+        ],
+        "completeness": "UNAVAILABLE",
+        "parseSemantic": "UNAVAILABLE",
+        "activeCombatMs": 1428269,
+        "parsePercentile": null,
+        "rankingProvenance": {
+          "source": "ABSENT",
+          "artifactId": null,
+          "contentHash": null,
+          "schemaVersion": "1.0.0",
+          "providerContractVersion": "wcl-ranking-parse-v1"
+        },
+        "activeCombatMethod": "hostile_cast_activity",
+        "offensiveActivations": [
+          {
+            "timestampMs": 12931006,
+            "activationId": "priest.group-utility.power-infusion:12931006:Casts:15:12931006:10060",
+            "canonicalKey": "priest.group-utility.power-infusion",
+            "fightOffsetMs": 24546,
+            "targetActorId": 101,
+            "primarySpellId": 10060,
+            "observedSpellIds": [
+              10060
+            ],
+            "contributingSpellIds": [
+              10060,
+              10060,
+              10060,
+              10060
+            ],
+            "rawMatchedEventCount": 4
+          },
+          {
+            "timestampMs": 13077411,
+            "activationId": "priest.group-utility.power-infusion:13077411:Casts:120:13077411:10060",
+            "canonicalKey": "priest.group-utility.power-infusion",
+            "fightOffsetMs": 170951,
+            "targetActorId": 101,
+            "primarySpellId": 10060,
+            "observedSpellIds": [
+              10060
+            ],
+            "contributingSpellIds": [
+              10060,
+              10060,
+              10060,
+              10060
+            ],
+            "rawMatchedEventCount": 4
+          }
+        ]
+      },
+      "characterName": "Liiripom",
+      "schemaVersion": "participant-scoring-digest-v1",
+      "catalogVersion": "12.0.0/midnight-season-1",
+      "reportRevision": 102,
+      "loadoutEvidence": {
+        "source": "COMBATANT_INFO",
+        "raceSlug": null,
+        "evidenceState": "PRESENT",
+        "blizzardSpecId": 256,
+        "talentSpellIds": [],
+        "raceEvidenceState": "UNKNOWN",
+        "talentTreeNodeIds": [
+          103677,
+          103678,
+          103688,
+          103692,
+          103695,
+          103696,
+          103697,
+          103698,
+          103700,
+          103702,
+          103704,
+          103705,
+          103706,
+          103708,
+          103709,
+          103713,
+          103714,
+          103717,
+          103718,
+          103721,
+          103722,
+          103723,
+          103724,
+          103726,
+          103727,
+          103729,
+          103731,
+          103732,
+          103818,
+          103821,
+          103823,
+          103825,
+          103833,
+          103834,
+          103835,
+          103836,
+          103837,
+          103840,
+          103841,
+          103843,
+          103846,
+          103847,
+          103851,
+          103852,
+          103853,
+          103864,
+          103865,
+          103867,
+          103868,
+          103869,
+          115884,
+          116182,
+          117276,
+          117277,
+          117282,
+          117286,
+          117290,
+          117292,
+          117293,
+          117294,
+          117301,
+          117303,
+          119331,
+          123290,
+          134284,
+          134844,
+          134845,
+          134846,
+          134849,
+          134859,
+          136039,
+          136040,
+          136041,
+          136157,
+          136996,
+          136997,
+          136998
+        ]
+      },
+      "ownedPetActorIds": [
+        102,
+        119
+      ],
+      "participantActorId": 99,
+      "extractorCompatVersion": "participant-digest-extractors-v4",
+      "capabilityPackageArtifactId": "f79a4300-6946-4446-89fa-1755380a583f",
+      "capabilityPackageContentHash": "29ebf0dd91cbe159b84702237e7cc97cc2e26505c858266f96c5fa4a47a5d02c"
+    }
+  ]
+}

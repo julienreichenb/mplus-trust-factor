@@ -7,6 +7,7 @@ import {
   canonicalRoleForClassSpec,
   getApplicableAbilityCategories,
   resolveAbilityCatalog,
+  type AbilityCatalogContext,
   type AbilityRole,
   type ApplicableCategoryResult,
 } from "@mplus/abilities";
@@ -35,6 +36,8 @@ export interface ResolveUtilityToolkitInput {
   includeRacials?: boolean;
   /** Families with observed usage — promote uncertain/not_applicable to applicable. */
   observedFamilies?: Partial<Record<UtilityV2FamilyKey, boolean>>;
+  /** Optional catalog context (replay). Default = static registry. */
+  catalog?: AbilityCatalogContext;
 }
 
 export interface ResolveUtilityToolkitResult {
@@ -128,13 +131,21 @@ export function resolveUtilityToolkitFromCatalog(
     };
   }
 
-  const resolved = resolveAbilityCatalog({
-    classSlug,
-    specSlug,
-    role,
-    includeShared: true,
-    includeRacials: input.includeRacials ?? true,
-  });
+  const resolved = input.catalog
+    ? input.catalog.resolveCatalog({
+        classSlug,
+        specSlug,
+        role,
+        includeShared: true,
+        includeRacials: input.includeRacials ?? true,
+      })
+    : resolveAbilityCatalog({
+        classSlug,
+        specSlug,
+        role,
+        includeShared: true,
+        includeRacials: input.includeRacials ?? true,
+      });
 
   if (!resolved.ok) {
     const families = emptyFamilyApplicability(
@@ -171,6 +182,7 @@ export function resolveUtilityToolkitFromCatalog(
     observedSpellIds: input.observedSpellIds,
     raceSlug: input.raceSlug,
     includeRacials: input.includeRacials ?? true,
+    catalog: input.catalog,
   });
 
   const byCategory = new Map(categoryResults.map((r) => [r.category, r]));

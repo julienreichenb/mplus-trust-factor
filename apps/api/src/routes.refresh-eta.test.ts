@@ -7,12 +7,13 @@ import type { PrismaClient } from "@mplus/database";
 import {
   clearSeasonAuthorityCacheForTests,
   resolveActiveRefreshContract,
+  resolveEnqueueAbilityCatalogExecutionPin,
   seedRefreshEligibilityEvidenceForTest,
   synchronizeSeasonAuthority,
 } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
+import { buildTestEnv, createTestPrismaClient, ensureActiveBootstrapCatalogReleaseForTests, uniqueName } from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 
@@ -29,6 +30,7 @@ describe.skipIf(!dbAvailable)("refresh-status ETA fields", { timeout: 30_000 }, 
 
     beforeAll(async () => {
       clearSeasonAuthorityCacheForTests();
+      await ensureActiveBootstrapCatalogReleaseForTests(prisma);
       const env = buildTestEnv({ REFRESH_ETA_ENABLED: "false" });
       container = createApiContainer(env, {
         workerOverrides: { prisma: prisma as PrismaClient },
@@ -79,6 +81,7 @@ describe.skipIf(!dbAvailable)("refresh-status ETA fields", { timeout: 30_000 }, 
 
     beforeAll(async () => {
       clearSeasonAuthorityCacheForTests();
+      await ensureActiveBootstrapCatalogReleaseForTests(prisma);
       const env = buildTestEnv({ REFRESH_ETA_ENABLED: "true" });
       container = createApiContainer(env, {
         workerOverrides: { prisma: prisma as PrismaClient },
@@ -100,12 +103,16 @@ describe.skipIf(!dbAvailable)("refresh-status ETA fields", { timeout: 30_000 }, 
           { forceRefresh: true },
         );
         verifiedSeasonId = authority.blizzardSeasonId;
+        const catalogPin = await resolveEnqueueAbilityCatalogExecutionPin({
+          prisma: container.worker.prisma,
+        });
         verifiedContractHash = resolveActiveRefreshContract({
           scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
           scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
           activeSeasonId: authority.slug,
           providerMode: env.PROVIDER_MODE,
           env: process.env,
+          abilityCatalogExecutionPin: catalogPin,
         }).hash;
       }
       void verifiedContractHash;

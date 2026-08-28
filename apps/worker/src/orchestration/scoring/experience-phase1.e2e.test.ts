@@ -45,6 +45,8 @@ const refreshContract = {
   raiderIoAdapterVersion: "raiderio-v1",
   runSelectionVersion: "active-season-eight-v1",
   abilityCatalogVersion: "abilities-v1",
+
+  abilityCatalogExecutionKey: "static:abilities-v1",
   mechanicCatalogVersion: "mechanics-v1",
   activeSeasonId: "blizzard-season-15",
   zoneId: 47 as number | null,

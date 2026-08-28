@@ -38,6 +38,7 @@ import {
   pickEarliestActiveRefreshJob,
   supersedeDuplicateRefreshJob,
   resolveActiveRefreshContract,
+  resolveEnqueueAbilityCatalogExecutionPin,
   SeasonAuthorityUnavailableError,
   resolveEffectiveScoringSeason,
   resolveScoringCatalogDiscoverer,
@@ -48,6 +49,8 @@ import {
   type RefreshJobControlDeps,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
+import { AbilityCatalogPinError } from "@mplus/contracts";
+import { HttpError } from "../errors.js";
 import {
   projectCanonicalDungeonEvidence,
   parsePersistedCanonicalEvidenceSlots,
@@ -57,7 +60,6 @@ import {
   selectExactCanonicalRunDigest,
 } from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
-import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining } from "../lib/freshness.js";
 import {
   mapCharacterProfile,
@@ -463,17 +465,30 @@ export class CharacterService {
         key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
         version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
       };
+    let abilityCatalogExecutionPin;
+    try {
+      abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+        prisma: this.container.worker.prisma,
+      });
+    } catch (err) {
+      if (err instanceof AbilityCatalogPinError) {
+        throw HttpError.conflict(err.code, err.message);
+      }
+      throw err;
+    }
     const resolved = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
       activeSeasonId: effective.activeSeasonId,
       providerMode: this.container.env.PROVIDER_MODE,
       zoneId: effective.wclZoneId,
+      abilityCatalogExecutionPin,
     });
     return {
       contract: resolved.contract,
       hash: resolved.hash,
       activeModel: { key: activeModel.key, version: activeModel.version },
+      abilityCatalogExecutionPin,
       effective,
       /** Compatibility: effective season identity for enqueue TOCTOU / job payload. */
       authority: {
@@ -515,7 +530,7 @@ export class CharacterService {
       return resolved;
     };
 
-    let { hash, contract, authority, effective } = await buildOnce();
+    let { hash, contract, authority, effective, abilityCatalogExecutionPin } = await buildOnce();
 
     // TOCTOU: if effective scoring season moved between resolve and enqueue prep, rebuild once.
     const region = await this.container.worker.prisma.region.findUniqueOrThrow({
@@ -552,7 +567,7 @@ export class CharacterService {
         },
         "effective scoring season changed before enqueue — rebuilding contract once",
       );
-      ({ hash, contract, authority, effective } = await buildOnce());
+      ({ hash, contract, authority, effective, abilityCatalogExecutionPin } = await buildOnce());
     }
 
     // Do not reuse an active job under a different contract / season identity.
@@ -600,6 +615,7 @@ export class CharacterService {
       authoritativeSeasonSlug: authority.slug,
       authoritySource: authority.authoritySource,
       workloadClass: opts.workloadClass ?? "OPERATION",
+      abilityCatalogExecutionPin,
     });
 
     // forceRefresh:true uses unique dedupe keys — collapse replica races to one active job.

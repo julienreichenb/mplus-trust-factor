@@ -16,5 +16,6 @@ Related:
 - [`../operations/model-lifecycle.md`](../operations/model-lifecycle.md)
 - [`calibration-harness.md`](calibration-harness.md)
 - [`abilities/`](abilities/) — ability catalog
+- [`abilities/catalog-release-design.md`](abilities/catalog-release-design.md) — immutable release / cutover design (Phase 3B, not implemented)
 
 Historical V1/V2 / supersession / repair material: [`archive/`](archive/) (not operational).

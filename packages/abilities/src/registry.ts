@@ -12,7 +12,13 @@ import type {
   ScoringAbilityCategory,
 } from "./types.js";
 import { getApplicableAbilityCategories } from "./applicability.js";
-import { RETAIL_CLASS_MATRIX, findClassDefinition, findSpecDefinition } from "./catalog/classes-matrix.js";
+import {
+  RETAIL_CLASS_MATRIX,
+  findClassDefinition,
+  findSpecDefinition,
+  canonicalizeRetailClassSpecIdentity,
+} from "./catalog/classes-matrix.js";
+import { getActiveAbilityCatalogContext } from "./catalog-context-holder.js";
 import { DEATH_KNIGHT_RULES } from "./catalog/classes/death-knight.js";
 import { DEMON_HUNTER_RULES } from "./catalog/classes/demon-hunter.js";
 import { DRUID_RULES } from "./catalog/classes/druid.js";
@@ -172,8 +178,22 @@ export function normalizeCatalogSlug(value: string | null | undefined): string |
 }
 
 export function resolveAbilityCatalog(lookup: AbilityCatalogLookup): GetAbilityCatalogResult {
-  const classSlug = normalizeCatalogSlug(lookup.classSlug) ?? "";
-  const specSlug = normalizeCatalogSlug(lookup.specSlug) ?? "";
+  const active = getActiveAbilityCatalogContext();
+  // Only release-backed contexts override the static registry. Static ALS would recurse
+  // through StaticAbilityCatalogContext.resolveCatalog → resolveAbilityCatalog.
+  if (active && active.identity.kind === "release") {
+    return active.resolveCatalog(lookup);
+  }
+  return resolveAbilityCatalogStatic(lookup);
+}
+
+function resolveAbilityCatalogStatic(lookup: AbilityCatalogLookup): GetAbilityCatalogResult {
+  const identity = canonicalizeRetailClassSpecIdentity({
+    classSlug: lookup.classSlug,
+    specSlug: lookup.specSlug,
+  });
+  const classSlug = identity.classSlug ?? "";
+  const specSlug = identity.specSlug ?? "";
   const role = lookup.role ?? undefined;
   const { gameVersion, includeShared = true, includeRacials = false } = lookup;
 
@@ -277,8 +297,12 @@ export function getAbilityCatalog(lookup: AbilityCatalogLookup): AbilityCatalog 
   const resolved = resolveAbilityCatalog(lookup);
   if (resolved.ok) return resolved.catalog;
 
-  const classSlug = normalizeCatalogSlug(lookup.classSlug);
-  const specSlug = normalizeCatalogSlug(lookup.specSlug);
+  const identity = canonicalizeRetailClassSpecIdentity({
+    classSlug: lookup.classSlug,
+    specSlug: lookup.specSlug,
+  });
+  const classSlug = identity.classSlug;
+  const specSlug = identity.specSlug;
   const specDef = classSlug && specSlug ? findSpecDefinition(classSlug, specSlug) : undefined;
 
   return emptyUnsupported(
@@ -336,6 +360,14 @@ export function resolveAbilityRuleBySpellId(options: {
   specSlug?: string | null;
   rules?: readonly AbilityRule[];
 }): AbilitySpellIdResolution {
+  const active = getActiveAbilityCatalogContext();
+  if (active && active.identity.kind === "release" && options.rules == null) {
+    return active.resolveBySpellId({
+      spellId: options.spellId,
+      classSlug: options.classSlug,
+      specSlug: options.specSlug,
+    });
+  }
   const { spellId } = options;
   const rules = resolveAbilityRule({
     spellId,
@@ -357,7 +389,24 @@ export function resolveAbilityRuleBySpellId(options: {
 export function resolveAbilityRule(options: ResolveAbilityRuleOptions & {
   rules?: readonly AbilityRule[];
 }): AbilityRule[] {
-  const { spellId, classSlug, specSlug } = options;
+  const active = getActiveAbilityCatalogContext();
+  if (active && active.identity.kind === "release" && options.rules == null) {
+    const resolved = active.resolveBySpellId({
+      spellId: options.spellId,
+      classSlug: options.classSlug,
+      specSlug: options.specSlug,
+    });
+    if (resolved.status === "matched") return [resolved.rule];
+    if (resolved.status === "ambiguous") return [...resolved.rules];
+    return [];
+  }
+  const { spellId } = options;
+  const identity = canonicalizeRetailClassSpecIdentity({
+    classSlug: options.classSlug,
+    specSlug: options.specSlug,
+  });
+  const classSlug = identity.classSlug;
+  const specSlug = identity.specSlug;
   const pool = options.rules ?? RETAIL_ABILITY_CATALOG.rules;
   return pool.filter((rule) => {
     if (!ruleResolvableSpellIds(rule).includes(spellId)) return false;

@@ -46,10 +46,15 @@ export {
   findSpecDefinition,
   findRetailSpecIdentityByBlizzardSpecId,
   normalizeRetailClassSlug,
+  normalizeRetailSpecSlug,
+  canonicalizeRetailClassSpecIdentity,
   canonicalRoleForClassSpec,
   roleForSpec,
 } from "./catalog/classes-matrix.js";
-export type { RetailSpecIdentity } from "./catalog/classes-matrix.js";
+export type {
+  RetailSpecIdentity,
+  CanonicalRetailClassSpecIdentity,
+} from "./catalog/classes-matrix.js";
 
 export {
   RETAIL_ABILITY_CATALOG,
@@ -72,6 +77,19 @@ export {
   ruleResolvableSpellIds,
 } from "./registry.js";
 export type { AbilitySpellIdResolution } from "./registry.js";
+
+export {
+  createStaticAbilityCatalogContext,
+  createRulesAbilityCatalogContext,
+  filterRulesForCatalogContext,
+} from "./catalog-context.js";
+export type {
+  AbilityCatalogContext,
+  AbilityCatalogContextIdentity,
+  AbilityCatalogTopologyView,
+} from "./catalog-context.js";
+
+export { getActiveAbilityCatalogContext } from "./catalog-context-holder.js";
 
 export {
   applicableCategories,
@@ -190,3 +208,78 @@ export {
   type AdminAbilityEntry,
   type AdminSectionKind,
 } from "./admin-query.js";
+
+export type {
+  AbilitySpellBindingCandidate,
+  AbilitySpellBindingRole,
+  CatalogDiffEntry,
+  CatalogDiffStatus,
+  CatalogRefreshCandidate,
+  CatalogRefreshCoverageReport,
+  CatalogRefreshReport,
+  CatalogRelevance,
+  ExternalAbilityCandidate,
+  ExternalSourceSnapshot,
+  ObservationalEvidenceContract,
+  SnapshotDatasetKind,
+  SourceObservation,
+} from "./refresh/types.js";
+
+export { runShadowCatalogRefresh, formatShadowRefreshSummary } from "./refresh/pipeline.js";
+export {
+  collapseRacialSpellVariants,
+  classifyRacialVariantMember,
+  racialConceptualGroupKey,
+  spellBuildIsCurrentForTarget,
+  type RacialVariantValidity,
+  type RacialVariantCollapseReport,
+} from "./refresh/racial-variants.js";
+export {
+  importBlizzardRefreshSnapshot,
+  createBlizzardRefreshAdapter,
+} from "./refresh/sources/blizzard.js";
+export { importSimcSpellQuerySnapshot, createSimcRefreshAdapter, type SimcSpellQueryExport } from "./refresh/sources/simc.js";
+export { projectCurrentRuleBindings, compareBindingRoles } from "./refresh/bindings.js";
+export { matchCandidatesToCurrent } from "./refresh/match.js";
+export { validateRefreshCandidates, validateRefreshSnapshots } from "./refresh/validate.js";
+export { formatShadowCoverageReport } from "./refresh/coverage.js";
+export {
+  buildReviewImportPlan,
+  suggestCanonicalKey,
+  suggestCuratedCanonicalKey,
+  resolveCanonicalKeyCollision,
+  normalizeAbilityNameSlug,
+  isValidCanonicalKeyFormat,
+  assertPinnedReportForImport,
+  CANONICAL_KEY_PATTERN,
+  ABILITY_CATALOG_REVIEW_PLAN_SCHEMA_VERSION,
+  type ReviewImportPlan,
+  type ReviewImportItemDraft,
+  type TopologyClassificationLike,
+  type AbilityCatalogReviewItemKind,
+} from "./refresh/review/import-plan.js";
+export {
+  prefillCuratedDraftDefaults,
+  mergeCuratedDraftInput,
+  candidateEvidenceFromDiffEntry,
+  candidateMetadataForDiff,
+  inferAvailabilityFromReviewContext,
+  inferSourceOwnershipFromOwnershipKind,
+  provenanceFromRefreshEvidence,
+  type ReviewItemDraftPrefillInput,
+  type DraftPrefillMergeMode,
+  type CatalogDiffCandidateMetadata,
+} from "./refresh/review/draft-prefill.js";
+export {
+  validateCuratedDraftRule,
+  DRAFT_ABILITY_CATEGORIES,
+  DRAFT_DIMENSION_TAGS,
+  DRAFT_AVAILABILITIES,
+  DRAFT_SOURCE_OWNERSHIPS,
+  DRAFT_BINDING_ROLES,
+  type CuratedDraftRuleInput,
+  type DraftBinding,
+  type DraftValidationIssue,
+  type DraftValidationResult,
+  type AbilitySpellBindingRole as DraftAbilitySpellBindingRole,
+} from "./refresh/review/draft-validation.js";

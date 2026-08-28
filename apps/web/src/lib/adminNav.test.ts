@@ -26,6 +26,10 @@ const CASES = [
     paths: ["/admin/ability-catalog"],
   },
   {
+    permissions: ["admin.ability_catalog.publish"],
+    paths: ["/admin/ability-catalog"],
+  },
+  {
     permissions: ["admin.users.read"],
     paths: ["/admin/users"],
   },
@@ -57,6 +61,22 @@ describe("admin destination registry", () => {
     expect(labels.join(" ")).not.toMatch(/Scoring V2/i);
     expect(labels.join(" ")).not.toMatch(/Control Center/i);
     expect(ADMIN_DESTINATIONS.find((d) => d.path === "/admin/scoring")?.id).toBe("score-console");
+  });
+
+  it("exposes a single Ability catalog destination with Catalog/Review/Releases as console tabs", () => {
+    const labels = ADMIN_DESTINATIONS.map((d) => d.label);
+    expect(labels).toContain("Ability catalog");
+    expect(labels).not.toContain("Ability review");
+    expect(labels).not.toContain("Ability releases");
+    expect(ADMIN_DESTINATIONS.find((d) => d.path === "/admin/ability-catalog")?.id).toBe(
+      "ability-catalog",
+    );
+    expect(isAuthorizedForAdminDestination("ability-catalog-review", ["admin.ability_catalog.read"])).toBe(
+      true,
+    );
+    expect(
+      isAuthorizedForAdminDestination("ability-catalog-releases", ["admin.ability_catalog.publish"]),
+    ).toBe(true);
   });
 
   it("hides Admin trigger when no destination is authorized", () => {

@@ -10,7 +10,9 @@ export type AdminDestinationId =
   /** @deprecated legacy ids kept for route meta redirects */
   | "score-models"
   | "score-tuning"
-  | "calibration";
+  | "calibration"
+  | "ability-catalog-review"
+  | "ability-catalog-releases";
 
 export interface AdminDestination {
   id: AdminDestinationId;
@@ -26,11 +28,17 @@ const scoringAuthorized = (permissions: string[]) =>
   hasPermission(permissions, "admin.score_models.manage") ||
   hasPermission(permissions, "admin.calibration.manage");
 
+const abilityCatalogAuthorized = (permissions: string[]) =>
+  hasPermission(permissions, "admin.ability_catalog.read") ||
+  hasPermission(permissions, "admin.ability_catalog.manage") ||
+  hasPermission(permissions, "admin.ability_catalog.publish");
+
 /**
  * Single source of truth for admin destinations.
  * Navbar visibility and router guards both use `isAuthorized`.
  *
  * Scoring product surface: one “Scoring” console with Models / Tuning / Calibration tabs.
+ * Ability catalog: one console with Catalog / Review / Releases tabs.
  */
 export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
   {
@@ -45,7 +53,7 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     name: "admin-ability-catalog",
     path: "/admin/ability-catalog",
     label: "Ability catalog",
-    isAuthorized: (permissions) => hasPermission(permissions, "admin.ability_catalog.read"),
+    isAuthorized: abilityCatalogAuthorized,
   },
   {
     id: "admin-users",
@@ -82,17 +90,17 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
 /** @deprecated Prefer ADMIN_DESTINATIONS — kept as an alias for existing imports. */
 export const ADMIN_NAV_DESTINATIONS = ADMIN_DESTINATIONS;
 
-const LEGACY_SCORING_IDS: AdminDestinationId[] = [
-  "score-models",
-  "score-tuning",
-  "calibration",
-];
+const LEGACY_TO_CANONICAL: Partial<Record<AdminDestinationId, AdminDestinationId>> = {
+  "score-models": "score-console",
+  "score-tuning": "score-console",
+  calibration: "score-console",
+  "ability-catalog-review": "ability-catalog",
+  "ability-catalog-releases": "ability-catalog",
+};
 
 export function getAdminDestination(id: AdminDestinationId): AdminDestination {
-  if (LEGACY_SCORING_IDS.includes(id)) {
-    return ADMIN_DESTINATIONS.find((entry) => entry.id === "score-console")!;
-  }
-  const destination = ADMIN_DESTINATIONS.find((entry) => entry.id === id);
+  const canonicalId = LEGACY_TO_CANONICAL[id] ?? id;
+  const destination = ADMIN_DESTINATIONS.find((entry) => entry.id === canonicalId);
   if (!destination) {
     throw new Error(`Unknown admin destination: ${id}`);
   }
@@ -109,6 +117,9 @@ export function findAdminDestinationByPath(path: string): AdminDestination | und
     pathname.startsWith("/admin/calibration")
   ) {
     return getAdminDestination("score-console");
+  }
+  if (pathname === "/admin/ability-catalog" || pathname.startsWith("/admin/ability-catalog/")) {
+    return getAdminDestination("ability-catalog");
   }
   return ADMIN_DESTINATIONS.find((destination) => destination.path === pathname);
 }

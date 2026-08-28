@@ -24,6 +24,7 @@ import {
 } from "../active-mplus-season/effective-scoring-season.js";
 import { ensureRegion } from "../../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "../build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "../ability-catalog-enqueue-pin.js";
 import { SCORING_VERSION } from "./score-character.js";
 import { prepareSmokeCharacterForRefresh } from "./smoke-character-prepare.js";
 import {
@@ -158,12 +159,16 @@ async function main(): Promise<void> {
         version: env.ACTIVE_SCORE_MODEL_VERSION,
       };
 
+    const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+      prisma,
+    });
     const { contract, hash } = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
       activeSeasonId: effective.activeSeasonId,
       providerMode: env.PROVIDER_MODE,
       zoneId: effective.wclZoneId,
+      abilityCatalogExecutionPin,
     });
 
     const existing = await repositories.character.findByIdentity({
@@ -282,6 +287,7 @@ async function main(): Promise<void> {
         authoritativeSeasonSlug: effective.seasonSlug,
         authoritySource: effective.detected.authoritySource,
         triggerSource: "SYSTEM",
+        abilityCatalogExecutionPin,
       });
       scoreDto = result.score;
       const explanation = result.score?.explanation as

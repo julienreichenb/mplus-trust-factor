@@ -53,9 +53,9 @@ export const routeDefs: RouteRecordRaw[] = [
     meta: { adminDestinationId: "admin-users" },
   },
   {
-    path: "/admin/ability-catalog",
+    path: "/admin/ability-catalog/:tab?",
     name: "admin-ability-catalog",
-    component: () => import("./pages/AdminAbilityCatalogPage.vue"),
+    component: () => import("./pages/AdminAbilityCatalogConsolePage.vue"),
     meta: { adminDestinationId: "ability-catalog" },
   },
   {

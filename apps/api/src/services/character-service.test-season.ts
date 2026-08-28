@@ -2,6 +2,7 @@
  * Shared Prisma stubs so CharacterService unit tests resolve AUTO fixture season 13.
  */
 import { vi } from "vitest";
+import { mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 import { computeDungeonPoolHash } from "@mplus/worker";
 
 const FIXTURE_DUNGEON_SLUGS = [
@@ -60,6 +61,7 @@ export function fixtureReadySeasonRow(overrides: Record<string, unknown> = {}) {
 
 export function scoringSeasonPrismaStubs(season = fixtureReadySeasonRow()) {
   return {
+    ...mockActiveBootstrapCatalogReleasePrisma(),
     runtimeSetting: {
       findUnique: vi.fn(async () => null),
     },

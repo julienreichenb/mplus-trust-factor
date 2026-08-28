@@ -15,6 +15,7 @@ import {
   RETAIL_ABILITY_CATALOG,
   ruleResolvableSpellIds,
   type AbilityCatalog,
+  type AbilityCatalogContext,
   type AbilityRule,
 } from "@mplus/abilities";
 
@@ -69,10 +70,30 @@ function isPerformanceCooldownRule(rule: AbilityRule): boolean {
   return dimensionTagsForRule(rule).includes("PERFORMANCE_OFFENSIVE_COOLDOWN");
 }
 
-function resolveCatalog(catalogVersion: string | null | undefined): {
+function resolveCatalog(
+  catalogVersion: string | null | undefined,
+  catalogContext?: AbilityCatalogContext,
+): {
   catalog: AbilityCatalog | null;
   incompatible: boolean;
 } {
+  if (catalogContext) {
+    // Release / explicit context: use full rule pool as AbilityCatalog slice.
+    return {
+      catalog: {
+        version: RETAIL_ABILITY_CATALOG.version,
+        catalogVersion:
+          catalogContext.identity.kind === "static"
+            ? catalogContext.identity.catalogVersion
+            : catalogContext.identity.releaseKey,
+        classSlug: null,
+        specSlug: null,
+        supported: true,
+        rules: [...catalogContext.allRules()],
+      },
+      incompatible: false,
+    };
+  }
   if (catalogVersion == null || catalogVersion.length === 0) {
     return { catalog: RETAIL_ABILITY_CATALOG, incompatible: false };
   }
@@ -175,12 +196,16 @@ export function resolveEligibleOffensiveCooldowns(input: {
   specSlug: string | null;
   catalogVersion?: string | null;
   availabilityEvidence?: OffensiveCooldownAvailabilityEvidence;
+  catalog?: AbilityCatalogContext;
 }): {
   eligible: EligibleOffensiveCooldown[];
   skipped: SkippedOffensiveCooldown[];
   catalogueIncompatible: boolean;
 } {
-  const { catalog, incompatible } = resolveCatalog(input.catalogVersion);
+  const { catalog, incompatible } = resolveCatalog(
+    input.catalogVersion,
+    input.catalog,
+  );
   if (catalog == null || incompatible) {
     return { eligible: [], skipped: [], catalogueIncompatible: true };
   }

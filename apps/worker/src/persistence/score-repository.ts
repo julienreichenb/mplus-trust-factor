@@ -63,6 +63,12 @@ export interface SaveScoreSnapshotInput {
   refreshContractHash?: string | null;
   providerDataAsOf?: Date | null;
   coverageState?: string | null;
+  /** Explicit catalog execution pin columns (Phase 3B.4). Absent → leave null (legacy). */
+  abilityCatalogExecutionMode?: "STATIC" | "RELEASE" | null;
+  abilityCatalogVersionId?: string | null;
+  abilityCatalogReleaseId?: string | null;
+  abilityCatalogContentDigest?: string | null;
+  abilityCatalogReleaseKey?: string | null;
 }
 
 export interface PublishCandidateInput {
@@ -85,6 +91,11 @@ export interface PublishCandidateInput {
   publicationGuard?: {
     ingestionJobId: string;
   };
+  abilityCatalogExecutionMode?: "STATIC" | "RELEASE" | null;
+  abilityCatalogVersionId?: string | null;
+  abilityCatalogReleaseId?: string | null;
+  abilityCatalogContentDigest?: string | null;
+  abilityCatalogReleaseKey?: string | null;
 }
 
 export interface RejectCandidateInput {
@@ -179,6 +190,11 @@ function snapshotData(
     coverageState?: string | null;
     rejectionReason?: string | null;
     publishedAt?: Date | null;
+    abilityCatalogExecutionMode?: "STATIC" | "RELEASE" | null;
+    abilityCatalogVersionId?: string | null;
+    abilityCatalogReleaseId?: string | null;
+    abilityCatalogContentDigest?: string | null;
+    abilityCatalogReleaseKey?: string | null;
   },
 ) {
   return {
@@ -202,6 +218,15 @@ function snapshotData(
     coverageState: opts.coverageState ?? null,
     rejectionReason: opts.rejectionReason ?? null,
     publishedAt: opts.publishedAt ?? null,
+    ...(opts.abilityCatalogExecutionMode != null
+      ? {
+          abilityCatalogExecutionMode: opts.abilityCatalogExecutionMode,
+          abilityCatalogVersionId: opts.abilityCatalogVersionId ?? null,
+          abilityCatalogReleaseId: opts.abilityCatalogReleaseId ?? null,
+          abilityCatalogContentDigest: opts.abilityCatalogContentDigest ?? null,
+          abilityCatalogReleaseKey: opts.abilityCatalogReleaseKey ?? null,
+        }
+      : {}),
   };
 }
 
@@ -465,6 +490,11 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
           refreshContractHash: input.refreshContractHash,
           providerDataAsOf: input.providerDataAsOf,
           coverageState: input.coverageState,
+          abilityCatalogExecutionMode: input.abilityCatalogExecutionMode,
+          abilityCatalogVersionId: input.abilityCatalogVersionId,
+          abilityCatalogReleaseId: input.abilityCatalogReleaseId,
+          abilityCatalogContentDigest: input.abilityCatalogContentDigest,
+          abilityCatalogReleaseKey: input.abilityCatalogReleaseKey,
         });
 
         const scoreSnapshot = existing
@@ -565,6 +595,11 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
           providerDataAsOf: input.providerDataAsOf,
           coverageState: input.coverageState,
           publishedAt: now,
+          abilityCatalogExecutionMode: input.abilityCatalogExecutionMode,
+          abilityCatalogVersionId: input.abilityCatalogVersionId,
+          abilityCatalogReleaseId: input.abilityCatalogReleaseId,
+          abilityCatalogContentDigest: input.abilityCatalogContentDigest,
+          abilityCatalogReleaseKey: input.abilityCatalogReleaseKey,
         });
 
         await tx.scoreSnapshot.updateMany({
@@ -629,6 +664,11 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
           providerDataAsOf: input.providerDataAsOf,
           coverageState: input.coverageState,
           publishedAt: publish ? new Date() : null,
+          abilityCatalogExecutionMode: input.abilityCatalogExecutionMode,
+          abilityCatalogVersionId: input.abilityCatalogVersionId,
+          abilityCatalogReleaseId: input.abilityCatalogReleaseId,
+          abilityCatalogContentDigest: input.abilityCatalogContentDigest,
+          abilityCatalogReleaseKey: input.abilityCatalogReleaseKey,
         });
 
         if (publish) {

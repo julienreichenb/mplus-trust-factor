@@ -27,6 +27,11 @@ export interface PublicationAttemptInput {
   publicationGuard?: {
     ingestionJobId: string;
   };
+  abilityCatalogExecutionMode?: "STATIC" | "RELEASE" | null;
+  abilityCatalogVersionId?: string | null;
+  abilityCatalogReleaseId?: string | null;
+  abilityCatalogContentDigest?: string | null;
+  abilityCatalogReleaseKey?: string | null;
 }
 
 export interface PublicationAttemptResult {
@@ -91,6 +96,11 @@ export async function attemptPublication(
     coverageState: coherence.coverageState,
     coherence,
     publicationGuard: input.publicationGuard,
+    abilityCatalogExecutionMode: input.abilityCatalogExecutionMode,
+    abilityCatalogVersionId: input.abilityCatalogVersionId,
+    abilityCatalogReleaseId: input.abilityCatalogReleaseId,
+    abilityCatalogContentDigest: input.abilityCatalogContentDigest,
+    abilityCatalogReleaseKey: input.abilityCatalogReleaseKey,
   });
 
   return {

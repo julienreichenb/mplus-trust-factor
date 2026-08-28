@@ -3,6 +3,12 @@ import type {
   AdminAbilityCatalogResponse,
   AdminRealmSyncResponse,
   AdminScoreModelDTO,
+  AbilityCatalogDraftValidation,
+  AbilityCatalogReviewBatchSummary,
+  AbilityCatalogReviewItemSummary,
+  AbilityCatalogReleaseSummary,
+  ManualCatalogEditDetail,
+  ManualCatalogEditSummary,
   BacktestSummary,
   CalibrationCohortDTO,
   CalibrationCohortMemberDTO,
@@ -257,6 +263,131 @@ export function createLiveApiClient(options: {
     getAdminAbilityCatalog: (params, signal) =>
       get<AdminAbilityCatalogResponse>(
         `/api/v1/admin/ability-catalog${buildQueryString(params)}`,
+        signal,
+      ),
+
+    listAbilityCatalogReviewBatches: (signal) =>
+      get<{ batches: AbilityCatalogReviewBatchSummary[] }>(
+        "/api/v1/admin/ability-catalog/review/batches",
+        signal,
+      ),
+
+    listAbilityCatalogReviewItems: (batchId, params, signal) =>
+      get<{ items: AbilityCatalogReviewItemSummary[] }>(
+        `/api/v1/admin/ability-catalog/review/batches/${encodeURIComponent(batchId)}/items${buildQueryString(params)}`,
+        signal,
+      ),
+
+    decideAbilityCatalogReviewItem: (itemId, body, signal) =>
+      send<AbilityCatalogReviewItemSummary>(
+        "POST",
+        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/decide`,
+        body,
+        signal,
+      ),
+
+    getAbilityCatalogReviewItem: (itemId, signal) =>
+      get<AbilityCatalogReviewItemSummary>(
+        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}`,
+        signal,
+      ),
+
+    listAbilityCatalogReleases: (signal) =>
+      get<{ releases: AbilityCatalogReleaseSummary[] }>(
+        "/api/v1/admin/ability-catalog/releases",
+        signal,
+      ),
+
+    getAbilityCatalogActiveRelease: (signal) =>
+      get<{
+        active: AbilityCatalogReleaseSummary | null;
+        limitations?: { racialReplayCoverage?: string; trustReplay?: string };
+        notice?: string;
+      }>("/api/v1/admin/ability-catalog/releases/active", signal),
+
+    getAbilityCatalogWorkflow: (signal) =>
+      get<Record<string, unknown>>("/api/v1/admin/ability-catalog/workflow", signal),
+
+    refreshAbilityCatalog: (signal) =>
+      send<Record<string, unknown>>("POST", "/api/v1/admin/ability-catalog/refresh", {}, signal),
+
+    activateAbilityCatalogRelease: (releaseId, body, signal) =>
+      send<{
+        release: AbilityCatalogReleaseSummary;
+        activation: { id: string };
+        notice?: string;
+      }>(
+        "POST",
+        `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/activate`,
+        body,
+        signal,
+      ),
+
+    rollbackAbilityCatalogRelease: (releaseId, body, signal) =>
+      send<{
+        release: AbilityCatalogReleaseSummary;
+        activation: { id: string };
+        notice?: string;
+      }>(
+        "POST",
+        `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/rollback`,
+        body,
+        signal,
+      ),
+
+    updateAbilityCatalogDraft: (itemId, body, signal) =>
+      send<AbilityCatalogReviewItemSummary>(
+        "PATCH",
+        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft`,
+        body,
+        signal,
+      ),
+
+    ensureAbilityCatalogDraft: (itemId, body, signal) =>
+      send<AbilityCatalogReviewItemSummary>(
+        "POST",
+        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/ensure`,
+        body ?? {},
+        signal,
+      ),
+
+    validateAbilityCatalogDraft: (itemId, body, signal) =>
+      send<{
+        itemId: string;
+        validation: AbilityCatalogDraftValidation;
+        draft: unknown | null;
+      }>(
+        "POST",
+        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/validate`,
+        body ?? {},
+        signal,
+      ),
+
+    listManualCatalogEdits: (signal) =>
+      get<{ edits: ManualCatalogEditSummary[] }>(
+        "/api/v1/admin/ability-catalog/manual-edits",
+        signal,
+      ),
+
+    getManualCatalogEdit: (canonicalKey, signal) =>
+      get<ManualCatalogEditDetail>(
+        `/api/v1/admin/ability-catalog/rules/${encodeURIComponent(canonicalKey)}/manual-edit`,
+        signal,
+      ),
+
+    saveManualCatalogEdit: (canonicalKey, body, signal) =>
+      send<ManualCatalogEditDetail>(
+        "PUT",
+        `/api/v1/admin/ability-catalog/rules/${encodeURIComponent(canonicalKey)}/manual-edit`,
+        body,
+        signal,
+      ),
+
+    discardManualCatalogEdit: (canonicalKey, signal) =>
+      send<{ discarded: true }>(
+        "DELETE",
+        `/api/v1/admin/ability-catalog/rules/${encodeURIComponent(canonicalKey)}/manual-edit`,
+        undefined,
         signal,
       ),
 

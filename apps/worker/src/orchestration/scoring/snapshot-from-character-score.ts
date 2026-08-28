@@ -3,10 +3,12 @@
  * Keeps API/UI shape while legacy placeholder calculateScore is removed.
  */
 import type {
+  AbilityCatalogExecutionPin,
   DimensionScoreDTO,
   Grade,
   ScoreSnapshotDTO,
 } from "@mplus/contracts";
+import { abilityCatalogExecutionKey } from "@mplus/contracts";
 import {
   computePartialComposite,
   contributorsFromLegacyConfidenceContext,
@@ -18,6 +20,58 @@ import {
 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
 import { SCORING_VERSION } from "./score-character.js";
+
+/** Durable pin identity embedded in ScoreSnapshot.explanation (admin-readable). */
+export function pinIdentityForExplanation(pin: AbilityCatalogExecutionPin): {
+  mode: "STATIC" | "RELEASE";
+  executionKey: string;
+  catalogVersionId?: string;
+  releaseId?: string;
+  releaseKey?: string;
+  contentDigest?: string;
+  schemaVersion?: string;
+} {
+  if (pin.kind === "STATIC") {
+    return {
+      mode: "STATIC",
+      executionKey: abilityCatalogExecutionKey(pin),
+      catalogVersionId: pin.catalogVersionId,
+    };
+  }
+  return {
+    mode: "RELEASE",
+    executionKey: abilityCatalogExecutionKey(pin),
+    releaseId: pin.releaseId,
+    releaseKey: pin.releaseKey,
+    contentDigest: pin.contentDigest,
+    schemaVersion: pin.schemaVersion,
+  };
+}
+
+export function scoreSnapshotPinColumns(pin: AbilityCatalogExecutionPin): {
+  abilityCatalogExecutionMode: "STATIC" | "RELEASE";
+  abilityCatalogVersionId: string | null;
+  abilityCatalogReleaseId: string | null;
+  abilityCatalogContentDigest: string | null;
+  abilityCatalogReleaseKey: string | null;
+} {
+  if (pin.kind === "STATIC") {
+    return {
+      abilityCatalogExecutionMode: "STATIC",
+      abilityCatalogVersionId: pin.catalogVersionId,
+      abilityCatalogReleaseId: null,
+      abilityCatalogContentDigest: null,
+      abilityCatalogReleaseKey: null,
+    };
+  }
+  return {
+    abilityCatalogExecutionMode: "RELEASE",
+    abilityCatalogVersionId: null,
+    abilityCatalogReleaseId: pin.releaseId,
+    abilityCatalogContentDigest: pin.contentDigest,
+    abilityCatalogReleaseKey: pin.releaseKey,
+  };
+}
 
 function dimensionState(
   score: number | null | undefined,
@@ -330,6 +384,12 @@ export function scoreCharacterResultToSnapshotDto(input: {
       effectiveWeights: partial.effectiveWeights,
       experience: input.result.experience,
       explainabilityFingerprint: explainability.fingerprint,
+      abilityCatalogExecution: pinIdentityForExplanation(
+        input.result.abilityCatalogExecutionPin ?? {
+          kind: "STATIC",
+          catalogVersionId: "unknown-legacy",
+        },
+      ),
       ...(applied
         ? {
             scoreContext: applied,

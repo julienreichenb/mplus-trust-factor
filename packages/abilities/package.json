@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./execution-context": {
+      "types": "./dist/execution-context.d.ts",
+      "import": "./dist/execution-context.js"
+    },
+    "./release": {
+      "types": "./dist/release/index.d.ts",
+      "import": "./dist/release/index.js"
+    },
+    "./refresh/admin": {
+      "types": "./dist/refresh/admin-refresh.d.ts",
+      "import": "./dist/refresh/admin-refresh.js"
     }
   },
   "scripts": {
@@ -19,7 +31,14 @@
     "abilities:coverage": "tsx src/cli/coverage.ts",
     "catalog:build:offensive": "tsx src/cli/build-offensive.ts",
     "catalog:validate:offensive": "tsx src/cli/validate-offensive.ts",
-    "catalog:report:offensive-fight": "tsx src/cli/same-fight-offensive-report.ts"
+    "catalog:report:offensive-fight": "tsx src/cli/same-fight-offensive-report.ts",
+    "ability-catalog:refresh:shadow": "tsx src/cli/shadow-refresh.ts",
+    "ability-catalog:simc:extract": "tsx src/cli/simc-extract.ts",
+    "ability-catalog:blizzard:extract": "tsx src/cli/blizzard-extract.ts",
+    "ability-catalog:release:bootstrap": "tsx src/cli/release-bootstrap.ts"
+  },
+  "dependencies": {
+    "@mplus/provider-blizzard": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.3",

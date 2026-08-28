@@ -124,6 +124,26 @@ describe("loadEnv", () => {
     ).toThrow(/ADMIN_BOOTSTRAP/);
   });
 
+  it("accepts optional SimC binary override without revision env", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      ABILITY_CATALOG_SIMC_BIN: "C:\\simc\\simc.exe",
+    });
+    expect(env.ABILITY_CATALOG_SIMC_BIN).toBe("C:\\simc\\simc.exe");
+    expect("ABILITY_CATALOG_SIMC_REVISION" in env).toBe(false);
+  });
+
+  it("production has no catalog runtime mode env var", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      APP_ENV: "production",
+    });
+    expect(env.APP_ENV).toBe("production");
+    expect("ABILITY_CATALOG_RUNTIME_MODE" in env).toBe(false);
+  });
+
   it("returns a credential-free config summary", () => {
     resetEnvCache();
     const env = loadEnv({

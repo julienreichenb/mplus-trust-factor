@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@mplus/database";
 import {
@@ -9,7 +9,12 @@ import {
 } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
+import {
+  buildTestEnv,
+  createTestPrismaClient,
+  ensureActiveBootstrapCatalogReleaseForTests,
+  uniqueName,
+} from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 
@@ -21,8 +26,13 @@ describe.skipIf(!dbAvailable)("refresh pipeline with a disabled provider", { tim
   let app: FastifyInstance;
   let container: ApiContainer;
 
+  beforeEach(async () => {
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
+  });
+
   beforeAll(async () => {
     clearSeasonAuthorityCacheForTests();
+    await ensureActiveBootstrapCatalogReleaseForTests(prisma);
     const env = buildTestEnv();
     // Sync season authority with Blizzard enabled, then build the disabled-blizzard container.
     const syncContainer = createWorkerContainer(env, { prisma: prisma as PrismaClient });

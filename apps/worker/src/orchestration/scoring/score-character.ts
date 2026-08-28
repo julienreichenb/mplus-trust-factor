@@ -8,6 +8,13 @@
  * digests remain score-neutral for Performance.
  */
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
+import {
+  abilityCatalogExecutionKey,
+  decodeAbilityCatalogExecutionPin,
+  type AbilityCatalogExecutionPin,
+} from "@mplus/contracts";
+import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
+import { runWithAbilityCatalogContextAsync } from "@mplus/abilities/execution-context";
 import type {
   AppliedScoreContext,
   CharacterSeasonEvidenceManifestV2,
@@ -25,6 +32,7 @@ import {
   type ArtifactRepository,
   type EvidenceRepository,
 } from "@mplus/database";
+import { resolveAbilityCatalogExecution } from "./ability-catalog-pin-loader.js";
 import {
   orchestrateScoringRuns,
   type LiveProviderPermission,
@@ -149,6 +157,10 @@ export interface ScoreCharacterInput {
    */
   experience?: ExperiencePhase1Result | null;
   /**
+   * Explicit ability catalog execution pin. When omitted, STATIC current registry.
+   */
+  abilityCatalogExecutionPin?: AbilityCatalogExecutionPin;
+  /**
    * Active WCL Mythic+ zone for CharacterPerformanceAggregate.
    * Required positive integer — missing/invalid is configuration failure, not player absence.
    */
@@ -227,10 +239,29 @@ export interface ScoreCharacterResult {
    * Null when Boost mapping/assessment is skipped.
    */
   boostAssessment: BoostAssessmentResult | null;
+  /** Frozen catalog execution pin used for this scoring pass. */
+  abilityCatalogExecutionPin: AbilityCatalogExecutionPin;
 }
 
 export async function scoreCharacter(
   input: ScoreCharacterInput,
+): Promise<ScoreCharacterResult> {
+  const pin = decodeAbilityCatalogExecutionPin(
+    input.abilityCatalogExecutionPin ?? null,
+    CURRENT_CATALOG_VERSION_ID,
+  );
+  const resolved = await resolveAbilityCatalogExecution({
+    prisma: input.prisma,
+    pin,
+  });
+  return runWithAbilityCatalogContextAsync(resolved.context, () =>
+    scoreCharacterImpl(input, resolved.pin),
+  );
+}
+
+async function scoreCharacterImpl(
+  input: ScoreCharacterInput,
+  pin: AbilityCatalogExecutionPin,
 ): Promise<ScoreCharacterResult> {
   const scoringVersion = input.scoringVersion ?? SCORING_VERSION;
   const liveProviderPermission: LiveProviderPermission = input.allowProviderCalls
@@ -539,6 +570,14 @@ export async function scoreCharacter(
       contextRevisionKey: appliedContext.contextRevisionKey,
       contextRevisionId: appliedContext.contextRevisionId,
       contextDistributionSnapshotId: appliedContext.key.distributionSnapshotId,
+      abilityCatalogExecutionKey: abilityCatalogExecutionKey(pin),
+      abilityCatalogExecutionMode: pin.kind,
+      abilityCatalogVersionId:
+        pin.kind === "STATIC" ? pin.catalogVersionId : null,
+      abilityCatalogReleaseId: pin.kind === "RELEASE" ? pin.releaseId : null,
+      abilityCatalogContentDigest:
+        pin.kind === "RELEASE" ? pin.contentDigest : null,
+      abilityCatalogReleaseKey: pin.kind === "RELEASE" ? pin.releaseKey : null,
       performance: performance?.score ?? null,
       utility: utility?.score ?? null,
       survival: survival?.score ?? null,
@@ -723,5 +762,6 @@ export async function scoreCharacter(
     },
     appliedContext,
     boostAssessment,
+    abilityCatalogExecutionPin: pin,
   };
 }

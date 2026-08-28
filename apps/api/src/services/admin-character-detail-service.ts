@@ -17,6 +17,37 @@ function readAvatar(rawSummary: unknown): string | null {
   return typeof media?.avatarUrl === "string" ? media.avatarUrl : null;
 }
 
+/** Persisted job/score catalog pin — never inferred from current ACTIVE. */
+export type AdminCatalogIdentityDTO = {
+  executionMode: string | null;
+  releaseKey: string | null;
+  contentDigest: string | null;
+  contentDigestShort: string | null;
+  releaseId: string | null;
+  versionId: string | null;
+};
+
+function catalogIdentityFromRow(row: {
+  abilityCatalogExecutionMode?: string | null;
+  abilityCatalogReleaseKey?: string | null;
+  abilityCatalogContentDigest?: string | null;
+  abilityCatalogReleaseId?: string | null;
+  abilityCatalogVersionId?: string | null;
+}): AdminCatalogIdentityDTO {
+  const digest =
+    typeof row.abilityCatalogContentDigest === "string" && row.abilityCatalogContentDigest.length > 0
+      ? row.abilityCatalogContentDigest
+      : null;
+  return {
+    executionMode: row.abilityCatalogExecutionMode ?? null,
+    releaseKey: row.abilityCatalogReleaseKey ?? null,
+    contentDigest: digest,
+    contentDigestShort: digest ? digest.slice(0, 12) : null,
+    releaseId: row.abilityCatalogReleaseId ?? null,
+    versionId: row.abilityCatalogVersionId ?? null,
+  };
+}
+
 function readDigestRunMeta(sourceMetadata: unknown): {
   dungeonSlug: string | null;
   keyLevel: number | null;
@@ -110,6 +141,7 @@ export type AdminCharacterDetailDTO = {
      * Distinct from Scoring V2 EvidenceManifest forensics.
      */
     scoreExplainabilityAudit: ScoreExplainabilityV1 | null;
+    catalog: AdminCatalogIdentityDTO;
   }>;
   scoreSnapshots: Array<{
     id: string;
@@ -132,6 +164,7 @@ export type AdminCharacterDetailDTO = {
     rejectionReason: string | null;
     publishedAt: string | null;
     explanation: unknown;
+    catalog: AdminCatalogIdentityDTO;
   }>;
 };
 
@@ -295,6 +328,7 @@ export class AdminCharacterDetailService {
           scoreExplainabilityAudit: canonical
             ? projectScoreExplainabilityAudit(canonical)
             : null,
+          catalog: catalogIdentityFromRow(s),
         };
       }),
       scoreSnapshots: scoreSnapshots.map((s) => ({
@@ -318,6 +352,7 @@ export class AdminCharacterDetailService {
         rejectionReason: s.rejectionReason,
         publishedAt: s.publishedAt?.toISOString() ?? null,
         explanation: s.explanation,
+        catalog: catalogIdentityFromRow(s),
       })),
     };
   }

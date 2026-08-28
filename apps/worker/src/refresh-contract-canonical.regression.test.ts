@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashRefreshContract } from "@mplus/contracts";
+import { BOOTSTRAP_TEST_RELEASE_PIN } from "@mplus/test-utils";
 import {
   allowFixtureZoneDefaultsForProviderMode,
   resolveActiveRefreshContract,
@@ -14,6 +15,7 @@ describe("canonical refresh contract — API/worker hash equality", () => {
     scoringModelKey: "default",
     scoringModelVersion: 6,
     activeSeasonId: "blizzard-season-13",
+    abilityCatalogExecutionPin: BOOTSTRAP_TEST_RELEASE_PIN,
   };
 
   it("APP_ENV=test does not enable fixture defaults when PROVIDER_MODE is live", () => {

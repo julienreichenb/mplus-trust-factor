@@ -12,6 +12,7 @@ import { deriveWclContributionTypes } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { buildRefreshContractHash } from "./orchestration/build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "./orchestration/ability-catalog-enqueue-pin.js";
 import { requireEffectiveScoringSeasonRow } from "./orchestration/active-mplus-season/effective-season-peek.js";
 
 function loadDotEnvFile(path: string): void {
@@ -61,6 +62,7 @@ if (season.wclZoneId == null) {
     `Effective scoring season ${season.slug} has no persisted wclZoneId — catalog not ready`,
   );
 }
+const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({ prisma });
 const refreshContractHash = buildRefreshContractHash({
   scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
   scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
@@ -68,6 +70,7 @@ const refreshContractHash = buildRefreshContractHash({
   zoneId: season.wclZoneId,
   env: process.env,
   allowFixtureZoneDefault: false,
+  abilityCatalogExecutionPin,
 });
 
 const result = await runRefreshPipeline(worker, {

@@ -9,6 +9,7 @@ import {
 import { CharacterPerformanceAggregateRepository } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { resolveEnqueueAbilityCatalogExecutionPin } from "./ability-catalog-enqueue-pin.js";
 import { requirePersistedCatalogWclZoneId } from "./active-mplus-season/catalog-metadata.js";
 import { runAuthoritativeScoring } from "./scoring/refresh-bridge.js";
 import { selectCanonicalRunsFromPersistedMythicRuns } from "./scoring/canonical-run-selection-from-persisted.js";
@@ -72,6 +73,9 @@ export async function runRecalculateScore(
 
   const now = new Date();
   const wclZoneId = requirePersistedCatalogWclZoneId(season);
+  const abilityCatalogExecutionPin = await resolveEnqueueAbilityCatalogExecutionPin({
+    prisma: container.prisma,
+  });
   const { contract: refreshContract, hash: refreshContractHash } =
     resolveActiveRefreshContract({
       scoringModelKey: model.key,
@@ -79,6 +83,7 @@ export async function runRecalculateScore(
       activeSeasonId: season.slug,
       providerMode: container.env.PROVIDER_MODE,
       zoneId: wclZoneId,
+      abilityCatalogExecutionPin,
     });
 
   const region = await container.prisma.region.findUnique({

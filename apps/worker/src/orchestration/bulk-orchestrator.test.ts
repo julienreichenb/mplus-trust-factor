@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BulkOrchestratorJob } from "@mplus/contracts";
 import { QUEUE_NAMES } from "@mplus/contracts";
+import { mockActiveBootstrapCatalogReleasePrisma } from "@mplus/test-utils";
 import { runBulkCharacterProcessing } from "./bulk-character-processing.js";
 import { emptyBulkCheckpoint } from "./bulk-checkpoint.js";
 
@@ -72,7 +73,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -132,7 +133,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -216,7 +217,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -283,7 +284,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -348,7 +349,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -402,7 +403,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -443,7 +444,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -500,7 +501,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -591,7 +592,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -657,7 +658,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -696,7 +697,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 
@@ -738,7 +739,7 @@ describe("runBulkCharacterProcessing hardening", () => {
         character: {},
       },
       env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
-      prisma: {},
+      prisma: mockActiveBootstrapCatalogReleasePrisma(),
       logger: { warn: vi.fn() },
     } as never;
 

@@ -4000,6 +4000,7 @@ export async function runRefreshPipeline(
     characterName: identity.name,
     raiderIoProfile,
     canonicalRunSelection: scoringRunSelection,
+    abilityCatalogExecutionPin: jobPayload.abilityCatalogExecutionPin,
     beforeCharacterScorePersist: async () => {
       await assertPublicationContractMatchesJob(
         {
@@ -4464,6 +4465,26 @@ export async function runRefreshPipeline(
     throw mismatchError;
   }
 
+  const catalogPin = scoringOutcome.scoreResult?.abilityCatalogExecutionPin;
+  const catalogPinColumns =
+    catalogPin == null
+      ? {}
+      : catalogPin.kind === "STATIC"
+        ? {
+            abilityCatalogExecutionMode: "STATIC" as const,
+            abilityCatalogVersionId: catalogPin.catalogVersionId,
+            abilityCatalogReleaseId: null,
+            abilityCatalogContentDigest: null,
+            abilityCatalogReleaseKey: null,
+          }
+        : {
+            abilityCatalogExecutionMode: "RELEASE" as const,
+            abilityCatalogVersionId: null,
+            abilityCatalogReleaseId: catalogPin.releaseId,
+            abilityCatalogContentDigest: catalogPin.contentDigest,
+            abilityCatalogReleaseKey: catalogPin.releaseKey,
+          };
+
   const publication = await attemptPublication({
     characterId: character.id,
     seasonId: season.id,
@@ -4483,6 +4504,7 @@ export async function runRefreshPipeline(
     scoreRepository: repositories.score,
     metricRepository: repositories.metric,
     publicationGuard: { ingestionJobId: job.id },
+    ...catalogPinColumns,
   });
 
   if (publication.cancelled) {

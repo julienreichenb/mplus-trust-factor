@@ -16,6 +16,8 @@ function contract(overrides: Partial<RefreshContractVersions> = {}): RefreshCont
     raiderIoAdapterVersion: "rio-v1",
     runSelectionVersion: RUN_SELECTION_VERSION,
     abilityCatalogVersion: "abilities-v1",
+
+    abilityCatalogExecutionKey: "static:abilities-v1",
     mechanicCatalogVersion: "mechanics-v1",
     activeSeasonId: "blizzard-season-13",
     zoneId: 42,

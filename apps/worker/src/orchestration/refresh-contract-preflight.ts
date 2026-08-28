@@ -15,6 +15,8 @@ import type {
   RefreshContractVersions,
   WarcraftLogsProvider,
 } from "@mplus/contracts";
+import { decodeAbilityCatalogExecutionPin } from "@mplus/contracts";
+import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import type { PrismaClient } from "@mplus/database";
 import type { AppEnv } from "@mplus/config";
 import { ensureRegion } from "../persistence/realm-repository.js";
@@ -35,6 +37,15 @@ export const REFRESH_CONTRACT_PREFLIGHT_MISMATCH_EVENT = "refresh_contract_prefl
 export type RefreshContractPreflightCode =
   | typeof REFRESH_CONTRACT_PREFLIGHT_MISMATCH
   | typeof REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH;
+
+function jobCatalogExecutionPin(
+  jobPayload: Pick<RefreshCharacterJob, "abilityCatalogExecutionPin">,
+) {
+  return (
+    jobPayload.abilityCatalogExecutionPin ??
+    decodeAbilityCatalogExecutionPin(null, CURRENT_CATALOG_VERSION_ID)
+  );
+}
 
 export class RefreshContractPreflightError extends Error {
   readonly code: RefreshContractPreflightCode;
@@ -162,6 +173,7 @@ export async function runRefreshContractPreflight(
     providerMode: deps.env.PROVIDER_MODE,
     zoneId: effective.wclZoneId,
     partition: deps.partition,
+    abilityCatalogExecutionPin: jobCatalogExecutionPin(jobPayload),
   });
 
   const requestedHash = jobPayload.refreshContractHash ?? null;
@@ -263,7 +275,10 @@ export interface PublicationRefreshContractResult {
  */
 export async function resolvePublicationRefreshContract(
   deps: RefreshContractPreflightDeps,
-  jobPayload: Pick<RefreshCharacterJob, "region" | "correlationId">,
+  jobPayload: Pick<
+    RefreshCharacterJob,
+    "region" | "correlationId" | "abilityCatalogExecutionPin"
+  >,
   opts: {
     scoringModelKey: string;
     scoringModelVersion: number;
@@ -291,6 +306,7 @@ export async function resolvePublicationRefreshContract(
     providerMode: deps.env.PROVIDER_MODE,
     zoneId: effective.wclZoneId,
     partition: deps.partition,
+    abilityCatalogExecutionPin: jobCatalogExecutionPin(jobPayload),
   });
 
   return { effective, contract, hash };
