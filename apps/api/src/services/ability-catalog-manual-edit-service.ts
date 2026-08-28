@@ -13,6 +13,7 @@ import {
 import type { ZodType } from "zod";
 import type { AbilityRule, CuratedDraftRuleInput } from "@mplus/abilities";
 import {
+  applyBusinessMetadataToCuratedDraft,
   dimensionTagsForRule,
   projectCurrentRuleBindings,
   validateCuratedDraftRule,
@@ -108,43 +109,31 @@ function draftPersistData(
   };
 }
 
-function curatedDraftFromRequest(
-  canonicalKey: string,
-  draft: SaveManualCatalogEditRequest["draft"],
-  fallback: CuratedDraftRuleInput,
+function buildManualEditPrefill(
+  activeRule: AbilityRule,
+  existing: Parameters<typeof draftRowToPayload>[0] | null,
 ): CuratedDraftRuleInput {
-  const bindings =
-    draft.bindings && draft.bindings.length > 0 ? draft.bindings : fallback.bindings;
-  const spellIds =
-    draft.spellIds?.length
-      ? draft.spellIds
-      : fallback.spellIds.length
-        ? fallback.spellIds
-        : bindings.map((b) => b.spellId);
-  return {
+  const source = catalogRuleToCuratedDraftInput(activeRule);
+  if (!existing) return source;
+  const persisted = draftRowToPayload(existing) as CuratedDraftRuleInput;
+  return applyBusinessMetadataToCuratedDraft(
+    source,
+    { category: persisted.category, availability: persisted.availability },
+    activeRule,
+  );
+}
+
+function mergeBusinessMetadataDraft(
+  canonicalKey: string,
+  patch: SaveManualCatalogEditRequest["draft"],
+  fallback: CuratedDraftRuleInput,
+  activeRule: AbilityRule,
+): CuratedDraftRuleInput {
+  const prefill: CuratedDraftRuleInput = {
+    ...fallback,
     canonicalKey,
-    name: draft.name ?? fallback.name,
-    spellIds,
-    bindings,
-    iconName: draft.iconName ?? fallback.iconName ?? null,
-    classSlug: draft.classSlug ?? fallback.classSlug ?? null,
-    specSlugs: draft.specSlugs ?? fallback.specSlugs ?? [],
-    raceSlugs: draft.raceSlugs ?? fallback.raceSlugs ?? [],
-    category: draft.category ?? fallback.category ?? null,
-    dimensionTags: draft.dimensionTags ?? fallback.dimensionTags ?? [],
-    availability: draft.availability ?? fallback.availability ?? null,
-    cooldownSeconds: draft.cooldownSeconds ?? fallback.cooldownSeconds ?? null,
-    charges: draft.charges ?? fallback.charges ?? null,
-    sourceOwnership: draft.sourceOwnership ?? fallback.sourceOwnership ?? null,
-    provenance: {
-      ...(fallback.provenance ?? {}),
-      ...(draft.provenance ?? {}),
-    },
-    validityBuild: draft.validFromBuild ?? fallback.validityBuild ?? null,
-    validFromBuild: draft.validFromBuild ?? fallback.validFromBuild ?? null,
-    validToBuild: draft.validToBuild ?? fallback.validToBuild ?? null,
-    notes: draft.notes ?? fallback.notes ?? null,
   };
+  return applyBusinessMetadataToCuratedDraft(prefill, patch, activeRule);
 }
 
 function draftRowToPayload(row: {
@@ -286,8 +275,14 @@ export class AbilityCatalogManualEditService {
   ): Promise<ManualCatalogEditDetail> {
     const input = parseBody(saveManualCatalogEditRequestSchema, body);
     const activeRule = await this.loadActiveRule(canonicalKey);
-    const prefill = catalogRuleToCuratedDraftInput(activeRule);
-    const draftInput = curatedDraftFromRequest(canonicalKey, input.draft, prefill);
+    const existing = await this.findManualDraft(canonicalKey);
+    const prefill = buildManualEditPrefill(activeRule, existing);
+    const draftInput = mergeBusinessMetadataDraft(
+      canonicalKey,
+      input.draft,
+      prefill,
+      activeRule,
+    );
 
     const otherManualKeys = await this.prisma.abilityCatalogDraftRule.findMany({
       where: { source: "MANUAL", NOT: { canonicalKey } },
@@ -305,7 +300,6 @@ export class AbilityCatalogManualEditService {
       throw HttpError.badRequest("DRAFT_VALIDATION_FAILED", blocking[0]!.message, validation);
     }
 
-    const existing = await this.findManualDraft(canonicalKey);
     if (existing) {
       if (input.expectedVersion == null || input.expectedVersion !== existing.version) {
         throw HttpError.conflict(

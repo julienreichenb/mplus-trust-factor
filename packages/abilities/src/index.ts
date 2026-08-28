@@ -271,6 +271,11 @@ export {
   type CatalogDiffCandidateMetadata,
 } from "./refresh/review/draft-prefill.js";
 export {
+  applyBusinessMetadataToCuratedDraft,
+  dimensionTagsForBusinessMetadataEdit,
+  type AbilityBusinessMetadataPatch,
+} from "./refresh/review/business-metadata.js";
+export {
   validateCuratedDraftRule,
   DRAFT_ABILITY_CATEGORIES,
   DRAFT_DIMENSION_TAGS,

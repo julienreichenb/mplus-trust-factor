@@ -231,10 +231,20 @@ export interface AbilityCatalogReviewItemDTO {
   updatedAt: IsoDateTime;
 }
 
+/** Admin manual edit — business/scoring metadata only (strict; source fields rejected). */
+export const abilityBusinessMetadataPatchSchema = z
+  .object({
+    category: draftAbilityCategorySchema.nullable().optional(),
+    availability: draftAbilityAvailabilitySchema.nullable().optional(),
+  })
+  .strict();
+
+export type AbilityBusinessMetadataPatch = z.infer<typeof abilityBusinessMetadataPatchSchema>;
+
 export const saveManualCatalogEditRequestSchema = z
   .object({
     expectedVersion: z.number().int().positive().optional(),
-    draft: curatedDraftFieldsSchema,
+    draft: abilityBusinessMetadataPatchSchema,
     note: z.string().max(4000).optional(),
   })
   .strict();

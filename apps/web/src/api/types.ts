@@ -369,7 +369,10 @@ export interface MplusApiClient {
     canonicalKey: string,
     body: {
       expectedVersion?: number;
-      draft: Record<string, unknown>;
+      draft: {
+        category?: string | null;
+        availability?: string | null;
+      };
       note?: string;
     },
     signal?: AbortSignal,

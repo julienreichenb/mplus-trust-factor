@@ -47,7 +47,7 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     await ensureActiveBootstrapCatalogReleaseForTests(prisma);
   });
 
-  it("saves manual edit without review batch and compiles into release candidate", async () => {
+  it("saves business metadata without review batch and compiles into release candidate", async () => {
     expect(stormkeeper).toBeTruthy();
     const baseReleaseId = await activeBootstrapReleaseId();
 
@@ -57,46 +57,54 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     );
     expect(baseRule?.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
 
-    const bindings = stormkeeperBindings();
-
     const saved = await manual.saveEdit(
       stormkeeper!.canonicalKey,
       {
         draft: {
-          name: stormkeeper!.name,
-          spellIds: [...stormkeeper!.spellIds],
-          bindings,
-          classSlug: stormkeeper!.classSlug,
-          specSlugs: [...stormkeeper!.specSlugs],
-          category: stormkeeper!.category,
-          dimensionTags: ["PERFORMANCE_OFFENSIVE_COOLDOWN"],
+          category: "INTERRUPT",
           availability: stormkeeper!.availability,
-          cooldownSeconds: (stormkeeper!.cooldownSeconds ?? 0) + 5,
-          sourceOwnership: stormkeeper!.sourceOwnership,
-          provenance: {
-            source: stormkeeper!.provenance.source,
-            verifiedAt: stormkeeper!.provenance.verifiedAt,
-            gameVersion: stormkeeper!.provenance.gameVersion,
-          },
         },
       },
       audit,
     );
     expect(saved.draftStatus).toBe("READY_FOR_PUBLISH_REVIEW");
     expect(saved.draftVersion).toBe(1);
+    const savedDraft = saved.draft as { category?: string; cooldownSeconds?: number };
+    expect(savedDraft.category).toBe("INTERRUPT");
+    expect(savedDraft.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
 
     const activeAfterSave = await releases.loadReleaseArtifact(baseReleaseId);
     const unchanged = activeAfterSave.artifact.rules.find(
       (r) => r.canonicalKey === stormkeeper!.canonicalKey,
     );
     expect(unchanged?.cooldownSeconds).toBe(baseRule?.cooldownSeconds);
+    expect(unchanged?.category).toBe(stormkeeper!.category);
 
     const candidate = await releases.createReleaseCandidate({ baseReleaseId }, audit);
     const loadedCandidate = await releases.loadReleaseArtifact(candidate.release.id);
     const updated = loadedCandidate.artifact.rules.find(
       (r) => r.canonicalKey === stormkeeper!.canonicalKey,
     );
-    expect(updated?.cooldownSeconds).toBe((stormkeeper!.cooldownSeconds ?? 0) + 5);
+    expect(updated?.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
+    expect(updated?.category).toBe("INTERRUPT");
+  });
+
+  it("rejects source-owned fields in manual edit payload", async () => {
+    expect(stormkeeper).toBeTruthy();
+    await activeBootstrapReleaseId();
+
+    await expect(
+      manual.saveEdit(
+        stormkeeper!.canonicalKey,
+        {
+          draft: {
+            category: stormkeeper!.category,
+            cooldownSeconds: 999,
+          } as never,
+        },
+        audit,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
   it("discard removes pending manual edit", async () => {
@@ -107,16 +115,8 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
       stormkeeper!.canonicalKey,
       {
         draft: {
-          name: stormkeeper!.name,
-          spellIds: [...stormkeeper!.spellIds],
-          bindings: stormkeeperBindings(),
-          classSlug: stormkeeper!.classSlug,
-          specSlugs: [...stormkeeper!.specSlugs],
           category: stormkeeper!.category,
-          dimensionTags: ["PERFORMANCE_OFFENSIVE_COOLDOWN"],
           availability: stormkeeper!.availability,
-          cooldownSeconds: 99,
-          sourceOwnership: stormkeeper!.sourceOwnership,
         },
       },
       audit,
