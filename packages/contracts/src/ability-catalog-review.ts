@@ -10,7 +10,7 @@ export const ABILITY_CATALOG_REVIEW_ITEM_KINDS = [
 
 export const abilityCatalogReviewItemKindSchema = z.enum(ABILITY_CATALOG_REVIEW_ITEM_KINDS);
 
-export const NEW_ABILITY_DECISIONS = ["ACCEPT", "REJECT", "DEFER"] as const;
+export const NEW_ABILITY_DECISIONS = ["ACCEPT", "EXCLUDE", "DEFER", "REJECT"] as const;
 export const BINDING_DECISIONS = ["ACCEPT_PROPOSED", "KEEP_CURRENT", "DEFER"] as const;
 export const TOPOLOGY_DECISIONS = ["ACCEPT", "REJECT", "DEFER"] as const;
 export const REMOVAL_DECISIONS = ["CONFIRM_REMOVAL", "KEEP_CURRENT", "DEFER"] as const;
@@ -235,6 +235,7 @@ export interface AbilityCatalogReviewItemDTO {
   draftTopology: unknown | null;
   draftStatus: string | null;
   draftValidation: AbilityCatalogDraftValidationDTO | null;
+  mplusRelevance: "INCLUDED" | "EXCLUDED" | "UNCLASSIFIED";
   decisionEvents: AbilityCatalogReviewDecisionEventDTO[];
   wowheadUrl: string | null;
   createdAt: IsoDateTime;

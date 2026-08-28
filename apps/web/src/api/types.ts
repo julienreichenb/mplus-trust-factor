@@ -204,6 +204,7 @@ export interface AbilityCatalogReviewItemSummary {
   draftTopology: Record<string, unknown> | null;
   draftStatus: string | null;
   draftValidation: AbilityCatalogDraftValidation | null;
+  mplusRelevance?: "INCLUDED" | "EXCLUDED" | "UNCLASSIFIED";
   decisionEvents: AbilityCatalogReviewDecisionEvent[];
   wowheadUrl: string | null;
 }
@@ -306,6 +307,30 @@ export interface MplusApiClient {
     itemId: string,
     signal?: AbortSignal,
   ): Promise<AbilityCatalogReviewItemSummary>;
+  listAbilityCatalogExclusions(signal?: AbortSignal): Promise<{
+    exclusions: Array<{
+      id: string;
+      stableAbilityIdentity: string;
+      canonicalKey: string | null;
+      primarySpellId: number | null;
+      excludedByUserId: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }>;
+  createAbilityCatalogExclusion(
+    body: { canonicalKey?: string; primarySpellId?: number; note?: string },
+    signal?: AbortSignal,
+  ): Promise<{
+    id: string;
+    stableAbilityIdentity: string;
+    canonicalKey: string | null;
+    primarySpellId: number | null;
+  }>;
+  clearAbilityCatalogExclusion(
+    body: { canonicalKey?: string; primarySpellId?: number; note?: string },
+    signal?: AbortSignal,
+  ): Promise<{ cleared: number }>;
   listAbilityCatalogReleases(signal?: AbortSignal): Promise<{
     releases: AbilityCatalogReleaseSummary[];
   }>;

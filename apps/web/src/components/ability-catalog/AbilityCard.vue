@@ -22,6 +22,7 @@ defineEmits<{
   edit: [];
   editDraft: [];
   discardEdit: [];
+  exclude: [];
 }>();
 
 const detailsRef = ref<HTMLDetailsElement | null>(null);
@@ -167,6 +168,14 @@ watch(
           @click.stop="$emit('edit')"
         >
           Edit
+        </button>
+        <button
+          type="button"
+          class="btn-link btn-link--danger"
+          data-testid="catalog-rule-exclude"
+          @click.stop="$emit('exclude')"
+        >
+          Exclude from M+
         </button>
       </div>
       <div v-if="entry.badges.length" class="badges">
@@ -348,6 +357,10 @@ watch(
 .btn-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.btn-link--danger {
+  color: var(--danger);
 }
 
 .badges {

@@ -12,6 +12,7 @@ export * from "./calibration.js";
 export * from "./api.js";
 export * from "./faq.js";
 export * from "./ability-catalog-review.js";
+export * from "./ability-catalog-mplus-relevance.js";
 export * from "./ability-catalog-execution-pin.js";
 export * from "./refresh-contract.js";
 export * from "./account-characters.js";

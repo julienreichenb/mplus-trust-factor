@@ -292,6 +292,35 @@ export function createLiveApiClient(options: {
         signal,
       ),
 
+    listAbilityCatalogExclusions: (signal) =>
+      get<{
+        exclusions: Array<{
+          id: string;
+          stableAbilityIdentity: string;
+          canonicalKey: string | null;
+          primarySpellId: number | null;
+          excludedByUserId: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+      }>("/api/v1/admin/ability-catalog/exclusions", signal),
+
+    createAbilityCatalogExclusion: (body, signal) =>
+      send<{
+        id: string;
+        stableAbilityIdentity: string;
+        canonicalKey: string | null;
+        primarySpellId: number | null;
+      }>("POST", "/api/v1/admin/ability-catalog/exclusions", body, signal),
+
+    clearAbilityCatalogExclusion: (body, signal) =>
+      send<{ cleared: number }>(
+        "DELETE",
+        "/api/v1/admin/ability-catalog/exclusions",
+        body,
+        signal,
+      ),
+
     listAbilityCatalogReleases: (signal) =>
       get<{ releases: AbilityCatalogReleaseSummary[] }>(
         "/api/v1/admin/ability-catalog/releases",

@@ -223,6 +223,23 @@ export function buildAdminAbilityCatalogReviewRoutes(container: ApiContainer): F
           return { baseline };
         },
       );
+      readApp.get(
+        "/api/v1/admin/ability-catalog/exclusions",
+        {
+          schema: {
+            tags: ["admin"],
+            response: {
+              200: { type: "object", additionalProperties: true },
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async () => {
+          const exclusions = await service.listExclusions();
+          return { exclusions };
+        },
+      );
     });
 
     await app.register(async (writeApp) => {
@@ -306,6 +323,47 @@ export function buildAdminAbilityCatalogReviewRoutes(container: ApiContainer): F
             request.body,
             auditCtx(request, env.SESSION_SECRET),
           ),
+      );
+
+      writeApp.post(
+        "/api/v1/admin/ability-catalog/exclusions",
+        {
+          schema: {
+            tags: ["admin"],
+            body: { type: "object", additionalProperties: true },
+            response: {
+              201: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request, reply) => {
+          const created = await service.createExclusion(
+            request.body,
+            auditCtx(request, env.SESSION_SECRET),
+          );
+          return reply.code(201).send(created);
+        },
+      );
+
+      writeApp.delete(
+        "/api/v1/admin/ability-catalog/exclusions",
+        {
+          schema: {
+            tags: ["admin"],
+            body: { type: "object", additionalProperties: true },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request) =>
+          service.clearExclusion(request.body, auditCtx(request, env.SESSION_SECRET)),
       );
 
       writeApp.post(

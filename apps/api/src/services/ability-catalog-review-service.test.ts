@@ -997,4 +997,183 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
     });
     expect(res.statusCode).toBeGreaterThanOrEqual(401);
   });
+
+  it("marks new discoveries UNCLASSIFIED and durable EXCLUDE survives refresh", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const stamp = uniqueName("exclude-refresh");
+    const report = minimalPinnedReport({
+      snapshots: [
+        {
+          source: "SIMULATIONCRAFT",
+          datasetKind: "PINNED",
+          sourceVersion: "spellquery-export-0.1.0",
+          sourceRevision: `simc-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          validFromBuild: `69299-${stamp}`,
+          captureProvenance: "REAL_CAPTURE",
+        },
+        {
+          source: "BLIZZARD",
+          datasetKind: "PINNED",
+          sourceVersion: "wow-game-data",
+          sourceRevision: `69299-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          blizzardNamespace: "static-eu",
+          captureProvenance: "REAL_CAPTURE",
+        },
+      ],
+    });
+    const audit = {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    };
+    const first = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}"}`),
+      },
+      audit,
+    );
+    const ve = (await service.listItems(first.batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+    expect(ve.mplusRelevance).toBe("UNCLASSIFIED");
+
+    const excluded = await service.decideItem(
+      ve.id,
+      { expectedVersion: ve.version, action: "EXCLUDE", note: "not for mplus" },
+      audit,
+    );
+    expect(excluded.decisionAction).toBe("EXCLUDE");
+    expect(excluded.mplusRelevance).toBe("EXCLUDED");
+
+    const second = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}-2"}`),
+      },
+      audit,
+    );
+    expect(second.created).toBe(true);
+    const rediscovered = (await service.listItems(second.batch.id, { kind: "NEW_ABILITY_CANDIDATE" }))
+      .items;
+    expect(rediscovered.some((item) => item.primarySpellId === 15286)).toBe(false);
+
+    const exclusions = await service.listExclusions();
+    expect(
+      exclusions.some(
+        (row) => row.primarySpellId === 15286 || row.stableAbilityIdentity === "spell:15286",
+      ),
+    ).toBe(true);
+
+    const cleared = await service.clearExclusion({ primarySpellId: 15286 }, audit);
+    expect(cleared.cleared).toBeGreaterThan(0);
+
+    const third = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}-3"}`),
+      },
+      audit,
+    );
+    const back = (await service.listItems(third.batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    );
+    expect(back?.mplusRelevance).toBe("UNCLASSIFIED");
+  });
+
+  it("DEFER keeps candidate UNCLASSIFIED without durable exclusion", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const stamp = uniqueName("defer");
+    const report = minimalPinnedReport({
+      snapshots: [
+        {
+          source: "SIMULATIONCRAFT",
+          datasetKind: "PINNED",
+          sourceVersion: "spellquery-export-0.1.0",
+          sourceRevision: `simc-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          validFromBuild: `69299-${stamp}`,
+          captureProvenance: "REAL_CAPTURE",
+        },
+        {
+          source: "BLIZZARD",
+          datasetKind: "PINNED",
+          sourceVersion: "wow-game-data",
+          sourceRevision: `69299-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          blizzardNamespace: "static-eu",
+          captureProvenance: "REAL_CAPTURE",
+        },
+      ],
+    });
+    const audit = {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    };
+    const { batch } = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}"}`),
+      },
+      audit,
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+    const deferred = await service.decideItem(
+      ve.id,
+      { expectedVersion: ve.version, action: "DEFER" },
+      audit,
+    );
+    expect(deferred.decisionAction).toBe("DEFER");
+    expect(deferred.mplusRelevance).toBe("UNCLASSIFIED");
+    const exclusions = await service.listExclusions();
+    expect(exclusions.some((row) => row.primarySpellId === 15286)).toBe(false);
+  });
+
+  it("rejects source-owned fields on EXCLUDE decisions", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+
+    await expect(
+      service.decideItem(
+        ve.id,
+        {
+          expectedVersion: ve.version,
+          action: "EXCLUDE",
+          businessMetadata: { cooldownSeconds: 1 } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
 });

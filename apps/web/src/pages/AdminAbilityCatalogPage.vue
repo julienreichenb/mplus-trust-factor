@@ -127,6 +127,22 @@ async function discardManualEdit(canonicalKey: string): Promise<void> {
   }
 }
 
+async function excludeFromMplus(canonicalKey: string): Promise<void> {
+  if (
+    !window.confirm(
+      "Exclude this ability from M+ Trust Factor scoring? It will be omitted from the next published catalog release.",
+    )
+  ) {
+    return;
+  }
+  try {
+    await api.createAbilityCatalogExclusion({ canonicalKey });
+    error.value = null;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Failed to exclude ability";
+  }
+}
+
 async function onManualEditSaved(): Promise<void> {
   await loadManualEdits();
 }
@@ -695,6 +711,7 @@ onMounted(() => {
                   @edit="openManualEdit(entry.rule.canonicalKey)"
                   @edit-draft="openManualEdit(entry.rule.canonicalKey)"
                   @discard-edit="discardManualEdit(entry.rule.canonicalKey)"
+                  @exclude="excludeFromMplus(entry.rule.canonicalKey)"
                 />
               </article>
             </div>
@@ -738,6 +755,7 @@ onMounted(() => {
               @edit="openManualEdit(entry.rule.canonicalKey)"
               @edit-draft="openManualEdit(entry.rule.canonicalKey)"
               @discard-edit="discardManualEdit(entry.rule.canonicalKey)"
+              @exclude="excludeFromMplus(entry.rule.canonicalKey)"
             />
           </article>
         </div>

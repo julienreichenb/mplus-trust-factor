@@ -1145,6 +1145,7 @@ model User {
   abilityCatalogReviewItems     AbilityCatalogReviewItem[]
   abilityCatalogDraftRules      AbilityCatalogDraftRule[]
   abilityCatalogDecisionEvents  AbilityCatalogReviewDecisionEvent[]
+  abilityCatalogExclusions      AbilityCatalogExclusion[]
   abilityCatalogReleasesCreated AbilityCatalogRelease[] @relation("AbilityCatalogReleaseCreatedBy")
   abilityCatalogReleaseReplaysCreated AbilityCatalogReleaseReplay[] @relation("AbilityCatalogReleaseReplayCreatedBy")
   abilityCatalogReleaseActivations AbilityCatalogReleaseActivation[] @relation("AbilityCatalogReleaseActivationBy")
@@ -2872,6 +2873,18 @@ model AbilityCatalogReviewDecisionEvent {
 
   @@index([itemId, createdAt(sort: Desc)])
   @@map("ability_catalog_review_decision_events")
+}
+
+model AbilityCatalogExclusion {
+  id                    String   @id @default(uuid()) @db.Uuid
+  stableAbilityIdentity String   @unique @map("stable_ability_identity")
+  excludedByUserId      String?  @map("excluded_by_user_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  excludedBy User? @relation(fields: [excludedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("ability_catalog_exclusions")
 }
 
 /**

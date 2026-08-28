@@ -11,6 +11,10 @@ import {
   AbilityCatalogReleaseService,
   draftRuleRowToAbilityRule,
 } from "./ability-catalog-release-service.js";
+import {
+  clearAbilityCatalogExclusion,
+  upsertAbilityCatalogExclusion,
+} from "./ability-catalog-mplus-context.js";
 import { createTestPrismaClient, ensureActiveBootstrapCatalogReleaseForTests } from "../test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
@@ -512,6 +516,28 @@ describe.skipIf(!dbAvailable)("AbilityCatalogReleaseService persistence", () => 
     const base = await service.loadReleaseArtifact(boot.release.id);
     const baseRule = base.artifact.rules.find((r) => r.canonicalKey === targetKey);
     expect(baseRule?.validToBuild).toBeUndefined();
+  });
+
+  it("auto-tombstones ACTIVE rules with durable M+ exclusions", async () => {
+    const boot = await service.persistBootstrapRelease0(audit);
+    const targetKey = getAllRegisteredRules()[0]!.canonicalKey;
+    await upsertAbilityCatalogExclusion(prisma, { canonicalKey: targetKey, userId: null });
+    try {
+      const candidate = await service.createReleaseCandidate(
+        { baseReleaseId: boot.release.id, wowBuild: "exclusion-test" },
+        audit,
+      );
+      const art = await service.loadReleaseArtifact(candidate.release.id);
+      const rule = art.artifact.rules.find((entry) => entry.canonicalKey === targetKey);
+      expect(rule?.validToBuild).toBe("exclusion-test");
+      expect(rule?.provenance.certainty).toBe("deprecated");
+
+      const base = await service.loadReleaseArtifact(boot.release.id);
+      const baseRule = base.artifact.rules.find((entry) => entry.canonicalKey === targetKey);
+      expect(baseRule?.validToBuild).toBeUndefined();
+    } finally {
+      await clearAbilityCatalogExclusion(prisma, { canonicalKey: targetKey });
+    }
   });
 
   it("CAS semantic bytes exclude generatedAt and match contentDigest", () => {

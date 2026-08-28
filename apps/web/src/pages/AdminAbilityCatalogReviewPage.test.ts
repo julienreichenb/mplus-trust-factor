@@ -67,6 +67,7 @@ const veItem = {
   evidence: { cooldownSeconds: 120 },
   sourceProvenance: { source: "SIMULATIONCRAFT" },
   matchedCanonicalKey: null,
+  mplusRelevance: "UNCLASSIFIED",
   draftRule: {
     version: 1,
     canonicalKey: "priest.shadow.vampiric-embrace",
@@ -408,7 +409,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
     wrapper.unmount();
   });
 
-  it("Change decision supports ACCEPTED → REJECTED and preserves audit via decide API", async () => {
+  it("Change decision supports ACCEPTED → EXCLUDED and preserves audit via decide API", async () => {
     const acceptedItem = {
       ...veItem,
       decisionAction: "ACCEPT",
@@ -466,7 +467,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
     await flushPromises();
     expect(decideItem).toHaveBeenCalledWith(
       "item-ve",
-      expect.objectContaining({ action: "REJECT" }),
+      expect.objectContaining({ action: "EXCLUDE" }),
     );
   });
 
@@ -577,7 +578,7 @@ describe("AdminAbilityCatalogReviewPage", () => {
     await flushPromises();
     expect(decideItem).toHaveBeenCalledWith(
       "item-ve",
-      expect.objectContaining({ action: "REJECT" }),
+      expect.objectContaining({ action: "EXCLUDE" }),
     );
 
     decideItem.mockClear();

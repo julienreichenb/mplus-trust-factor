@@ -87,8 +87,15 @@ const DECISION_LABELS: Record<string, string> = {
   ACCEPT_PROPOSED: "Accepted proposed",
   KEEP_CURRENT: "Kept current",
   REJECT: "Rejected",
+  EXCLUDE: "Excluded",
   DEFER: "Deferred",
   CONFIRM_REMOVAL: "Removal confirmed",
+};
+
+const MPLUS_RELEVANCE_LABELS: Record<string, string> = {
+  INCLUDED: "Included",
+  EXCLUDED: "Excluded",
+  UNCLASSIFIED: "Needs classification",
 };
 
 const BINDING_ROLE_LABELS: Record<string, string> = {
@@ -510,6 +517,11 @@ function decisionLabel(action: string): string {
   return DECISION_LABELS[action] ?? humanizeToken(action);
 }
 
+function mplusRelevanceLabel(state: string | null | undefined): string {
+  if (!state) return "";
+  return MPLUS_RELEVANCE_LABELS[state] ?? humanizeToken(state);
+}
+
 function humanizeToken(value: string): string {
   return value
     .replace(/_/g, " ")
@@ -640,7 +652,8 @@ async function shortcutAccept(): Promise<void> {
 async function shortcutReject(): Promise<void> {
   const item = selectedItem.value;
   if (!item || saving.value || !canShortcutReject(item)) return;
-  await decide("REJECT");
+  if (item.kind === "NEW_ABILITY_CANDIDATE") await decide("EXCLUDE");
+  else await decide("REJECT");
 }
 
 async function shortcutDefer(): Promise<void> {
@@ -901,6 +914,7 @@ async function decide(action: string) {
     await loadItems({ preserveSelection: true });
     const advance =
       action === "REJECT" ||
+      action === "EXCLUDE" ||
       action === "DEFER" ||
       action === "KEEP_CURRENT" ||
       action === "CONFIRM_REMOVAL";
@@ -1151,6 +1165,9 @@ onUnmounted(() => {
                   :height="18"
                 />
                 <span class="item-card__meta">{{ itemOwnershipLine(item) || "—" }}</span>
+                <span v-if="item.mplusRelevance" class="badge badge--mplus">{{
+                  mplusRelevanceLabel(item.mplusRelevance)
+                }}</span>
                 <span v-if="item.decisionAction" class="badge badge--done">{{
                   decisionLabel(item.decisionAction)
                 }}</span>
@@ -1174,6 +1191,9 @@ onUnmounted(() => {
               </p>
               <div class="detail__badges">
                 <span class="badge">{{ kindLabel(selectedItem.kind) }}</span>
+                <span v-if="selectedItem.mplusRelevance" class="badge badge--mplus">{{
+                  mplusRelevanceLabel(selectedItem.mplusRelevance)
+                }}</span>
                 <span v-if="selectedItem.eligibilityState" class="badge badge--evidence">{{
                   eligibilityLabel(selectedItem.eligibilityState)
                 }}</span>
@@ -1552,9 +1572,9 @@ onUnmounted(() => {
             Save
           </button>
           <template v-if="showNewAbilityDecisionActions">
-            <button type="button" class="btn danger" :disabled="saving" @click="decide('REJECT')">
+            <button type="button" class="btn danger" :disabled="saving" @click="decide('EXCLUDE')">
               <span class="btn-stack">
-                <span>Reject</span>
+                <span>Exclude</span>
                 <span class="btn-stack__hint">Caps+Back</span>
               </span>
             </button>
@@ -1843,6 +1863,10 @@ onUnmounted(() => {
 }
 .badge--done {
   border-color: color-mix(in srgb, #3f8f6b 45%, var(--color-border));
+}
+.badge--mplus {
+  border-color: color-mix(in srgb, var(--color-gold-300) 45%, var(--color-border));
+  color: var(--color-text);
 }
 .badge--draft {
   border-color: color-mix(in srgb, #c47b2c 45%, var(--color-border));

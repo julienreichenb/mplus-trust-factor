@@ -23,6 +23,7 @@ import { canonicalRoleForClassSpec } from "@mplus/abilities";
 import { writeAuditEvent } from "../iam/audit.js";
 import { HttpError } from "../errors.js";
 import { persistInternalBytes } from "./ability-catalog-review-service.js";
+import { listCanonicalKeysPendingExclusionTombstone } from "./ability-catalog-mplus-context.js";
 
 export const ABILITY_CATALOG_RELEASE_VALIDATOR_VERSION = "ability-catalog-release-validator-v1";
 export const ARTIFACT_CLASS_RELEASE = "ability_catalog_release";
@@ -994,6 +995,24 @@ export class AbilityCatalogReleaseService {
         sourceReportDigest: item.batch.reportDigest,
       });
       curatedChangeIds.push(item.id);
+    }
+
+    const pendingTombstones = await listCanonicalKeysPendingExclusionTombstone(
+      this.prisma,
+      baseArtifact.rules.map((rule) => rule.canonicalKey),
+    );
+    const validToBuild = baseArtifact.wowBuild ?? input.wowBuild ?? "0";
+    for (const key of pendingTombstones) {
+      if (touchedKeys.has(key)) continue;
+      if (!baseArtifact.rules.some((rule) => rule.canonicalKey === key)) continue;
+      touchedKeys.add(key);
+      changes.push({ op: "TOMBSTONE_RULE", canonicalKey: key, validToBuild });
+      curationEntries.push({
+        operation: "TOMBSTONE_RULE",
+        canonicalKey: key,
+        actorUserId: null,
+        sourceReportDigest: null,
+      });
     }
 
     return { changes, curationEntries, curatedChangeIds: [...new Set(curatedChangeIds)].sort() };

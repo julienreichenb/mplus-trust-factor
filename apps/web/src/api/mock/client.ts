@@ -709,6 +709,24 @@ export function createMockApiClient(): MplusApiClient {
       throw new Error("Mock client has no ability-catalog review items");
     },
 
+    async listAbilityCatalogExclusions(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { exclusions: [] };
+    },
+
+    async createAbilityCatalogExclusion(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client cannot create ability-catalog exclusions");
+    },
+
+    async clearAbilityCatalogExclusion(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { cleared: 0 };
+    },
+
     async listAbilityCatalogReleases(signal) {
       await delay(20);
       assertNotAborted(signal);

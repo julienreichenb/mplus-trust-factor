@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "@mplus/database";
 import type {
   AbilityBusinessMetadataPatch,
   AbilityCatalogDraftValidationDTO,
+  AbilityCatalogExclusionDTO,
   AbilityCatalogReviewBatchDTO,
   AbilityCatalogReviewItemDTO,
   DecideAbilityCatalogReviewItemRequest,
@@ -12,6 +13,7 @@ import {
   NEW_ABILITY_DECISIONS,
   REMOVAL_DECISIONS,
   TOPOLOGY_DECISIONS,
+  abilityCatalogExclusionMutationSchema,
   decideAbilityCatalogReviewItemRequestSchema,
   designateAbilityCatalogBaselineRequestSchema,
   firstZodIssueMessage,
@@ -23,17 +25,26 @@ import {
   applyBusinessMetadataToReviewDraft,
   buildReviewImportPlan,
   dimensionTagsForRule,
+  filterReviewImportItems,
   getAllRegisteredRules,
   prefillCuratedDraftDefaults,
   projectCurrentRuleBindings,
+  resolveMplusRelevance,
   validateCuratedDraftRule,
   wowheadSpellUrl,
   ABILITY_CATALOG_REVIEW_PLAN_SCHEMA_VERSION,
   type AbilityRule,
   type CuratedDraftRuleInput,
+  type MplusRelevanceContext,
   type TopologyClassificationLike,
   type ReviewImportPlan,
 } from "@mplus/abilities";
+import {
+  clearAbilityCatalogExclusion,
+  loadMplusRelevanceContext,
+  toExclusionDto,
+  upsertAbilityCatalogExclusion,
+} from "./ability-catalog-mplus-context.js";
 import { createPostgresArtifactStore } from "@mplus/database";
 import type { ZodType } from "zod";
 import { HttpError } from "../errors.js";
@@ -164,6 +175,19 @@ export class AbilityCatalogReviewService {
         error instanceof Error ? error.message : "Invalid PINNED report",
       );
     }
+
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
+    const filteredItems = filterReviewImportItems(plan.items, mplusCtx);
+    plan = {
+      ...plan,
+      items: filteredItems,
+      summaryCounts: {
+        ...plan.summaryCounts,
+        newAbilityCandidates: filteredItems.filter((item) => item.kind === "NEW_ABILITY_CANDIDATE")
+          .length,
+        removalReviews: filteredItems.filter((item) => item.kind === "REMOVAL_REVIEW").length,
+      },
+    };
 
     const reviewPlanDigest = digestReviewPlan(plan);
     const identityKey = sourceIdentityKey(plan.simcRevision, plan.wowBuild);
@@ -449,7 +473,7 @@ export class AbilityCatalogReviewService {
     } else if (query.decisionState === "deferred") {
       where.decisionAction = "DEFER";
     } else if (query.decisionState === "rejected") {
-      where.decisionAction = { in: ["REJECT"] };
+      where.decisionAction = { in: ["REJECT", "EXCLUDE"] };
     } else if (query.decisionState === "accepted") {
       where.decisionAction = {
         in: ["ACCEPT", "ACCEPT_PROPOSED", "KEEP_CURRENT", "CONFIRM_REMOVAL"],
@@ -478,8 +502,9 @@ export class AbilityCatalogReviewService {
 
     const total = filtered.length;
     const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
     return {
-      items: pageRows.map(toItemDto),
+      items: pageRows.map((row) => toItemDto(row, mplusCtx)),
       total,
       page,
       pageSize,
@@ -498,7 +523,62 @@ export class AbilityCatalogReviewService {
     if (!row) {
       throw HttpError.notFound("REVIEW_ITEM_NOT_FOUND", "Ability catalog review item was not found");
     }
-    return toItemDto(row);
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
+    return toItemDto(row, mplusCtx);
+  }
+
+  async listExclusions(): Promise<AbilityCatalogExclusionDTO[]> {
+    const rows = await this.prisma.abilityCatalogExclusion.findMany({
+      orderBy: { updatedAt: "desc" },
+    });
+    return rows.map(toExclusionDto);
+  }
+
+  async createExclusion(
+    body: unknown,
+    audit: AbilityCatalogReviewAuditContext,
+  ): Promise<AbilityCatalogExclusionDTO> {
+    const input = parseBody(abilityCatalogExclusionMutationSchema, body);
+    const stableId = await this.prisma.$transaction(async (tx) =>
+      upsertAbilityCatalogExclusion(tx, {
+        canonicalKey: input.canonicalKey,
+        primarySpellId: input.primarySpellId,
+        userId: audit.userId ?? null,
+      }),
+    );
+    const row = await this.prisma.abilityCatalogExclusion.findUnique({
+      where: { stableAbilityIdentity: stableId },
+    });
+    if (!row) {
+      throw HttpError.internal("Failed to load persisted exclusion");
+    }
+    await this.audit("ability_catalog.exclusion.create", row.id, audit, {
+      stableAbilityIdentity: stableId,
+      canonicalKey: input.canonicalKey ?? null,
+      primarySpellId: input.primarySpellId ?? null,
+      note: input.note ?? null,
+    });
+    return toExclusionDto(row);
+  }
+
+  async clearExclusion(
+    body: unknown,
+    audit: AbilityCatalogReviewAuditContext,
+  ): Promise<{ cleared: number }> {
+    const input = parseBody(abilityCatalogExclusionMutationSchema, body);
+    const cleared = await this.prisma.$transaction(async (tx) =>
+      clearAbilityCatalogExclusion(tx, {
+        canonicalKey: input.canonicalKey,
+        primarySpellId: input.primarySpellId,
+      }),
+    );
+    await this.audit("ability_catalog.exclusion.clear", input.canonicalKey ?? String(input.primarySpellId), audit, {
+      canonicalKey: input.canonicalKey ?? null,
+      primarySpellId: input.primarySpellId ?? null,
+      cleared,
+      note: input.note ?? null,
+    });
+    return { cleared };
   }
 
   async decideItem(
@@ -1053,6 +1133,15 @@ export class AbilityCatalogReviewService {
     input: DecideAbilityCatalogReviewItemRequest,
     audit: AbilityCatalogReviewAuditContext,
   ): Promise<void> {
+    if (item.kind === "NEW_ABILITY_CANDIDATE" && input.action === "EXCLUDE") {
+      await upsertAbilityCatalogExclusion(tx, {
+        canonicalKey: item.matchedCanonicalKey,
+        primarySpellId: item.primarySpellId,
+        userId: audit.userId ?? null,
+      });
+      return;
+    }
+
     if (item.kind === "NEW_ABILITY_CANDIDATE" && input.action === "ACCEPT") {
       const draftInput = composeReviewDraftInput(item, input.businessMetadata);
       const otherDraftKeys = await loadOtherDraftCanonicalKeys(tx, item.id);
@@ -1646,7 +1735,7 @@ function decisionCounts(
     } else {
       decided += 1;
       if (action === "DEFER") deferred += 1;
-      else if (action === "REJECT") rejected += 1;
+      else if (action === "REJECT" || action === "EXCLUDE") rejected += 1;
       else accepted += 1;
     }
     if (item.draftRule?.status === "NEEDS_METADATA") draftsNeedsMetadata += 1;
@@ -1755,7 +1844,7 @@ function toItemDto(row: {
     note: string | null;
     createdAt: Date;
   }>;
-}): AbilityCatalogReviewItemDTO {
+}, mplusCtx: MplusRelevanceContext): AbilityCatalogReviewItemDTO {
   const draftValidation = row.draftRule
     ? toValidationDto(
         validateCuratedDraftRule(draftRowToInput(row.draftRule), {
@@ -1763,6 +1852,11 @@ function toItemDto(row: {
         }),
       )
     : null;
+  const mplusRelevance = resolveMplusRelevance({
+    canonicalKey: row.matchedCanonicalKey,
+    primarySpellId: row.primarySpellId,
+    ...mplusCtx,
+  });
   return {
     id: row.id,
     batchId: row.batchId,
@@ -1787,6 +1881,7 @@ function toItemDto(row: {
     draftTopology: row.draftTopology ?? null,
     draftStatus: row.draftRule?.status ?? null,
     draftValidation,
+    mplusRelevance,
     decisionEvents: (row.decisionEvents ?? []).map((ev) => ({
       id: ev.id,
       actorUserId: ev.actorUserId,
