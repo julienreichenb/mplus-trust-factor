@@ -37,6 +37,48 @@ function digestShort(digest: string): string {
   return digest.length >= 12 ? digest.slice(0, 12) : digest;
 }
 
+export type PublishStatusPendingInput = {
+  blockingIssues: readonly unknown[];
+  hasPublishableChanges: boolean;
+  unclassifiedCandidateCount: number;
+};
+
+/** Pure publish-status selection from collected pending counts. */
+export function resolvePublishStatusFromPending(
+  pending: PublishStatusPendingInput,
+): AbilityCatalogPublishStatusDTO["status"] {
+  if (pending.blockingIssues.length > 0) return "BLOCKED";
+  if (pending.hasPublishableChanges) return "READY";
+  if (pending.unclassifiedCandidateCount > 0) return "NEEDS_CLASSIFICATION";
+  return "NO_CHANGES";
+}
+
+/** Throws when publish orchestration has no semantic delta to apply. */
+export function assertHasPublishableChanges(hasPublishableChanges: boolean): void {
+  if (!hasPublishableChanges) {
+    throw HttpError.badRequest(
+      "NO_PENDING_CHANGES",
+      "No unpublished catalog changes are ready to publish",
+    );
+  }
+}
+
+/**
+ * EXCLUDED / tombstoned keys must not also compile as included rule changes.
+ * Agent04: durable exclusion or confirmed removal suppresses pending drafts.
+ */
+export function filterDraftRefsNotSuppressedByTombstone(
+  refs: readonly IncludedDraftRuleRef[],
+  draftCanonicalKeyById: ReadonlyMap<string, string | null | undefined>,
+  suppressedKeys: ReadonlySet<string>,
+): IncludedDraftRuleRef[] {
+  if (refs.length === 0 || suppressedKeys.size === 0) return [...refs];
+  return refs.filter((ref) => {
+    const key = draftCanonicalKeyById.get(ref.draftRuleId);
+    return !key || !suppressedKeys.has(key);
+  });
+}
+
 /** True when applying `change` would alter ACTIVE contentDigest. */
 export function changeAltersActive(
   active: AbilityCatalogReleaseArtifact,
@@ -110,14 +152,11 @@ export class AbilityCatalogPublishService {
     const { batches } = await this.review.listBatches();
     const latestBatch = batches[0] ?? null;
 
-    let status: AbilityCatalogPublishStatusDTO["status"] = "NO_CHANGES";
-    if (pending.blockingIssues.length > 0) {
-      status = "BLOCKED";
-    } else if (pending.hasPublishableChanges) {
-      status = "READY";
-    } else if (pending.unclassifiedCandidateCount > 0) {
-      status = "NEEDS_CLASSIFICATION";
-    }
+    let status = resolvePublishStatusFromPending({
+      blockingIssues: pending.blockingIssues,
+      hasPublishableChanges: pending.hasPublishableChanges,
+      unclassifiedCandidateCount: pending.unclassifiedCandidateCount,
+    });
 
     return {
       status,
@@ -155,9 +194,7 @@ export class AbilityCatalogPublishService {
         blockingIssues: pending.blockingIssues,
       });
     }
-    if (!pending.hasPublishableChanges) {
-      throw HttpError.badRequest("NO_PENDING_CHANGES", "No unpublished catalog changes are ready to publish");
-    }
+    assertHasPublishableChanges(pending.hasPublishableChanges);
 
     const previousActive = {
       id: active.id,
@@ -316,10 +353,6 @@ export class AbilityCatalogPublishService {
       const loaded = await this.releases.loadReleaseArtifact(activeReleaseId);
       draftRuleRefs = await this.filterSemanticallyPendingDrafts(rawDraftRuleRefs, loaded.artifact);
       topologyRefs = await this.filterSemanticallyPendingTopologies(rawTopologyRefs, loaded.artifact);
-      removalRefs = this.filterConfirmedRemovalRefs(
-        await this.listConfirmedRemovalRows(),
-        loaded.artifact,
-      );
       const liveKeys = loaded.artifact.rules
         .filter((rule) => !rule.validToBuild)
         .map((rule) => rule.canonicalKey);
@@ -331,6 +364,21 @@ export class AbilityCatalogPublishService {
           canonicalKey: key,
           validToBuild: loaded.artifact.wowBuild || "0",
         }),
+      );
+      const removalRows = await this.listConfirmedRemovalRows();
+      removalRefs = this.filterConfirmedRemovalRefs(removalRows, loaded.artifact);
+      const suppressedKeys = new Set<string>(pendingExclusionKeys);
+      for (const row of removalRows) {
+        if (
+          row.matchedCanonicalKey &&
+          removalRefs.some((ref) => ref.reviewItemId === row.id)
+        ) {
+          suppressedKeys.add(row.matchedCanonicalKey);
+        }
+      }
+      draftRuleRefs = await this.filterDraftRefsSuppressedByTombstone(
+        draftRuleRefs,
+        suppressedKeys,
       );
     } else if (rawDraftRuleRefs.length > 0) {
       // No ACTIVE → any READY draft is pending publication.
@@ -355,6 +403,20 @@ export class AbilityCatalogPublishService {
       blockingIssues,
       hasPublishableChanges,
     };
+  }
+
+  /** Drop included drafts superseded by durable exclusion or confirmed removal. */
+  private async filterDraftRefsSuppressedByTombstone(
+    refs: IncludedDraftRuleRef[],
+    suppressedKeys: ReadonlySet<string>,
+  ): Promise<IncludedDraftRuleRef[]> {
+    if (refs.length === 0 || suppressedKeys.size === 0) return refs;
+    const rows = await this.prisma.abilityCatalogDraftRule.findMany({
+      where: { id: { in: refs.map((ref) => ref.draftRuleId) } },
+      select: { id: true, canonicalKey: true },
+    });
+    const keyById = new Map(rows.map((row) => [row.id, row.canonicalKey]));
+    return filterDraftRefsNotSuppressedByTombstone(refs, keyById, suppressedKeys);
   }
 
   /**
