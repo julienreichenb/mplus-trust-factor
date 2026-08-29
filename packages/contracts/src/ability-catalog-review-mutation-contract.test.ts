@@ -10,6 +10,7 @@ const sourceFieldPayloads = [
   { spellIds: [1] },
   { bindings: [{ spellId: 1, role: "PRIMARY_ACTIVATION" }] },
   { provenance: { source: "SIMULATIONCRAFT" } },
+  { canonicalKey: "priest.shadow.vampiric-embrace" },
 ];
 
 describe("ability catalog review mutation schemas", () => {

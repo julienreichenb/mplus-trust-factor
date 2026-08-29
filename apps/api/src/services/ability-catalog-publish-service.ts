@@ -10,10 +10,16 @@ import type {
   AbilityCatalogPublishStatusDTO,
   PublishAbilityCatalogRequest,
 } from "@mplus/contracts";
-import { filterReviewImportItems } from "@mplus/abilities";
+import { filterReviewImportItems, type AbilityRule } from "@mplus/abilities";
+import {
+  compileAbilityCatalogRelease,
+  type AbilityCatalogReleaseArtifact,
+} from "@mplus/abilities/release";
 import { HttpError } from "../errors.js";
 import {
   AbilityCatalogReleaseService,
+  applyTopologyDraft,
+  draftRuleRowToAbilityRule,
   type AbilityCatalogReleaseAuditContext,
   type IncludedDraftRuleRef,
   type IncludedDraftTopologyRef,
@@ -29,6 +35,60 @@ import {
 
 function digestShort(digest: string): string {
   return digest.length >= 12 ? digest.slice(0, 12) : digest;
+}
+
+/** True when applying `change` would alter ACTIVE contentDigest. */
+export function changeAltersActive(
+  active: AbilityCatalogReleaseArtifact,
+  change:
+    | { op: "ADD_RULE"; rule: AbilityRule }
+    | { op: "UPDATE_RULE"; canonicalKey: string; rule: AbilityRule }
+    | { op: "TOMBSTONE_RULE"; canonicalKey: string; validToBuild: string }
+    | { op: "UPDATE_TOPOLOGY"; topology: AbilityCatalogReleaseArtifact["topology"] },
+): boolean {
+  const next = compileAbilityCatalogRelease({
+    baseRules: active.rules,
+    baseTopology: active.topology,
+    gameVersion: active.gameVersion,
+    wowBuild: active.wowBuild,
+    seasonSlug: active.seasonSlug,
+    previousReleaseId: active.previousReleaseId,
+    manifest: active.manifest,
+    changes: [change],
+    generatedAt: active.generatedAt,
+  });
+  return next.contentDigest !== active.contentDigest;
+}
+
+/**
+ * Whether a READY draft still represents a semantic delta vs ACTIVE.
+ * NEW_ABILITY ACCEPT whose key is already live is treated as already applied
+ * (draft→rule conversion is lossy; ADD intent is satisfied).
+ */
+export function isDraftRuleSemanticallyPendingAgainstActive(
+  draft: {
+    status: string;
+    reviewItem: { kind: string; decisionAction: string | null } | null;
+  },
+  rule: AbilityRule,
+  active: AbilityCatalogReleaseArtifact,
+): boolean {
+  if (draft.status !== "READY_FOR_PUBLISH_REVIEW") return false;
+  const activeRule = active.rules.find((r) => r.canonicalKey === rule.canonicalKey);
+  if (activeRule && !activeRule.validToBuild) {
+    if (
+      draft.reviewItem?.kind === "NEW_ABILITY_CANDIDATE" &&
+      draft.reviewItem.decisionAction === "ACCEPT"
+    ) {
+      return false;
+    }
+    return changeAltersActive(active, {
+      op: "UPDATE_RULE",
+      canonicalKey: rule.canonicalKey,
+      rule,
+    });
+  }
+  return changeAltersActive(active, { op: "ADD_RULE", rule });
 }
 
 export class AbilityCatalogPublishService {
@@ -245,19 +305,36 @@ export class AbilityCatalogPublishService {
     blockingIssues: AbilityCatalogPublishBlockingIssue[];
     hasPublishableChanges: boolean;
   }> {
-    const draftRuleRefs = await this.listReadyDraftRuleRefs();
-    const topologyRefs = await this.listReadyTopologyRefs();
-    const removalRefs = activeReleaseId
-      ? await this.listConfirmedRemovalRefs(activeReleaseId)
-      : [];
+    const rawDraftRuleRefs = await this.listReadyDraftRuleRefs();
+    const rawTopologyRefs = await this.listReadyTopologyRefs();
 
     let pendingExclusionKeys: string[] = [];
+    let draftRuleRefs = rawDraftRuleRefs;
+    let topologyRefs = rawTopologyRefs;
+    let removalRefs: IncludedRemovalRef[] = [];
     if (activeReleaseId) {
       const loaded = await this.releases.loadReleaseArtifact(activeReleaseId);
-      pendingExclusionKeys = await listCanonicalKeysPendingExclusionTombstone(
-        this.prisma,
-        loaded.artifact.rules.map((rule) => rule.canonicalKey),
+      draftRuleRefs = await this.filterSemanticallyPendingDrafts(rawDraftRuleRefs, loaded.artifact);
+      topologyRefs = await this.filterSemanticallyPendingTopologies(rawTopologyRefs, loaded.artifact);
+      removalRefs = this.filterConfirmedRemovalRefs(
+        await this.listConfirmedRemovalRows(),
+        loaded.artifact,
       );
+      const liveKeys = loaded.artifact.rules
+        .filter((rule) => !rule.validToBuild)
+        .map((rule) => rule.canonicalKey);
+      pendingExclusionKeys = await listCanonicalKeysPendingExclusionTombstone(this.prisma, liveKeys);
+      // Exclusion tombstone is pending only when it would change ACTIVE.
+      pendingExclusionKeys = pendingExclusionKeys.filter((key) =>
+        changeAltersActive(loaded.artifact, {
+          op: "TOMBSTONE_RULE",
+          canonicalKey: key,
+          validToBuild: loaded.artifact.wowBuild || "0",
+        }),
+      );
+    } else if (rawDraftRuleRefs.length > 0) {
+      // No ACTIVE → any READY draft is pending publication.
+      draftRuleRefs = rawDraftRuleRefs;
     }
 
     const blockingIssues = await this.listBlockingIssues();
@@ -280,6 +357,78 @@ export class AbilityCatalogPublishService {
     };
   }
 
+  /**
+   * Drop READY drafts whose curated intent is already represented in ACTIVE
+   * (stale historical rows that would be no-ops / contradictory duplicates).
+   */
+  private async filterSemanticallyPendingDrafts(
+    refs: IncludedDraftRuleRef[],
+    active: AbilityCatalogReleaseArtifact,
+  ): Promise<IncludedDraftRuleRef[]> {
+    if (refs.length === 0) return refs;
+    const pending: IncludedDraftRuleRef[] = [];
+    for (const ref of refs) {
+      const draft = await this.prisma.abilityCatalogDraftRule.findUnique({
+        where: { id: ref.draftRuleId },
+        include: { reviewItem: { select: { kind: true, decisionAction: true } } },
+      });
+      if (!draft || draft.version !== ref.draftVersion) continue;
+      if (draft.status !== "READY_FOR_PUBLISH_REVIEW") continue;
+      let rule: AbilityRule;
+      try {
+        rule = draftRuleRowToAbilityRule(draft);
+      } catch {
+        // Unconvertible READY draft — keep and let compile surface the error.
+        pending.push(ref);
+        continue;
+      }
+      if (
+        isDraftRuleSemanticallyPendingAgainstActive(
+          {
+            status: draft.status,
+            reviewItem: draft.reviewItem,
+          },
+          rule,
+          active,
+        )
+      ) {
+        pending.push(ref);
+      }
+    }
+    return pending;
+  }
+
+  /** Drop topology drafts that would not change ACTIVE topology content. */
+  private async filterSemanticallyPendingTopologies(
+    refs: IncludedDraftTopologyRef[],
+    active: AbilityCatalogReleaseArtifact,
+  ): Promise<IncludedDraftTopologyRef[]> {
+    if (refs.length === 0) return refs;
+    const pending: IncludedDraftTopologyRef[] = [];
+    for (const ref of refs) {
+      const draft = await this.prisma.abilityCatalogDraftTopology.findUnique({
+        where: { id: ref.draftTopologyId },
+      });
+      if (!draft || draft.version !== ref.draftVersion) continue;
+      if (draft.status !== "ACCEPTED" && draft.status !== "READY_FOR_PUBLISH_REVIEW") continue;
+      try {
+        const topology = applyTopologyDraft(active.topology, draft);
+        if (
+          changeAltersActive(active, {
+            op: "UPDATE_TOPOLOGY",
+            topology,
+          })
+        ) {
+          pending.push(ref);
+        }
+      } catch {
+        // Keep unsupported/invalid topology drafts so compile can surface the error.
+        pending.push(ref);
+      }
+    }
+    return pending;
+  }
+
   private async listReadyDraftRuleRefs(): Promise<IncludedDraftRuleRef[]> {
     const rows = await this.prisma.abilityCatalogDraftRule.findMany({
       where: { status: "READY_FOR_PUBLISH_REVIEW" },
@@ -298,20 +447,36 @@ export class AbilityCatalogPublishService {
     return rows.map((row) => ({ draftTopologyId: row.id, draftVersion: row.version }));
   }
 
-  private async listConfirmedRemovalRefs(activeReleaseId: string): Promise<IncludedRemovalRef[]> {
-    const loaded = await this.releases.loadReleaseArtifact(activeReleaseId);
-    const validToBuild = loaded.artifact.wowBuild ?? "0";
-    const rows = await this.prisma.abilityCatalogReviewItem.findMany({
+  private async listConfirmedRemovalRows(): Promise<
+    Array<{ id: string; matchedCanonicalKey: string | null }>
+  > {
+    return this.prisma.abilityCatalogReviewItem.findMany({
       where: { kind: "REMOVAL_REVIEW", decisionAction: "CONFIRM_REMOVAL" },
       select: { id: true, matchedCanonicalKey: true },
       orderBy: { identityKey: "asc" },
     });
+  }
+
+  private filterConfirmedRemovalRefs(
+    rows: Array<{ id: string; matchedCanonicalKey: string | null }>,
+    active: AbilityCatalogReleaseArtifact,
+  ): IncludedRemovalRef[] {
+    const validToBuild = active.wowBuild ?? "0";
     return rows
-      .filter((row) =>
-        row.matchedCanonicalKey
-          ? loaded.artifact.rules.some((rule) => rule.canonicalKey === row.matchedCanonicalKey)
-          : false,
-      )
+      .filter((row) => {
+        if (!row.matchedCanonicalKey) return false;
+        const activeRule = active.rules.find(
+          (rule) => rule.canonicalKey === row.matchedCanonicalKey,
+        );
+        if (!activeRule) return false;
+        // Already tombstoned in ACTIVE — not a semantic pending change.
+        if (activeRule.validToBuild) return false;
+        return changeAltersActive(active, {
+          op: "TOMBSTONE_RULE",
+          canonicalKey: row.matchedCanonicalKey,
+          validToBuild,
+        });
+      })
       .map((row) => ({
         reviewItemId: row.id,
         validToBuild,

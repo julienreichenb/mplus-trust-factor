@@ -212,7 +212,7 @@ export function draftRuleRowToAbilityRule(row: {
   };
 }
 
-function applyTopologyDraft(
+export function applyTopologyDraft(
   base: ReleaseTopology,
   draft: { kind: string; slug: string; displayName: string | null; evidence: unknown },
 ): ReleaseTopology {
@@ -1001,7 +1001,7 @@ export class AbilityCatalogReleaseService {
       this.prisma,
       baseArtifact.rules.map((rule) => rule.canonicalKey),
     );
-    const validToBuild = baseArtifact.wowBuild ?? input.wowBuild ?? "0";
+    const validToBuild = input.wowBuild ?? baseArtifact.wowBuild ?? "0";
     for (const key of pendingTombstones) {
       if (touchedKeys.has(key)) continue;
       if (!baseArtifact.rules.some((rule) => rule.canonicalKey === key)) continue;

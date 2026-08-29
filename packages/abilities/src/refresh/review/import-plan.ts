@@ -330,16 +330,19 @@ export function resolveCanonicalKeyCollision(
   }
   if (!reservedKeys.has(baseKey)) return baseKey;
 
-  for (let n = 2; n <= 99; n++) {
-    const candidate = `${baseKey}-${n}`;
+  // Prefer deterministic spell-id suffix when available (stable across drafts).
+  if (options?.spellId != null && options.spellId > 0) {
+    const candidate = `${baseKey}-${options.spellId}`;
     if (isValidCanonicalKeyFormat(candidate) && !reservedKeys.has(candidate)) {
       return candidate;
     }
   }
 
-  if (options?.spellId != null && options.spellId > 0) {
-    const candidate = `${baseKey}-${options.spellId}`;
-    if (!reservedKeys.has(candidate)) return candidate;
+  for (let n = 2; n <= 99; n++) {
+    const candidate = `${baseKey}-${n}`;
+    if (isValidCanonicalKeyFormat(candidate) && !reservedKeys.has(candidate)) {
+      return candidate;
+    }
   }
 
   throw new Error(`Unable to resolve canonical key collision for ${baseKey}`);

@@ -150,7 +150,18 @@ describe("ability catalog review import plan", () => {
         },
         { reservedKeys: new Set(["monk.windwalker.flying-serpent-kick"]) },
       ),
-    ).toBe("monk.windwalker.flying-serpent-kick-2");
+    ).toBe("monk.windwalker.flying-serpent-kick-101545");
+    expect(
+      suggestCuratedCanonicalKey(
+        {
+          classSlug: "priest",
+          specSlugs: ["shadow"],
+          name: "Vampiric Embrace",
+          primarySpellId: 15286,
+        },
+        { reservedKeys: new Set(["priest.shadow.vampiric-embrace"]) },
+      ),
+    ).toBe("priest.shadow.vampiric-embrace-15286");
     const collision = validateCuratedDraftRule(
       {
         canonicalKey: "mage.offensive.icy-veins",

@@ -21,6 +21,8 @@ export interface ReviewItemDraftPrefillInput {
   sourceProvenance: Record<string, unknown>;
   wowBuild?: string | null;
   generatedAt?: string | null;
+  /** Extra reserved keys (other drafts, ACTIVE release) beyond static registry. */
+  reservedCanonicalKeys?: ReadonlySet<string>;
 }
 
 function asNumber(value: unknown): number | null {
@@ -152,6 +154,11 @@ export function prefillCuratedDraftDefaults(
   if (input.primarySpellId != null) spellIdSet.add(input.primarySpellId);
   const spellIds = [...spellIdSet].sort((a, b) => a - b);
 
+  const reservedKeys = new Set<string>([
+    ...getAllRegisteredRules().map((rule) => rule.canonicalKey),
+    ...(input.reservedCanonicalKeys ?? []),
+  ]);
+
   const canonicalKey =
     input.matchedCanonicalKey ??
     suggestCuratedCanonicalKey(
@@ -162,9 +169,7 @@ export function prefillCuratedDraftDefaults(
         name: input.name,
         primarySpellId: input.primarySpellId,
       },
-      {
-        reservedKeys: new Set(getAllRegisteredRules().map((rule) => rule.canonicalKey)),
-      },
+      { reservedKeys },
     );
 
   const validFromBuild =

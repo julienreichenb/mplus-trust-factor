@@ -800,11 +800,16 @@ export class AbilityCatalogReviewService {
       return this.getItem(itemId);
     }
 
+    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
+    const reservedCanonicalKeys = new Set<string>([
+      ...getAllRegisteredRules().map((r) => r.canonicalKey),
+      ...otherDraftKeys,
+    ]);
     const draftInput = composeReviewDraftInput(item, input.businessMetadata, {
       wowBuild: item.batch.wowBuild,
       generatedAt: item.batch.createdAt.toISOString(),
+      reservedCanonicalKeys,
     });
-    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
     const validation = validateCuratedDraftRule(draftInput, {
       existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
       otherDraftCanonicalKeys: otherDraftKeys,
@@ -855,15 +860,19 @@ export class AbilityCatalogReviewService {
     if (!item) {
       throw HttpError.notFound("REVIEW_ITEM_NOT_FOUND", "Ability catalog review item was not found");
     }
+    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
     const draftInput = composeReviewDraftInput(
       item,
       input.businessMetadata,
       {
         wowBuild: item.batch.wowBuild,
         generatedAt: item.batch.createdAt.toISOString(),
+        reservedCanonicalKeys: new Set<string>([
+          ...getAllRegisteredRules().map((r) => r.canonicalKey),
+          ...otherDraftKeys,
+        ]),
       },
     );
-    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
     const validation = validateCuratedDraftRule(draftInput, {
       existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
       otherDraftCanonicalKeys: otherDraftKeys,
@@ -1143,8 +1152,14 @@ export class AbilityCatalogReviewService {
     }
 
     if (item.kind === "NEW_ABILITY_CANDIDATE" && input.action === "ACCEPT") {
-      const draftInput = composeReviewDraftInput(item, input.businessMetadata);
       const otherDraftKeys = await loadOtherDraftCanonicalKeys(tx, item.id);
+      const reservedCanonicalKeys = new Set<string>([
+        ...getAllRegisteredRules().map((r) => r.canonicalKey),
+        ...otherDraftKeys,
+      ]);
+      const draftInput = composeReviewDraftInput(item, input.businessMetadata, {
+        reservedCanonicalKeys,
+      });
       const validation = validateCuratedDraftRule(draftInput, {
         existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
         otherDraftCanonicalKeys: otherDraftKeys,
@@ -1537,7 +1552,11 @@ function reviewDraftPrefill(
       notes: string | null;
     } | null;
   },
-  context?: { wowBuild?: string | null; generatedAt?: string | null },
+  context?: {
+    wowBuild?: string | null;
+    generatedAt?: string | null;
+    reservedCanonicalKeys?: ReadonlySet<string>;
+  },
 ): CuratedDraftRuleInput {
   if (item.draftRule) {
     return draftRowToInput(item.draftRule);
@@ -1553,6 +1572,7 @@ function reviewDraftPrefill(
     sourceProvenance: asRecord(item.sourceProvenance ?? null),
     wowBuild: context?.wowBuild ?? null,
     generatedAt: context?.generatedAt ?? null,
+    reservedCanonicalKeys: context?.reservedCanonicalKeys,
   });
 }
 
@@ -1587,7 +1607,11 @@ function composeReviewDraftInput(
     } | null;
   },
   businessMetadata?: AbilityBusinessMetadataPatch,
-  context?: { wowBuild?: string | null; generatedAt?: string | null },
+  context?: {
+    wowBuild?: string | null;
+    generatedAt?: string | null;
+    reservedCanonicalKeys?: ReadonlySet<string>;
+  },
 ): CuratedDraftRuleInput {
   const prefill = reviewDraftPrefill(item, context);
   if (!businessMetadata) return prefill;
