@@ -152,7 +152,7 @@ export class AbilityCatalogPublishService {
     const { batches } = await this.review.listBatches();
     const latestBatch = batches[0] ?? null;
 
-    let status = resolvePublishStatusFromPending({
+    const status = resolvePublishStatusFromPending({
       blockingIssues: pending.blockingIssues,
       hasPublishableChanges: pending.hasPublishableChanges,
       unclassifiedCandidateCount: pending.unclassifiedCandidateCount,
