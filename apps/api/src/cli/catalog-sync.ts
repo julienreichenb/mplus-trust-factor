@@ -10,13 +10,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadEnv, resetEnvCache } from "@mplus/config";
+import { loadCatalogSyncEnv } from "@mplus/config";
 import { createPrismaClient } from "@mplus/database";
 import { AbilityCatalogRefreshOrchestrationService } from "../services/ability-catalog-refresh-orchestration-service.js";
 import { AbilityCatalogPublishService } from "../services/ability-catalog-publish-service.js";
 import { HttpError } from "../errors.js";
 
 const BUNDLED_LINUX_SIMC = "/usr/local/bin/simc";
+/** Audit placeholder — system actor path does not hash with SESSION_SECRET. */
+const SYSTEM_AUDIT_SECRET = "catalog-sync-system-actor-placeholder!";
 
 function loadDotEnvFile(path: string): void {
   if (!existsSync(path)) return;
@@ -54,25 +56,14 @@ async function main(): Promise<void> {
   const started = Date.now();
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
   loadDotEnvFile(resolve(root, ".env"));
-  resetEnvCache();
 
   let env;
   try {
-    env = loadEnv();
+    env = loadCatalogSyncEnv();
   } catch (error) {
     fail(
       "CONFIG_INVALID",
-      error instanceof Error ? error.message : "Failed to load environment configuration",
-    );
-  }
-
-  if (!env.DATABASE_URL) {
-    fail("CONFIG_INVALID", "DATABASE_URL is required");
-  }
-  if (!env.BLIZZARD_CLIENT_ID || !env.BLIZZARD_CLIENT_SECRET) {
-    fail(
-      "BLIZZARD_NOT_CONFIGURED",
-      "BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET are required for catalog source sync",
+      error instanceof Error ? error.message : "Failed to load catalog-sync configuration",
     );
   }
 
@@ -83,7 +74,7 @@ async function main(): Promise<void> {
   const audit = {
     userId: null as string | null,
     actorType: "system" as const,
-    sessionSecret: env.SESSION_SECRET,
+    sessionSecret: SYSTEM_AUDIT_SECRET,
   };
 
   console.log("[catalog-sync] Starting source synchronization (SimC + Blizzard → import)");

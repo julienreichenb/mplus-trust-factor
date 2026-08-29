@@ -38,6 +38,18 @@ const statusLine = computed(() => {
   return parts.join(" · ");
 });
 
+const blockingMessages = computed(() => {
+  const raw = status.value?.blockingIssues;
+  if (!Array.isArray(raw)) return [] as string[];
+  return raw.map((issue) => {
+    if (issue && typeof issue === "object" && "message" in issue) {
+      const message = (issue as { message?: unknown }).message;
+      return typeof message === "string" ? message : String(message ?? "Blocking issue");
+    }
+    return String(issue);
+  });
+});
+
 async function loadStatus(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -118,12 +130,9 @@ defineExpose({ reload: loadStatus });
     </div>
     <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
     <StatusBanner v-if="success" tone="success">{{ success }}</StatusBanner>
-    <ul
-      v-if="Array.isArray(status?.blockingIssues) && status.blockingIssues.length"
-      class="blocking-list"
-    >
-      <li v-for="(issue, idx) in status.blockingIssues" :key="idx">
-        {{ (issue as { message?: string }).message }}
+    <ul v-if="blockingMessages.length" class="blocking-list">
+      <li v-for="(message, idx) in blockingMessages" :key="idx">
+        {{ message }}
       </li>
     </ul>
   </section>

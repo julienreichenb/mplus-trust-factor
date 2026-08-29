@@ -149,7 +149,7 @@ onMounted(() => {
               :disabled="busyId === row.id || row.status === 'ACTIVE'"
               @click="rollback(row)"
             >
-              Rollback / re-activate
+              Rollback
             </button>
           </div>
         </li>

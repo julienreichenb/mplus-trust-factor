@@ -142,14 +142,12 @@ watch(
 }
 
 .ability-catalog-console__panel :deep(.admin-page__header),
-.ability-catalog-console__panel :deep(.review-page__header),
 .ability-catalog-console__panel :deep(.releases-page__header),
 .ability-catalog-console__panel :deep(.catalog-page__header) {
   display: none;
 }
 
 .ability-catalog-console__panel :deep(.admin-page),
-.ability-catalog-console__panel :deep(.review-page),
 .ability-catalog-console__panel :deep(.releases-page),
 .ability-catalog-console__panel :deep(.catalog-page) {
   padding: 0;

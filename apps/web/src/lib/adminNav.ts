@@ -38,7 +38,7 @@ const abilityCatalogAuthorized = (permissions: string[]) =>
  * Navbar visibility and router guards both use `isAuthorized`.
  *
  * Scoring product surface: one “Scoring” console with Models / Tuning / Calibration tabs.
- * Ability catalog: one console with Catalog / Review / Releases tabs.
+ * Ability catalog: one console with Catalog / History tabs.
  */
 export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
   {

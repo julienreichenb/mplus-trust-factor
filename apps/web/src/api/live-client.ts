@@ -3,7 +3,6 @@ import type {
   AdminAbilityCatalogResponse,
   AdminRealmSyncResponse,
   AdminScoreModelDTO,
-  AbilityCatalogDraftValidation,
   AbilityCatalogReviewBatchSummary,
   AbilityCatalogReviewItemSummary,
   AbilityCatalogReleaseSummary,
@@ -286,12 +285,6 @@ export function createLiveApiClient(options: {
         signal,
       ),
 
-    getAbilityCatalogReviewItem: (itemId, signal) =>
-      get<AbilityCatalogReviewItemSummary>(
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}`,
-        signal,
-      ),
-
     listAbilityCatalogExclusions: (signal) =>
       get<{
         exclusions: Array<{
@@ -352,21 +345,6 @@ export function createLiveApiClient(options: {
         errors?: string[];
       }>("POST", "/api/v1/admin/ability-catalog/publish", body ?? {}, signal),
 
-    refreshAbilityCatalog: (signal) =>
-      send<Record<string, unknown>>("POST", "/api/v1/admin/ability-catalog/refresh", {}, signal),
-
-    activateAbilityCatalogRelease: (releaseId, body, signal) =>
-      send<{
-        release: AbilityCatalogReleaseSummary;
-        activation: { id: string };
-        notice?: string;
-      }>(
-        "POST",
-        `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/activate`,
-        body,
-        signal,
-      ),
-
     rollbackAbilityCatalogRelease: (releaseId, body, signal) =>
       send<{
         release: AbilityCatalogReleaseSummary;
@@ -376,34 +354,6 @@ export function createLiveApiClient(options: {
         "POST",
         `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/rollback`,
         body,
-        signal,
-      ),
-
-    updateAbilityCatalogDraft: (itemId, body, signal) =>
-      send<AbilityCatalogReviewItemSummary>(
-        "PATCH",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft`,
-        body,
-        signal,
-      ),
-
-    ensureAbilityCatalogDraft: (itemId, body, signal) =>
-      send<AbilityCatalogReviewItemSummary>(
-        "POST",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/ensure`,
-        body ?? {},
-        signal,
-      ),
-
-    validateAbilityCatalogDraft: (itemId, body, signal) =>
-      send<{
-        itemId: string;
-        validation: AbilityCatalogDraftValidation;
-        draft: unknown | null;
-      }>(
-        "POST",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/validate`,
-        body ?? {},
         signal,
       ),
 

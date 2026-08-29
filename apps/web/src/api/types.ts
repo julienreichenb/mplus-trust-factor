@@ -303,10 +303,6 @@ export interface MplusApiClient {
     },
     signal?: AbortSignal,
   ): Promise<AbilityCatalogReviewItemSummary>;
-  getAbilityCatalogReviewItem(
-    itemId: string,
-    signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
   listAbilityCatalogExclusions(signal?: AbortSignal): Promise<{
     exclusions: Array<{
       id: string;
@@ -354,20 +350,6 @@ export interface MplusApiClient {
     replay?: { id: string; status: string } | null;
     errors?: string[];
   }>;
-  refreshAbilityCatalog(signal?: AbortSignal): Promise<Record<string, unknown>>;
-  activateAbilityCatalogRelease(
-    releaseId: string,
-    body: {
-      confirmationDigest: string;
-      confirm: true;
-      expectedPreviousActiveId?: string | null;
-    },
-    signal?: AbortSignal,
-  ): Promise<{
-    release: AbilityCatalogReleaseSummary;
-    activation: { id: string };
-    notice?: string;
-  }>;
   rollbackAbilityCatalogRelease(
     releaseId: string,
     body: {
@@ -381,42 +363,6 @@ export interface MplusApiClient {
     release: AbilityCatalogReleaseSummary;
     activation: { id: string };
     notice?: string;
-  }>;
-  updateAbilityCatalogDraft(
-    itemId: string,
-    body: {
-      expectedVersion: number;
-      businessMetadata: {
-        category?: string | null;
-        availability?: string | null;
-      };
-      note?: string;
-    },
-    signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
-  ensureAbilityCatalogDraft(
-    itemId: string,
-    body?: {
-      businessMetadata?: {
-        category?: string | null;
-        availability?: string | null;
-      };
-    },
-    signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
-  validateAbilityCatalogDraft(
-    itemId: string,
-    body?: {
-      businessMetadata?: {
-        category?: string | null;
-        availability?: string | null;
-      };
-    },
-    signal?: AbortSignal,
-  ): Promise<{
-    itemId: string;
-    validation: AbilityCatalogDraftValidation;
-    draft: unknown | null;
   }>;
   listManualCatalogEdits(signal?: AbortSignal): Promise<{ edits: ManualCatalogEditSummary[] }>;
   getManualCatalogEdit(canonicalKey: string, signal?: AbortSignal): Promise<ManualCatalogEditDetail>;
