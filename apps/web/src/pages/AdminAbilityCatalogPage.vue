@@ -78,7 +78,6 @@ const workflow = ref<Record<string, unknown> | null>(null);
 const workflowLoading = ref(false);
 const workflowError = ref<string | null>(null);
 const workflowNotice = ref<string | null>(null);
-const refreshBusy = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const searchInput = ref("");
@@ -465,33 +464,7 @@ async function loadWorkflow(): Promise<void> {
   }
 }
 
-async function refreshCatalog(): Promise<void> {
-  if (refreshBusy.value) return;
-  if (!window.confirm("Run pinned SimC + Blizzard catalog refresh? ACTIVE release stays unchanged until you activate.")) {
-    return;
-  }
-  refreshBusy.value = true;
-  workflowNotice.value = null;
-  workflowError.value = null;
-  try {
-    const result = await api.refreshAbilityCatalog();
-    workflowNotice.value =
-      typeof result.notice === "string"
-        ? result.notice
-        : "Refresh complete — see review batch for actionable items.";
-    await loadWorkflow();
-  } catch (err) {
-    workflowError.value = err instanceof Error ? err.message : "Catalog refresh failed";
-  } finally {
-    refreshBusy.value = false;
-  }
-}
-
-const workflowState = computed(() => String(workflow.value?.state ?? "IDLE"));
-const workflowActive = computed(() => workflow.value?.active as Record<string, unknown> | null);
 const workflowRefresh = computed(() => workflow.value?.refresh as Record<string, unknown> | null);
-const workflowReview = computed(() => workflow.value?.review as Record<string, unknown> | null);
-const workflowRelease = computed(() => workflow.value?.release as Record<string, unknown> | null);
 
 onMounted(() => {
   applyRouteQuery();
@@ -528,7 +501,7 @@ onMounted(() => {
     <section v-if="!workflowLoading" class="workflow-panel workflow-panel--compact" data-testid="catalog-workflow">
       <div class="workflow-header">
         <div>
-          <strong>Source sync</strong>
+          <strong>Source status</strong>
           <p class="muted workflow-sync-line">
             Last sync
             {{ workflowRefresh?.lastBatchCreatedAt ? String(workflowRefresh.lastBatchCreatedAt) : "—" }}
@@ -539,21 +512,13 @@ onMounted(() => {
                 : "—"
             }}
             · build {{ workflowRefresh?.wowBuild ?? "—" }}
+            · pending {{ workflowRefresh?.pendingReviewCount ?? 0 }}
           </p>
           <p class="muted workflow-sync-note">
-            Dev/prod SimC execution is handled outside this UI (Agent 06). Local refresh remains
-            available for development only.
+            Sync sources with the catalog-sync container (not this UI):
+            <code>docker compose --profile catalog-sync run --rm catalog-sync</code>
           </p>
         </div>
-        <button
-          type="button"
-          class="btn secondary"
-          :disabled="refreshBusy"
-          data-testid="catalog-dev-refresh"
-          @click="refreshCatalog"
-        >
-          {{ refreshBusy ? "Refreshing…" : "Dev refresh" }}
-        </button>
       </div>
     </section>
 

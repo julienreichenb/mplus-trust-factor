@@ -95,6 +95,7 @@
     "catalog:build:offensive": "pnpm --filter @mplus/abilities run catalog:build:offensive",
     "catalog:validate:offensive": "pnpm --filter @mplus/abilities run catalog:validate:offensive",
     "catalog:report:offensive-fight": "pnpm --filter @mplus/abilities run catalog:report:offensive-fight",
+    "ability-catalog:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api exec tsx src/cli/catalog-sync.ts",
     "ability-catalog:refresh:shadow": "pnpm --filter @mplus/abilities run ability-catalog:refresh:shadow",
     "ability-catalog:simc:extract": "pnpm --filter @mplus/abilities run ability-catalog:simc:extract",
     "ability-catalog:blizzard:extract": "pnpm --filter @mplus/abilities run ability-catalog:blizzard:extract",

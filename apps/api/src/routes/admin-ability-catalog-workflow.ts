@@ -5,6 +5,7 @@ import { AbilityCatalogPublishService } from "../services/ability-catalog-publis
 import {
   AbilityCatalogRefreshOrchestrationService,
 } from "../services/ability-catalog-refresh-orchestration-service.js";
+import { assertApiCatalogSimcRefreshAllowed } from "../services/ability-catalog-sync-boundary.js";
 import type { AbilityCatalogReviewAuditContext } from "../services/ability-catalog-review-service.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
@@ -145,6 +146,7 @@ export function buildAdminAbilityCatalogWorkflowRoutes(container: ApiContainer):
           },
         },
         async (request) => {
+          assertApiCatalogSimcRefreshAllowed(env.APP_ENV);
           const refresh = new AbilityCatalogRefreshOrchestrationService(
             container.worker.prisma,
             env,
@@ -155,7 +157,7 @@ export function buildAdminAbilityCatalogWorkflowRoutes(container: ApiContainer):
             ...result,
             workflow: status,
             notice:
-              "Refresh imported review batch. Use Classify and Publish to apply business changes.",
+              "Dev-only API refresh. Production sync uses the catalog-sync container. ACTIVE unchanged.",
           };
         },
       );

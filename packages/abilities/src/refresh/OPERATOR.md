@@ -1,91 +1,97 @@
-# Ability catalog shadow refresh — operator notes
+# Ability Catalog — operator notes
 
-Tooling only. Nothing is published. `RETAIL_ABILITY_CATALOG` stays authoritative.
+## Normal operation (Ubuntu dev / prod)
+
+```text
+1. Sync sources
+2. Classify / edit business metadata in /admin/ability-catalog
+3. Publish changes
+```
+
+### 1. Sync sources
+
+One-shot container (same image in dev and prod). Never publishes or activates.
+
+**Dev (local compose stack):**
+
+```bash
+docker compose -p mplus-dev -f infra/docker/docker-compose.app.yml \
+  -f infra/docker/docker-compose.test.yml \
+  --env-file <your-env-file> \
+  --profile catalog-sync run --rm catalog-sync
+```
+
+**Prod:**
+
+```bash
+docker compose -p mplus-prod -f infra/docker/docker-compose.app.yml \
+  -f infra/docker/docker-compose.prod.yml \
+  --env-file <prod-env-file> \
+  --profile catalog-sync run --rm catalog-sync
+```
+
+Canonical local/CLI equivalent (requires SimC + Blizzard credentials + DB):
+
+```bash
+pnpm ability-catalog:sync
+```
+
+What sync does:
+
+- runs pinned SimC extraction (`/usr/local/bin/simc` in the image);
+- fetches Blizzard static Game Data for discovered IDs;
+- persists source artifacts / baselines;
+- imports a PINNED refresh report into pending classification (Agent 04 relevance filtering applies);
+- leaves ACTIVE catalog unchanged.
+
+### 2–3. Classify → Publish
+
+Open `/admin/ability-catalog`:
+
+- **Needs classification** — Include / Exclude / Defer;
+- **Included** — edit category/availability or exclude from M+;
+- **Excluded** — restore exclusions;
+- **Publish changes** — compile → validate → replay → atomic activate.
+
+Emergency rollback: **History** tab.
+
+---
+
+## DEBUG / DEVELOPMENT (not required for product operation)
 
 Retail Live only. The extractor always passes `ptr=0` and refuses a binary that reports PTR.
 
-1. Obtain a SimulationCraft `simc` / `simc.exe`. Prefer a known build (packaged catalog-refresh runner, or local override via `ABILITY_CATALOG_SIMC_BIN`). Do not invent identity from folder names or branches.
-2. The binary is interrogated at extract time for application version, git revision, WoW build, and LIVE/PTR mode. Short banner hashes are stored honestly as `PREFIX` unless an optional expected full SHA proves expansion.
-3. Extract SpellQuery XML for cooldown-bearing class/spec/race spells (`cooldown>=1000ms` or `charge_cooldown>=1000ms`, then normalized in-extractor). The extractor first interrogates the binary (`ptr=0` SpellQuery probe) and **fails closed** if the banner is PTR, data mode is unreported, or the git revision is unreported. Optional `--expected-simc-revision` is a CI assertion only:
-
-   **Category cooldown audit (SimC 1210-01 / `a060a35`, Live):** `category_cooldown>=1000` adds zero spells beyond the current query for `class_spell`, `spec_spell`, and `race_spell` (subtraction sets empty). SpellQuery XML does not emit `category_cooldown` attributes (e.g. Power Word: Shield id=17 shows category cooldown in text output only). No extractor change required unless a future SimC build exposes category-only rows in XML.
+Low-level extract/shadow steps (Windows diagnostics, fixture development):
 
 ```
 pnpm ability-catalog:simc:extract -- --simc-bin C:\path\to\simc.exe --out packages/abilities/generated/refresh/simc-live.json
-```
-
-4. Export Blizzard EU Retail static Game Data (OAuth env `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`). Identity lookup should use SimC-discovered IDs, not only the three known bugs:
-
-```
 pnpm ability-catalog:blizzard:extract -- --region eu --locale en_GB --out packages/abilities/generated/refresh/blizzard-eu.json --from-simc-snapshot packages/abilities/generated/refresh/simc-live.json
+pnpm ability-catalog:refresh:shadow -- --blizzard … --simc … --out packages/abilities/generated/refresh/report.json
 ```
 
-Blizzard spell rows are identity-only. They never claim a complete spec toolkit.
+**Category cooldown audit (SimC 1210-01 / `a060a35`, Live):** `category_cooldown>=1000` adds zero spells beyond the current query for `class_spell`, `spec_spell`, and `race_spell`. No extractor change required unless a future SimC build exposes category-only rows in XML.
 
-5. Run the shadow audit (both snapshot files required). File-based runs **must** be `datasetKind=PINNED`:
-
-```
-pnpm ability-catalog:refresh:shadow -- --blizzard packages/abilities/generated/refresh/blizzard-eu.json --simc packages/abilities/generated/refresh/simc-live.json --out packages/abilities/generated/refresh/report.json
-```
-
-6. Read the JSON/report. Publication is always `NONE`.
-7. Golden fixtures: `pnpm ability-catalog:refresh:shadow -- --fixtures` only.
+Golden fixtures: `pnpm ability-catalog:refresh:shadow -- --fixtures` only.
 
 Generated snapshots under `packages/abilities/generated/` are gitignored (except committed offensive artifacts).
 
-## Phase 3A — durable review import
-
-`packages/abilities/generated/refresh/` remains gitignored. Local paths alone are not production durability.
-
-Import a PINNED report into the admin review queue (idempotent by SHA-256 of report bytes):
+### Durable review import (debug)
 
 ```
-pnpm ability-catalog:review:import -- --report packages/abilities/generated/refresh/report.json --simc packages/abilities/generated/refresh/simc-live.json [--blizzard packages/abilities/generated/refresh/blizzard-eu.json] [--designate-baseline]
+pnpm ability-catalog:review:import -- --report … --simc … [--blizzard …] [--designate-baseline]
 ```
 
-What is stored durably:
-
-- Report JSON bytes → `RawArtifact` (`provider=INTERNAL`) + `RawArtifactPayload` keyed by SHA-256, referenced from `AbilityCatalogReviewBatch`.
-- Optional SimC / Blizzard snapshot bytes → same CAS tables, referenced from the batch (and from `AbilityCatalogSourceBaseline` when `--designate-baseline` is used).
-- Active `AbilityCatalogSourceBaseline` points at `contentHash` (+ optional `artifactId`). The next shadow refresh should pass `--previous-simc` using bytes recovered from that artifact (or an operator-retained copy of the same hash). Publication / runtime catalog mutation is out of scope for Phase 3A.
-
-## Baseline recovery runbook (Phase 3A.5)
-
-1. Locate the active baseline (API or DB):
+### Baseline recovery
 
 ```
-# Prefer CLI: resolve active baseline and write verified bytes
 pnpm ability-catalog:baseline:export -- --active --source SIMULATIONCRAFT --out packages/abilities/generated/refresh/previous-simc.json --json
 ```
 
-Or by id:
-
-```
-pnpm ability-catalog:baseline:export -- --baseline-id <uuid> --out packages/abilities/generated/refresh/previous-simc.json
-```
-
-2. The command loads `AbilityCatalogSourceBaseline` → `RawArtifact` / `RawArtifactPayload`.
-3. It verifies SHA-256(uncompressed bytes) === `baseline.contentHash` (fails closed on missing artifact or digest mismatch).
-4. Bytes are written atomically to `--out` (temp + rename). No DB mutation.
-5. Feed into the next shadow refresh:
-
-```
-pnpm ability-catalog:refresh:shadow -- --blizzard … --simc … --previous-simc packages/abilities/generated/refresh/previous-simc.json --out …
-```
-
-6. Delete the temporary export when finished (`Remove-Item` / `rm`). Do not commit `generated/refresh/*`.
-
 Admin-only. Prefer this CLI over ad-hoc SQL. Do not expose raw snapshot payloads on public APIs.
 
-## Product workflow (admin UI)
+### Product workflow (admin UI)
 
-Normal operator flow:
-
-1. **Sync sources** — dev/prod SimC execution is outside this UI (see Agent 06). The Catalog page shows last sync metadata; local dev may use **Dev refresh**.
-2. **Classify** — on the Catalog page, use **Needs classification** for new cooldowns (Include / Exclude / Defer with category + availability).
-3. **Publish** — click **Publish changes** on the Catalog page. The backend compiles, validates, replays, and atomically activates in one operation.
-
-Emergency rollback remains on the **History** tab. Low-level release/replay CLI commands below are **DEBUG / RECOVERY**, not required product steps.
+Normal operator flow is Sync → Classify → Publish (see top). The API must not execute SimC in production; use the catalog-sync container.
 
 ## Phase 3B.1 — Bootstrap Release 0 (compile + parity only)
 

@@ -371,8 +371,16 @@ export class AbilityCatalogPublishService {
           ? item.eligibilityReasons.filter((v): v is string => typeof v === "string")
           : [],
         reviewReason: item.reviewReason,
-        evidence: item.evidence,
-        sourceProvenance: item.sourceProvenance,
+        evidence:
+          item.evidence && typeof item.evidence === "object" && !Array.isArray(item.evidence)
+            ? (item.evidence as Record<string, unknown>)
+            : {},
+        sourceProvenance:
+          item.sourceProvenance &&
+          typeof item.sourceProvenance === "object" &&
+          !Array.isArray(item.sourceProvenance)
+            ? (item.sourceProvenance as Record<string, unknown>)
+            : {},
       })),
       mplusCtx,
     );

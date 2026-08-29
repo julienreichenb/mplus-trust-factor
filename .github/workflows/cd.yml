@@ -291,7 +291,7 @@ jobs:
     needs: [policy, verify-promotion, quality]
     if: needs.policy.outputs.needs_build == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
       owner: ${{ steps.meta.outputs.owner }}
@@ -383,12 +383,28 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Push catalog-sync
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/ability-catalog-refresh.Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-catalog-sync:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
+            GIT_SHA=${{ steps.meta.outputs.tag }}
+            SIMC_GIT_REF=a060a356e16fdf266cb8b93fa4a9c892f3e26af3
+          cache-from: type=gha,scope=mplus-catalog-sync
+          cache-to: type=gha,mode=max,scope=mplus-catalog-sync
+          provenance: true
+          sbom: true
+
       - name: Secret bake scan (images must not contain .env)
         run: |
           set -euo pipefail
           OWNER="${{ steps.meta.outputs.owner }}"
           TAG="${{ steps.meta.outputs.tag }}"
-          for name in mplus-api mplus-worker mplus-web; do
+          for name in mplus-api mplus-worker mplus-web mplus-catalog-sync; do
             img="${{ env.REGISTRY }}/${OWNER}/${name}:${TAG}"
             echo "scanning ${img}"
             docker pull "${img}"
@@ -410,6 +426,11 @@ jobs:
           docker run --rm --entrypoint sh "${API_IMG}" -c \
             'test -s /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json'
           echo "api cohort runtime asset invariant passed"
+          SYNC_IMG="${{ env.REGISTRY }}/${OWNER}/mplus-catalog-sync:${TAG}"
+          echo "checking SimC binary in ${SYNC_IMG}"
+          docker run --rm --entrypoint sh "${SYNC_IMG}" -c \
+            'test -x /usr/local/bin/simc && /usr/local/bin/simc spell_query=spell.id=0 2>&1 | head -n 20 | grep -E "SimulationCraft|World of Warcraft|git"'
+          echo "catalog-sync SimC invariant passed"
 
       - name: Release manifesto
         run: |
@@ -422,7 +443,8 @@ jobs:
               "api": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-api:${{ steps.meta.outputs.tag }}",
               "worker": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-worker:${{ steps.meta.outputs.tag }}",
               "web": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-web:${{ steps.meta.outputs.tag }}",
-              "migrate": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}"
+              "migrate": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}",
+              "catalogSync": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-catalog-sync:${{ steps.meta.outputs.tag }}"
             }
           }
           EOF
@@ -457,13 +479,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fail closed unless all four SHA images exist
+      - name: Fail closed unless all required SHA images exist
         run: |
           set -euo pipefail
           OWNER="${{ steps.meta.outputs.owner }}"
           TAG="${{ steps.meta.outputs.tag }}"
           missing=()
-          for name in mplus-api mplus-worker mplus-migrate mplus-web; do
+          for name in mplus-api mplus-worker mplus-migrate mplus-web mplus-catalog-sync; do
             img="${{ env.REGISTRY }}/${OWNER}/${name}:${TAG}"
             if ! docker manifest inspect "${img}" >/dev/null 2>&1; then
               missing+=("${img}")
@@ -476,7 +498,7 @@ jobs:
             printf '  - %s\n' "${missing[@]}" >&2
             exit 1
           fi
-          echo "All four SHA-tagged images present in GHCR"
+          echo "All required SHA-tagged images present in GHCR"
 
       - name: Release manifesto (existing images)
         run: |
@@ -489,7 +511,8 @@ jobs:
               "api": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-api:${{ steps.meta.outputs.tag }}",
               "worker": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-worker:${{ steps.meta.outputs.tag }}",
               "web": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-web:${{ steps.meta.outputs.tag }}",
-              "migrate": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}"
+              "migrate": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}",
+              "catalogSync": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-catalog-sync:${{ steps.meta.outputs.tag }}"
             },
             "rebuilt": false
           }
