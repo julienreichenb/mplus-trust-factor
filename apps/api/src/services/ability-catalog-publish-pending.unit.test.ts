@@ -80,4 +80,84 @@ describe("isDraftRuleSemanticallyPendingAgainstActive", () => {
       ),
     ).toBe(true);
   });
+
+  it("drops redundant heroism NEW_ABILITY when bloodlust already owns spell 32182", () => {
+    const active = compileBootstrapRelease0().artifact;
+    const bloodlust = active.rules.find((rule) => rule.canonicalKey === "shaman.bloodlust.bloodlust");
+    expect(bloodlust).toBeTruthy();
+    const heroism = draftRuleRowToAbilityRule({
+      canonicalKey: "shared.racial.heroism",
+      name: "Heroism",
+      spellIds: [32182],
+      bindings: [{ spellId: 32182, role: "PRIMARY_ACTIVATION" }],
+      iconName: null,
+      classSlug: null,
+      specSlugs: [],
+      raceSlugs: ["human"],
+      category: "BLOODLUST",
+      dimensionTags: ["UTILITY_EXTERNAL"],
+      availability: "BASELINE",
+      cooldownSeconds: 300,
+      charges: null,
+      sourceOwnership: "PLAYER",
+      provenance: {
+        source: "SIMC_ADVISORY",
+        verifiedAt: "2026-08-30",
+        gameVersion: "69299",
+        certainty: "verified",
+      },
+      validityBuild: "69299",
+    });
+    expect(
+      isDraftRuleSemanticallyPendingAgainstActive(
+        {
+          status: "READY_FOR_PUBLISH_REVIEW",
+          reviewItem: { kind: "NEW_ABILITY_CANDIDATE", decisionAction: "ACCEPT" },
+        },
+        heroism,
+        active,
+      ),
+    ).toBe(false);
+  });
+
+  it("projects holy-prism races against ACTIVE topology before pending check", () => {
+    const active = compileBootstrapRelease0().artifact;
+    const holyPrism = draftRuleRowToAbilityRule(
+      {
+        canonicalKey: "shared.racial.holy-prism",
+        name: "Holy Prism",
+        spellIds: [114165],
+        bindings: [{ spellId: 114165, role: "PRIMARY_ACTIVATION" }],
+        iconName: null,
+        classSlug: null,
+        specSlugs: [],
+        raceSlugs: ["human", "haranir"],
+        category: "GROUP_UTILITY",
+        dimensionTags: ["UTILITY_EXTERNAL"],
+        availability: "TALENT",
+        cooldownSeconds: 45,
+        charges: null,
+        sourceOwnership: "PLAYER",
+        provenance: {
+          source: "SIMC_ADVISORY",
+          verifiedAt: "2026-08-30",
+          gameVersion: "69299",
+          certainty: "verified",
+        },
+        validityBuild: "69299",
+      },
+      { topology: active.topology },
+    );
+    expect(holyPrism.raceSlugs).not.toContain("haranir");
+    expect(
+      isDraftRuleSemanticallyPendingAgainstActive(
+        {
+          status: "READY_FOR_PUBLISH_REVIEW",
+          reviewItem: { kind: "NEW_ABILITY_CANDIDATE", decisionAction: "ACCEPT" },
+        },
+        holyPrism,
+        active,
+      ),
+    ).toBe(true);
+  });
 });

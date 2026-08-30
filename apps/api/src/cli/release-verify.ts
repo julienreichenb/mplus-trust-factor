@@ -73,6 +73,10 @@ try {
     valid: result.validation.valid,
     errorCount: result.validation.errors.length,
     warningCount: result.validation.warnings.length,
+    validation: {
+      errors: result.validation.errors,
+      warnings: result.validation.warnings,
+    },
   };
   if (json) {
     console.log(JSON.stringify(payload, null, 2));

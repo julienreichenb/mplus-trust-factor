@@ -13,6 +13,9 @@ import type {
 import { filterReviewImportItems, type AbilityRule } from "@mplus/abilities";
 import {
   compileAbilityCatalogRelease,
+  formatArtifactValidationIssue,
+  isRedundantAddAgainstActiveCatalog,
+  projectDraftRuleForRelease,
   type AbilityCatalogReleaseArtifact,
 } from "@mplus/abilities/release";
 import { HttpError } from "../errors.js";
@@ -116,7 +119,8 @@ export function isDraftRuleSemanticallyPendingAgainstActive(
   active: AbilityCatalogReleaseArtifact,
 ): boolean {
   if (draft.status !== "READY_FOR_PUBLISH_REVIEW") return false;
-  const activeRule = active.rules.find((r) => r.canonicalKey === rule.canonicalKey);
+  const projected = projectDraftRuleForRelease(rule, active.topology);
+  const activeRule = active.rules.find((r) => r.canonicalKey === projected.canonicalKey);
   if (activeRule && !activeRule.validToBuild) {
     if (
       draft.reviewItem?.kind === "NEW_ABILITY_CANDIDATE" &&
@@ -126,11 +130,18 @@ export function isDraftRuleSemanticallyPendingAgainstActive(
     }
     return changeAltersActive(active, {
       op: "UPDATE_RULE",
-      canonicalKey: rule.canonicalKey,
-      rule,
+      canonicalKey: projected.canonicalKey,
+      rule: projected,
     });
   }
-  return changeAltersActive(active, { op: "ADD_RULE", rule });
+  if (
+    draft.reviewItem?.kind === "NEW_ABILITY_CANDIDATE" &&
+    draft.reviewItem.decisionAction === "ACCEPT" &&
+    isRedundantAddAgainstActiveCatalog(projected, active.rules)
+  ) {
+    return false;
+  }
+  return changeAltersActive(active, { op: "ADD_RULE", rule: projected });
 }
 
 export class AbilityCatalogPublishService {
@@ -234,12 +245,13 @@ export class AbilityCatalogPublishService {
     };
 
     if (candidate.status === "REJECTED" || candidate.validationStatus !== "PASS") {
+      const validation = await this.releases.revalidateRelease(candidate.id, audit);
       return this.failureResult({
         stage: "VALIDATION",
         previousActive,
         candidate: candidateSummary,
         message: "Compiled release failed validation",
-        errors: [candidate.validationStatus ?? candidate.status],
+        errors: validation.validation.errors.map(formatArtifactValidationIssue),
       });
     }
 
@@ -438,7 +450,7 @@ export class AbilityCatalogPublishService {
       if (draft.status !== "READY_FOR_PUBLISH_REVIEW") continue;
       let rule: AbilityRule;
       try {
-        rule = draftRuleRowToAbilityRule(draft);
+        rule = draftRuleRowToAbilityRule(draft, { topology: active.topology });
       } catch {
         // Unconvertible READY draft — keep and let compile surface the error.
         pending.push(ref);

@@ -76,8 +76,11 @@ export function matchCandidatesToCurrent(
   for (const candidate of candidates) {
     if (usedCandidates.has(candidate.candidateKey)) continue;
     const idHits = currentRules.filter((rule) => {
-      if (usedCurrent.has(rule.canonicalKey)) return false;
       if (!ruleCoversSpellId(rule, candidate.primarySpellId)) return false;
+      if (usedCurrent.has(rule.canonicalKey)) {
+        // Cross-faction alias ids (e.g. Heroism 32182 on Bloodlust) still belong to the same rule.
+        return !rule.spellIds.includes(candidate.primarySpellId);
+      }
       return sameApplicability(candidate, rule) || rule.classSlug == null || candidate.classSlug == null;
     });
 
@@ -85,7 +88,9 @@ export function matchCandidatesToCurrent(
       const current = idHits[0]!;
       pairs.push({ candidate, current });
       usedCandidates.add(candidate.candidateKey);
-      usedCurrent.add(current.canonicalKey);
+      if (!usedCurrent.has(current.canonicalKey)) {
+        usedCurrent.add(current.canonicalKey);
+      }
     } else if (idHits.length > 1) {
       ambiguous.push({
         status: "ambiguous",

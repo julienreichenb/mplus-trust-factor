@@ -17,6 +17,7 @@ import {
   type ReleaseDiffDocument,
   type ReleaseTopology,
   ABILITY_CATALOG_RELEASE_SCHEMA_V1,
+  projectDraftRuleForRelease,
 } from "@mplus/abilities/release";
 import type { AbilityRule, AbilityRole } from "@mplus/abilities";
 import { canonicalRoleForClassSpec } from "@mplus/abilities";
@@ -129,7 +130,8 @@ function draftBindingsToRuleFields(bindings: unknown): {
   };
 }
 
-export function draftRuleRowToAbilityRule(row: {
+export function draftRuleRowToAbilityRule(
+  row: {
   canonicalKey: string | null;
   name: string;
   spellIds: unknown;
@@ -146,7 +148,9 @@ export function draftRuleRowToAbilityRule(row: {
   sourceOwnership: string | null;
   provenance: unknown;
   validityBuild: string | null;
-}): AbilityRule {
+},
+  options?: { topology?: ReleaseTopology },
+): AbilityRule {
   if (!row.canonicalKey) {
     throw HttpError.badRequest("DRAFT_MISSING_CANONICAL_KEY", "Draft rule missing canonicalKey");
   }
@@ -174,7 +178,7 @@ export function draftRuleRowToAbilityRule(row: {
 
   const bindingFields = draftBindingsToRuleFields(row.bindings);
 
-  return {
+  const baseRule: AbilityRule = {
     canonicalKey: row.canonicalKey,
     name: row.name,
     spellIds,
@@ -210,6 +214,7 @@ export function draftRuleRowToAbilityRule(row: {
     },
     ...(row.validityBuild ? { validFromBuild: row.validityBuild } : {}),
   };
+  return options?.topology ? projectDraftRuleForRelease(baseRule, options.topology) : baseRule;
 }
 
 export function applyTopologyDraft(
@@ -823,7 +828,7 @@ export class AbilityCatalogReleaseService {
             `Manual edit canonicalKey ${draft.canonicalKey} not in base release`,
           );
         }
-        const rule = draftRuleRowToAbilityRule(draft);
+        const rule = draftRuleRowToAbilityRule(draft, { topology: baseArtifact.topology });
         if (touchedKeys.has(rule.canonicalKey)) {
           throw HttpError.badRequest(
             "CONTRADICTORY_CHANGESET",
@@ -862,7 +867,7 @@ export class AbilityCatalogReleaseService {
         );
       }
 
-      const rule = draftRuleRowToAbilityRule(draft);
+      const rule = draftRuleRowToAbilityRule(draft, { topology: baseArtifact.topology });
       if (touchedKeys.has(rule.canonicalKey)) {
         throw HttpError.badRequest(
           "CONTRADICTORY_CHANGESET",
