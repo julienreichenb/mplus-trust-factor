@@ -5,6 +5,7 @@ import { api } from "../../api/client";
 import type { AbilityCatalogReviewItemSummary } from "../../api/types";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../../integrations/wowhead/tooltips";
 import { wowheadSpellUrl } from "../../integrations/wowhead/urls";
+import AppToast from "../common/AppToast.vue";
 import SpellWowIcon from "./SpellWowIcon.vue";
 
 const emit = defineEmits<{
@@ -19,6 +20,7 @@ const items = ref<AbilityCatalogReviewItemSummary[]>([]);
 const selectedId = ref<string | null>(null);
 const modalOpen = ref(false);
 const category = ref("");
+const includeErrorToast = ref<string | null>(null);
 
 const categoryOptions = DRAFT_ABILITY_CATEGORIES.map((value) => ({ value, label: value }));
 
@@ -105,6 +107,7 @@ async function includeSelected(): Promise<void> {
   if (!item || !canInclude.value) return;
   saving.value = true;
   error.value = null;
+  includeErrorToast.value = null;
   try {
     await api.decideAbilityCatalogReviewItem(item.id, {
       expectedVersion: item.version,
@@ -117,7 +120,7 @@ async function includeSelected(): Promise<void> {
     closeModal();
     await load();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to include ability";
+    includeErrorToast.value = err instanceof Error ? err.message : "Failed to include ability";
   } finally {
     saving.value = false;
   }
@@ -274,6 +277,13 @@ defineExpose({ reload: load });
       </div>
     </div>
     <p v-if="error" class="error">{{ error }}</p>
+
+    <AppToast
+      :open="Boolean(includeErrorToast)"
+      :message="includeErrorToast ?? ''"
+      tone="error"
+      @close="includeErrorToast = null"
+    />
   </section>
 </template>
 
