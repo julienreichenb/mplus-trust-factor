@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import {
-  DRAFT_ABILITY_CATEGORIES,
-  DRAFT_AVAILABILITIES,
-} from "@mplus/abilities";
+import { DRAFT_ABILITY_CATEGORIES } from "@mplus/abilities";
 import { api } from "../../api/client";
 import type { ManualCatalogEditDetail } from "../../api/types";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../../integrations/wowhead/tooltips";
@@ -27,7 +24,6 @@ const error = ref<string | null>(null);
 const detail = ref<ManualCatalogEditDetail | null>(null);
 const draftVersion = ref<number | null>(null);
 const category = ref("");
-const availability = ref("");
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -48,7 +44,15 @@ function asNumberArray(value: unknown): number[] {
 function populateBusinessFieldsFromDraft(draft: unknown) {
   const d = asRecord(draft);
   category.value = String(d.category ?? "");
-  availability.value = String(d.availability ?? "");
+}
+
+function formatAvailabilityLabel(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "Unknown source availability";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 const sourceFacts = computed(() => {
@@ -74,6 +78,7 @@ const sourceFacts = computed(() => {
     validToBuild: String(draft.validToBuild ?? provenance.validToBuild ?? "—"),
     provenanceSource: String(provenance.source ?? "—"),
     dimensionTags: asStringArray(draft.dimensionTags),
+    availability: formatAvailabilityLabel(draft.availability ?? active.availability),
   };
 });
 
@@ -100,10 +105,9 @@ const spellIdRows = computed(() => {
   });
 });
 
-function businessPayload(): { category: string | null; availability: string | null } {
+function businessPayload(): { category: string | null } {
   return {
     category: category.value || null,
-    availability: availability.value || null,
   };
 }
 
@@ -136,7 +140,7 @@ async function save(): Promise<void> {
   error.value = null;
   try {
     const body: {
-      draft: { category: string | null; availability: string | null };
+      draft: { category: string | null };
       expectedVersion?: number;
     } = { draft: businessPayload() };
     if (draftVersion.value != null) body.expectedVersion = draftVersion.value;
@@ -158,7 +162,6 @@ watch(
   ([open, key]) => {
     if (!open || !key) return;
     category.value = "";
-    availability.value = "";
     detail.value = null;
     draftVersion.value = null;
     void loadWowheadTooltipScript().catch(() => {
@@ -282,13 +285,10 @@ watch(
               <option v-for="c in DRAFT_ABILITY_CATEGORIES" :key="c" :value="c">{{ c }}</option>
             </select>
           </label>
-          <label>
-            Availability
-            <select v-model="availability" class="admin-control" data-testid="manual-edit-availability">
-              <option value="">—</option>
-              <option v-for="a in DRAFT_AVAILABILITIES" :key="a" :value="a">{{ a }}</option>
-            </select>
-          </label>
+          <div class="source-availability" data-testid="manual-edit-availability">
+            <span class="source-availability__label">Availability</span>
+            <span class="source-availability__value">{{ sourceFacts.availability }}</span>
+          </div>
         </section>
 
         <p

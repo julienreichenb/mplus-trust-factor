@@ -1,4 +1,9 @@
 import type { AbilityAvailability, ProvenanceSource, SourceOwnership } from "../../types.js";
+import {
+  deriveAvailabilityFromSimcMembership,
+  parseSimcMembership,
+  type SimcSpellMembership,
+} from "../extract/simc-availability.js";
 import type {
   AbilitySpellBindingRole,
   CatalogRefreshSourceKind,
@@ -72,8 +77,18 @@ export function inferSourceOwnershipFromOwnershipKind(
 export function inferAvailabilityFromReviewContext(input: {
   classSlug: string | null;
   raceSlugs: string[];
-  ownershipKind: string | null;
+  ownershipKind: InventoryScopeClassification | "PLAYABLE_PLAYER" | string | null;
+  availability?: AbilityAvailability | null;
+  simcMembership?: SimcSpellMembership | null;
 }): AbilityAvailability | null {
+  if (input.availability) return input.availability;
+  const membership = input.simcMembership;
+  if (membership) {
+    return deriveAvailabilityFromSimcMembership(
+      membership,
+      input.ownershipKind as InventoryScopeClassification | "PLAYABLE_PLAYER" | null | undefined,
+    );
+  }
   if (input.raceSlugs.length > 0 && !input.classSlug) return "SHARED";
   if (input.ownershipKind === "PET_TALENT_TREE") return "PET_DEPENDENT";
   return null;
@@ -140,6 +155,8 @@ export function prefillCuratedDraftDefaults(
 } {
   const evidence = input.evidence;
   const ownershipKind = asString(evidence.ownershipKind);
+  const evidenceAvailability = asString(evidence.availability) as AbilityAvailability | null;
+  const simcMembership = parseSimcMembership(evidence.simcMembership);
   const candidateBindings = parseCandidateBindings(evidence.candidateBindings);
 
   const bindings =
@@ -197,6 +214,8 @@ export function prefillCuratedDraftDefaults(
       classSlug: input.classSlug,
       raceSlugs: input.raceSlugs,
       ownershipKind,
+      availability: evidenceAvailability,
+      simcMembership,
     }),
     cooldownSeconds: asNumber(evidence.cooldownSeconds),
     charges: asNumber(evidence.charges),
@@ -268,6 +287,8 @@ export type CatalogDiffCandidateMetadata = {
   charges?: number | null;
   isPassive?: boolean | null;
   ownershipKind?: InventoryScopeClassification | "PLAYABLE_PLAYER";
+  simcMembership?: SimcSpellMembership;
+  availability?: AbilityAvailability | null;
   validFromBuild?: string;
   validToBuild?: string;
   candidateBindings?: Array<{ spellId: number; role: AbilitySpellBindingRole }>;
@@ -280,6 +301,8 @@ export function candidateMetadataForDiff(
     charges?: number | null;
     isPassive?: boolean | null;
     ownershipKind?: InventoryScopeClassification | "PLAYABLE_PLAYER";
+    simcMembership?: SimcSpellMembership;
+    availability?: AbilityAvailability | null;
     validFromBuild?: string;
     validToBuild?: string;
     bindings?: Array<{ spellId: number; role: AbilitySpellBindingRole }>;
@@ -290,6 +313,8 @@ export function candidateMetadataForDiff(
     charges: candidate.charges ?? null,
     isPassive: candidate.isPassive ?? null,
     ownershipKind: candidate.ownershipKind,
+    simcMembership: candidate.simcMembership ?? undefined,
+    availability: candidate.availability ?? null,
     validFromBuild: candidate.validFromBuild,
     validToBuild: candidate.validToBuild,
     candidateBindings: candidate.bindings?.map((b) => ({ spellId: b.spellId, role: b.role })),
@@ -302,6 +327,8 @@ export function candidateEvidenceFromDiffEntry(entry: {
   charges?: number | null;
   isPassive?: boolean | null;
   ownershipKind?: InventoryScopeClassification | "PLAYABLE_PLAYER";
+  simcMembership?: SimcSpellMembership;
+  availability?: AbilityAvailability | null;
   validFromBuild?: string;
   validToBuild?: string;
   candidateBindings?: Array<{ spellId: number; role: AbilitySpellBindingRole }>;
@@ -313,6 +340,8 @@ export function candidateEvidenceFromDiffEntry(entry: {
   if (entry.charges != null) out.charges = entry.charges;
   if (entry.isPassive != null) out.isPassive = entry.isPassive;
   if (entry.ownershipKind) out.ownershipKind = entry.ownershipKind;
+  if (entry.simcMembership) out.simcMembership = entry.simcMembership;
+  if (entry.availability) out.availability = entry.availability;
   if (entry.validFromBuild) out.validFromBuild = entry.validFromBuild;
   if (entry.validToBuild) out.validToBuild = entry.validToBuild;
   if (entry.candidateBindings?.length) out.candidateBindings = entry.candidateBindings;

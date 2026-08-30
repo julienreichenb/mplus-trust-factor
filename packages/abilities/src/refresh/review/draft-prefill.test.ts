@@ -5,6 +5,7 @@ import {
   prefillCuratedDraftDefaults,
   provenanceFromRefreshEvidence,
 } from "./draft-prefill.js";
+import { membershipFromScope, mergeSimcMembership } from "../extract/simc-availability.js";
 
 describe("draft prefill from refresh evidence", () => {
   const rollTheBonesEvidence = {
@@ -89,6 +90,10 @@ describe("draft prefill from refresh evidence", () => {
   });
 
   it("prefills deterministic canonical keys for the same input", () => {
+    const fskMembership = mergeSimcMembership(
+      membershipFromScope("class_spell"),
+      membershipFromScope("spec_spell"),
+    );
     const input = {
       name: "Flying Serpent Kick",
       primarySpellId: 101545,
@@ -96,7 +101,11 @@ describe("draft prefill from refresh evidence", () => {
       classSlug: "monk",
       specSlugs: ["windwalker"],
       raceSlugs: [] as string[],
-      evidence: { ownershipKind: "PLAYABLE_PLAYER" },
+      evidence: {
+        ownershipKind: "PLAYABLE_PLAYER",
+        simcMembership: fskMembership,
+        availability: "BASELINE",
+      },
       sourceProvenance: {},
       wowBuild: "69299",
     };
@@ -104,6 +113,7 @@ describe("draft prefill from refresh evidence", () => {
     const second = prefillCuratedDraftDefaults(input);
     expect(first.canonicalKey).toBe("monk.windwalker.flying-serpent-kick");
     expect(second.canonicalKey).toBe(first.canonicalKey);
+    expect(first.availability).toBe("BASELINE");
   });
 
   it("does not let empty create-mode patch erase evidence defaults", () => {
@@ -139,9 +149,13 @@ describe("draft prefill from refresh evidence", () => {
       candidateKey: "rogue.refresh.roll-the-bones-1214909",
       cooldownSeconds: 45,
       ownershipKind: "PLAYABLE_PLAYER",
+      availability: "BASELINE",
+      simcMembership: membershipFromScope("class_spell"),
       candidateBindings: [{ spellId: 1214909, role: "PRIMARY_ACTIVATION" }],
     });
     expect(evidence.cooldownSeconds).toBe(45);
+    expect(evidence.availability).toBe("BASELINE");
+    expect(evidence.simcMembership).toEqual(membershipFromScope("class_spell"));
     expect(evidence.candidateBindings).toEqual([
       { spellId: 1214909, role: "PRIMARY_ACTIVATION" },
     ]);

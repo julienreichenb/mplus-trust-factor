@@ -7,7 +7,6 @@ import type { CuratedDraftRuleInput } from "./draft-validation.js";
 
 export interface AbilityBusinessMetadataPatch {
   category?: AbilityCategory | null;
-  availability?: CuratedDraftRuleInput["availability"];
 }
 
 /** Preserve explicit multi-tag rules when category is unchanged; derive on category change. */
@@ -31,11 +30,10 @@ export function applyBusinessMetadataToCuratedDraft(
   activeRule: AbilityRule,
 ): CuratedDraftRuleInput {
   const category = patch.category !== undefined ? patch.category : prefill.category;
-  const availability = patch.availability !== undefined ? patch.availability : prefill.availability;
   return {
     ...prefill,
     category,
-    availability,
+    availability: prefill.availability,
     dimensionTags: dimensionTagsForBusinessMetadataEdit(activeRule, category),
   };
 }
@@ -62,11 +60,10 @@ export function applyBusinessMetadataToReviewDraft(
   patch: AbilityBusinessMetadataPatch,
 ): CuratedDraftRuleInput {
   const category = patch.category !== undefined ? patch.category : prefill.category;
-  const availability = patch.availability !== undefined ? patch.availability : prefill.availability;
   return {
     ...prefill,
     category,
-    availability,
+    availability: prefill.availability,
     dimensionTags: dimensionTagsForReviewDraftEdit(prefill, patch),
   };
 }

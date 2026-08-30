@@ -41,20 +41,20 @@ describe("manual catalog edit business boundary", () => {
   )!;
 
   it("rejects admin payloads that include source-owned fields", () => {
-    const parsed = saveManualCatalogEditRequestSchema.safeParse({
-      draft: {
-        category: "OFFENSIVE_MAJOR",
-        cooldownSeconds: 1,
-      },
-    });
-    expect(parsed.success).toBe(false);
+    for (const draft of [
+      { category: "OFFENSIVE_MAJOR", cooldownSeconds: 1 },
+      { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
+    ]) {
+      const parsed = saveManualCatalogEditRequestSchema.safeParse({ draft });
+      expect(parsed.success).toBe(false);
+    }
   });
 
-  it("preserves source facts when business metadata is applied", () => {
+  it("preserves source availability when only category is edited", () => {
     const prefill = draftFromRule(stormkeeper);
     const merged = applyBusinessMetadataToCuratedDraft(
       prefill,
-      { category: "INTERRUPT", availability: "TALENT" },
+      { category: "INTERRUPT" },
       stormkeeper,
     );
     expect(merged.cooldownSeconds).toBe(stormkeeper.cooldownSeconds);
@@ -63,7 +63,7 @@ describe("manual catalog edit business boundary", () => {
     expect(merged.classSlug).toBe(stormkeeper.classSlug);
     expect(merged.provenance).toEqual(prefill.provenance);
     expect(merged.category).toBe("INTERRUPT");
-    expect(merged.availability).toBe("TALENT");
+    expect(merged.availability).toBe(stormkeeper.availability);
     expect(merged.dimensionTags).toEqual(
       dimensionTagsForBusinessMetadataEdit(stormkeeper, "INTERRUPT"),
     );

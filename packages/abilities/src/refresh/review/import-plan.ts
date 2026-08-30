@@ -6,7 +6,8 @@
  * module stays browser-safe when re-exported from the package barrel.
  */
 
-import type { CatalogRefreshReport, CatalogDiffEntry, SourceObservation } from "../types.js";
+import type { CatalogRefreshReport, CatalogDiffEntry } from "../types.js";
+import { candidateEvidenceFromDiffEntry } from "./draft-prefill.js";
 
 /** Bump only when import-plan semantics / item identity format changes. */
 export const ABILITY_CATALOG_REVIEW_PLAN_SCHEMA_VERSION = "ability-catalog-review-plan-v3";
@@ -73,22 +74,6 @@ function provenanceFromDiff(entry: CatalogDiffEntry): Record<string, unknown> {
     sourceObservations: entry.sourceObservations,
     notes: entry.notes,
   };
-}
-
-function candidateEvidenceFromDiffEntry(entry: CatalogDiffEntry): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (entry.candidateKey) out.candidateKey = entry.candidateKey;
-  if (entry.cooldownSeconds != null) out.cooldownSeconds = entry.cooldownSeconds;
-  if (entry.charges != null) out.charges = entry.charges;
-  if (entry.isPassive != null) out.isPassive = entry.isPassive;
-  if (entry.ownershipKind) out.ownershipKind = entry.ownershipKind;
-  if (entry.validFromBuild) out.validFromBuild = entry.validFromBuild;
-  if (entry.validToBuild) out.validToBuild = entry.validToBuild;
-  if (entry.candidateBindings?.length) out.candidateBindings = entry.candidateBindings;
-  if (entry.sourceObservations?.length) {
-    out.sourceObservations = entry.sourceObservations as SourceObservation[];
-  }
-  return out;
 }
 
 function fromDiffEntry(

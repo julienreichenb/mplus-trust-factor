@@ -91,8 +91,15 @@ describe("SpellQuery XML parser", () => {
 
 function scopeFromSpellQuery(query: string | undefined): string | undefined {
   if (!query) return undefined;
-  if (query === "class_spell" || query === "spec_spell" || query === "race_spell") return query;
-  const scope = query.match(/^(class_spell|spec_spell|race_spell)\./)?.[1];
+  if (
+    query === "class_spell" ||
+    query === "spec_spell" ||
+    query === "race_spell" ||
+    query === "talent_spell"
+  ) {
+    return query;
+  }
+  const scope = query.match(/^(class_spell|spec_spell|race_spell|talent_spell)\./)?.[1];
   return scope;
 }
 
@@ -151,6 +158,9 @@ describe("SimC extractor failures never become complete inventories", () => {
       class_spell: SPELLQUERY_CLASS_SPELL_XML,
       spec_spell: SPELLQUERY_SPEC_SPELL_XML,
       race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
     };
     const snapshot = await extractSimcSpellQuerySnapshot({
       simcBin: fakeBin,
@@ -169,7 +179,7 @@ describe("SimC extractor failures never become complete inventories", () => {
     expect(snapshot.binaryIdentity?.gitRevision).toBe(SHA.slice(0, 7));
     expect(snapshot.binaryIdentity?.revisionPrecision).toBe("PREFIX");
     expect(snapshot.simcCommitSha).toBe(SHA.slice(0, 7));
-    expect(snapshot.extractionStats?.processCount).toBe(4);
+    expect(snapshot.extractionStats?.processCount).toBe(5);
     expect(snapshot.inventories.some((i) => i.kind === "SPEC" && i.queryClaim === "COMPLETE_FOR_QUERY")).toBe(
       true,
     );
@@ -188,6 +198,9 @@ describe("SimC extractor failures never become complete inventories", () => {
       class_spell: SPELLQUERY_CLASS_SPELL_XML,
       spec_spell: SPELLQUERY_SPEC_SPELL_XML,
       race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
     };
     const snapshot = await extractSimcSpellQuerySnapshot({
       simcBin: fakeBin,
@@ -215,6 +228,9 @@ describe("SimC extractor failures never become complete inventories", () => {
       class_spell: SPELLQUERY_CLASS_SPELL_XML,
       spec_spell: SPELLQUERY_SPEC_SPELL_XML,
       race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
     };
     const snapshot = await extractSimcSpellQuerySnapshot({
       simcBin: fakeBin,

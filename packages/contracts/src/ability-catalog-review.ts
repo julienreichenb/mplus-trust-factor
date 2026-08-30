@@ -105,11 +105,10 @@ export const curatedDraftFieldsSchema = z
   })
   .strict();
 
-/** Admin business metadata — category and availability only (strict; source fields rejected). */
+/** Admin business metadata — category only (strict; source fields rejected). */
 export const abilityBusinessMetadataPatchSchema = z
   .object({
     category: draftAbilityCategorySchema.nullable().optional(),
-    availability: draftAbilityAvailabilitySchema.nullable().optional(),
   })
   .strict();
 

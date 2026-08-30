@@ -15,7 +15,11 @@ const sourceFieldPayloads = [
 
 describe("ability catalog review mutation schemas", () => {
   it("decide rejects source-owned fields in businessMetadata", () => {
-    for (const extra of sourceFieldPayloads) {
+    for (const extra of [
+      ...sourceFieldPayloads,
+      { availability: "BASELINE" },
+      { availability: "TALENT" },
+    ]) {
       const parsed = decideAbilityCatalogReviewItemRequestSchema.safeParse({
         expectedVersion: 1,
         action: "ACCEPT",
@@ -56,7 +60,7 @@ describe("ability catalog review mutation schemas", () => {
       decideAbilityCatalogReviewItemRequestSchema.safeParse({
         expectedVersion: 1,
         action: "ACCEPT",
-        businessMetadata: { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
+        businessMetadata: { category: "OFFENSIVE_MAJOR" },
       }).success,
     ).toBe(true);
     expect(
@@ -67,7 +71,7 @@ describe("ability catalog review mutation schemas", () => {
     ).toBe(true);
     expect(
       validateAbilityCatalogDraftRequestSchema.safeParse({
-        businessMetadata: { availability: "TALENT" },
+        businessMetadata: { category: "OFFENSIVE_MAJOR" },
       }).success,
     ).toBe(true);
   });

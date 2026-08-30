@@ -104,6 +104,13 @@ function minimalPinnedReport(overrides: Partial<CatalogRefreshReport> = {}): Cat
           raceSlugs: [],
           cooldownSeconds: 120,
           ownershipKind: "PLAYABLE_PLAYER",
+          simcMembership: {
+            classSpell: true,
+            specSpell: true,
+            raceSpell: false,
+            talentSpell: false,
+          },
+          availability: "BASELINE",
           validFromBuild: "69299",
           candidateBindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
           sourceObservations: [
@@ -481,7 +488,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         {
           expectedVersion: ve.version,
           action: "ACCEPT",
-          businessMetadata: { availability: "TALENT" },
         },
         audit,
       ),
@@ -497,7 +503,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         action: "ACCEPT",
         businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          availability: "TALENT",
         },
       },
       audit,
@@ -533,7 +538,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         action: "ACCEPT",
         businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          availability: "TALENT",
         },
       },
       audit,
@@ -629,7 +633,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         expectedVersion: draft.version,
         businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          availability: "TALENT",
         },
       },
       audit,
@@ -643,7 +646,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         action: "ACCEPT",
         businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          availability: "TALENT",
         },
       },
       audit,

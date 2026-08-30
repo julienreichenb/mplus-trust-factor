@@ -118,7 +118,7 @@ function buildManualEditPrefill(
   const persisted = draftRowToPayload(existing) as CuratedDraftRuleInput;
   return applyBusinessMetadataToCuratedDraft(
     source,
-    { category: persisted.category, availability: persisted.availability },
+    { category: persisted.category },
     activeRule,
   );
 }

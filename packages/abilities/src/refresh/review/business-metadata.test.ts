@@ -62,7 +62,7 @@ describe("business metadata ownership", () => {
     const prefill = draftFromRule(stormkeeper!.canonicalKey);
     const merged = applyBusinessMetadataToCuratedDraft(
       prefill,
-      { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
+      { category: "OFFENSIVE_MAJOR" },
       stormkeeper!,
     );
     expect(merged.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
@@ -70,7 +70,22 @@ describe("business metadata ownership", () => {
     expect(merged.spellIds).toEqual(stormkeeper!.spellIds);
     expect(merged.classSlug).toBe(stormkeeper!.classSlug);
     expect(merged.provenance).toEqual(prefill.provenance);
+    expect(merged.availability).toBe(stormkeeper!.availability);
     expect(merged.dimensionTags).toEqual(["PERFORMANCE_OFFENSIVE_COOLDOWN"]);
+  });
+
+  it("keeps source availability when category changes on curated draft", () => {
+    const stormkeeper = getAllRegisteredRules().find(
+      (r) => r.canonicalKey === "shaman.offensive.stormkeeper",
+    )!;
+    const prefill = draftFromRule(stormkeeper!.canonicalKey);
+    const merged = applyBusinessMetadataToCuratedDraft(
+      prefill,
+      { category: "INTERRUPT" },
+      stormkeeper!,
+    );
+    expect(merged.availability).toBe(stormkeeper!.availability);
+    expect(merged.category).toBe("INTERRUPT");
   });
 
   it("keeps source facts from review prefill when applying business metadata", () => {
@@ -80,13 +95,13 @@ describe("business metadata ownership", () => {
     const prefill = draftFromRule(stormkeeper!.canonicalKey);
     const merged = applyBusinessMetadataToReviewDraft(prefill, {
       category: "OFFENSIVE_MAJOR",
-      availability: "BASELINE",
     });
     expect(merged.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
     expect(merged.name).toBe(stormkeeper!.name);
     expect(merged.spellIds).toEqual(stormkeeper!.spellIds);
     expect(merged.classSlug).toBe(stormkeeper!.classSlug);
     expect(merged.provenance).toEqual(prefill.provenance);
+    expect(merged.availability).toBe(stormkeeper!.availability);
     expect(merged.dimensionTags).toEqual(["PERFORMANCE_OFFENSIVE_COOLDOWN"]);
   });
 

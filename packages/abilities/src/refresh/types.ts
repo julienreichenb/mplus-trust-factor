@@ -3,7 +3,8 @@
  * Candidates never write AbilityRule / RETAIL_ABILITY_CATALOG.
  */
 
-import type { AbilityCategory } from "../types.js";
+import type { AbilityCategory, AbilityAvailability } from "../types.js";
+import type { SimcSpellMembership } from "./extract/simc-availability.js";
 
 export type CatalogRefreshSourceKind = "BLIZZARD" | "SIMULATIONCRAFT";
 
@@ -161,6 +162,7 @@ export interface ExternalSourceRecord {
   bindings?: AbilitySpellBindingCandidate[];
   proposedCanonicalKey?: string;
   notes?: string[];
+  simcMembership?: SimcSpellMembership;
   extra?: Record<string, unknown>;
 }
 
@@ -201,6 +203,8 @@ export interface ExternalAbilityCandidate {
   eligibilityState: CatalogEligibilityState;
   eligibilityReasons: CatalogEligibilityReason[];
   ownershipKind: InventoryScopeClassification | "PLAYABLE_PLAYER";
+  simcMembership?: SimcSpellMembership;
+  availability?: AbilityAvailability | null;
 }
 
 export interface CatalogRefreshCandidate {
@@ -222,6 +226,8 @@ export interface CatalogDiffEntry {
   charges?: number | null;
   isPassive?: boolean | null;
   ownershipKind?: InventoryScopeClassification | "PLAYABLE_PLAYER";
+  simcMembership?: SimcSpellMembership;
+  availability?: AbilityAvailability | null;
   validFromBuild?: string;
   validToBuild?: string;
   candidateBindings?: Array<{ spellId: number; role: AbilitySpellBindingRole }>;

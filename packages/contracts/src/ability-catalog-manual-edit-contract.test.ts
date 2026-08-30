@@ -4,7 +4,7 @@ import { saveManualCatalogEditRequestSchema } from "./ability-catalog-review.js"
 describe("saveManualCatalogEditRequestSchema", () => {
   it("accepts business metadata only", () => {
     const parsed = saveManualCatalogEditRequestSchema.safeParse({
-      draft: { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
+      draft: { category: "OFFENSIVE_MAJOR" },
     });
     expect(parsed.success).toBe(true);
   });
@@ -17,6 +17,7 @@ describe("saveManualCatalogEditRequestSchema", () => {
       { category: "OFFENSIVE_MAJOR", name: "Fake" },
       { category: "OFFENSIVE_MAJOR", provenance: { source: "SIMULATIONCRAFT" } },
       { category: "OFFENSIVE_MAJOR", classSlug: "mage" },
+      { category: "OFFENSIVE_MAJOR", availability: "BASELINE" },
     ]) {
       const parsed = saveManualCatalogEditRequestSchema.safeParse({ draft });
       expect(parsed.success).toBe(false);

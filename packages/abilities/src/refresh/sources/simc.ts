@@ -5,6 +5,7 @@ import type {
   ExternalSourceSnapshot,
   ScopedInventory,
 } from "../types.js";
+import type { SimcSpellMembership } from "../extract/simc-availability.js";
 
 export const SIMC_SPELLQUERY_EXPORT_SCHEMA = "simc-spellquery-export-v1" as const;
 
@@ -28,6 +29,7 @@ export interface SimcSpellQuerySpell {
   bindings?: SimcSpellQueryBinding[];
   proposedCanonicalKey?: string;
   notes?: string[];
+  simcMembership?: SimcSpellMembership;
 }
 
 export interface SimcSpellQueryExport {
@@ -89,6 +91,7 @@ export function importSimcSpellQuerySnapshot(file: SimcSpellQueryExport): Extern
     catalogRelevant: s.catalogRelevant ?? s.isPassive === false,
     proposedCanonicalKey: s.proposedCanonicalKey,
     notes: s.notes,
+    simcMembership: s.simcMembership,
     bindings: s.bindings?.map((b) => ({
       spellId: b.spellId,
       role: b.role,

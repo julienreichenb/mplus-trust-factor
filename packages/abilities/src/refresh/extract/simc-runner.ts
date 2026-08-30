@@ -24,6 +24,11 @@ import {
   SpellQueryXmlError,
 } from "./simc-xml.js";
 import { classifySpecScope } from "../scope-classify.js";
+import {
+  membershipFromScope,
+  mergeSimcMembership,
+  type SimcSpellMembership,
+} from "./simc-availability.js";
 
 export class SimcExtractionError extends Error {
   readonly code: string;
@@ -208,6 +213,7 @@ export async function extractSimcSpellQuerySnapshot(
 
         const cooldownSeconds = resolveSpellCooldownSeconds(spell);
         const existing = spellsById.get(spell.spellId);
+        const scopeMembership = membershipFromScope(scope);
         const next = {
           spellId: spell.spellId,
           name: spell.name,
@@ -220,6 +226,7 @@ export async function extractSimcSpellQuerySnapshot(
           isPassive: spell.isPassive,
           catalogRelevant: true,
           bindings: bindingsFromParsedSpell(spell),
+          simcMembership: scopeMembership,
           notes: [
             `query=${expression}`,
             ...(spell.maxStack != null && spell.maxStack > 1
@@ -238,6 +245,10 @@ export async function extractSimcSpellQuerySnapshot(
           existing.charges = existing.charges ?? next.charges;
           existing.stacks = existing.stacks ?? next.stacks;
           existing.isPassive = existing.isPassive ?? next.isPassive;
+          existing.simcMembership = mergeSimcMembership(
+            existing.simcMembership as SimcSpellMembership | undefined,
+            scopeMembership,
+          );
           existing.notes = [...new Set([...(existing.notes ?? []), ...(next.notes ?? [])])];
           const bindings = [...(existing.bindings ?? []), ...(next.bindings ?? [])];
           const seen = new Set<string>();
