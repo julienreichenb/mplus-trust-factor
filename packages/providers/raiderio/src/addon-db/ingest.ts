@@ -7,7 +7,7 @@ import {
   type KeyContextRegionCode,
 } from "@mplus/contracts";
 import { medianKeySnapshotIdentityHash, pointsFromHistogram } from "@mplus/scoring";
-import { accumulateEligibleMedianHistogram } from "./histogram.js";
+import { accumulateEligibleMedianHistogram, assertLookupCoversNamedOffsets } from "./histogram.js";
 import { assertRequestedAddonRegion, mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
 import { loadLookupBuffer, parseNamedCharacterOffsets, parseTocInterface, validateHeader } from "./parse-characters.js";
 import { parseDbDungeonsLua } from "./parse-lua-meta.js";
@@ -53,9 +53,7 @@ export async function ingestMythicPlusAddonFiles(input: {
   const { header, named } = await parseNamedCharacterOffsets(input.charactersLuaPath);
   validateHeader(header);
   assertRequestedAddonRegion(header.region, region);
-  if (lookup.length % 30 !== 0) {
-    throw new AddonDbFormatError("LOOKUP_LENGTH", "truncated/corrupted lookup payload");
-  }
+  assertLookupCoversNamedOffsets(lookup, named);
   const dungeonsLua = await readFile(input.dungeonsLuaPath, "utf8");
   const rioDungeons = parseDbDungeonsLua(dungeonsLua, header.currentSeasonId);
   mapRioDungeonsToSeasonPool(rioDungeons, input.expectedDungeons);

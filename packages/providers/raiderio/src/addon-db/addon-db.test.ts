@@ -7,7 +7,7 @@ import { encodeMythicPlusRecord, buildLookupLua, buildCharactersLua, buildDungeo
 import { ingestMythicPlusAddonFiles } from "./ingest.js";
 import { AddonDbFormatError } from "./types.js";
 import { loadLookupBuffer } from "./parse-characters.js";
-import { accumulateEligibleMedianHistogram } from "./histogram.js";
+import { accumulateEligibleMedianHistogram, lookupRecordDataOffset, oneBasedRecordSliceOffset } from "./histogram.js";
 import { mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
 import { parseDbDungeonsLua } from "./parse-lua-meta.js";
 
@@ -58,6 +58,16 @@ describe("Raider.IO addon packed decoder", () => {
   });
 });
 
+describe("lookup record offsets", () => {
+  it("detects one-byte live lookup prefix from non-divisible blob length", () => {
+    expect(lookupRecordDataOffset(new Uint8Array(31))).toBe(1);
+    expect(lookupRecordDataOffset(new Uint8Array(30))).toBe(0);
+    expect(oneBasedRecordSliceOffset(0, 1)).toBe(2);
+    expect(oneBasedRecordSliceOffset(61712, 1)).toBe(61714);
+    expect(oneBasedRecordSliceOffset(0, 0)).toBe(1);
+  });
+});
+
 describe("eligible histogram", () => {
   it("excludes missing level 0 and includes 8/8 including .5 medians", () => {
     const complete = encodeMythicPlusRecord({ dungeonLevels: [10, 11, 12, 13, 14, 15, 16, 17] });
@@ -69,6 +79,21 @@ describe("eligible histogram", () => {
     expect(result.indexedCharacters).toBe(2);
     expect(result.eligibleCharacters).toBe(1);
     expect(result.histogram.get(13.5)).toBe(1);
+  });
+
+  it("accepts prefixed lookup blobs with trailing bytes when every named offset fits", () => {
+    const complete = encodeMythicPlusRecord({ dungeonLevels: [10, 11, 12, 13, 14, 15, 16, 17] });
+    const lookup = new Uint8Array(32);
+    lookup[0] = 0xff;
+    lookup.set(complete, 1);
+    const result = accumulateEligibleMedianHistogram(lookup, [{ byteOffset: 0 }]);
+    expect(result.eligibleCharacters).toBe(1);
+    expect(lookup.length % 30).not.toBe(0);
+  });
+
+  it("rejects truncated lookup when a named offset extends past the blob", () => {
+    const lookup = new Uint8Array(29);
+    expect(() => accumulateEligibleMedianHistogram(lookup, [{ byteOffset: 0 }])).toThrow(AddonDbFormatError);
   });
 });
 
@@ -86,6 +111,31 @@ describe("season dungeon mapping", () => {
         ),
       ),
     ).toThrow(AddonDbFormatError);
+  });
+
+  it("reads current-season ns.dungeons when expansion history is present", () => {
+    const current = buildDungeonsLua();
+    const expansion = buildDungeonsLua([
+      "Pit of Saron",
+      "Skyreach",
+      "Seat of the Triumvirate",
+      "Algeth'ar Academy",
+      "Windrunner Spire",
+      "Magisters' Terrace",
+      "Maisara Caverns",
+      "Nexus-Point Xenas",
+    ]).replace("ns.dungeons", "ns.expansionDungeons");
+    const rio = parseDbDungeonsLua(`${current}\n${expansion}`, 1);
+    expect(rio.map((d) => d.name)).toEqual([
+      "Ara-Kara, City of Echoes",
+      "Dawnbreaker",
+      "Eco-Dome Aldani",
+      "Halls of Atonement",
+      "Operation: Floodgate",
+      "Priory of the Sacred Flame",
+      "Tazavesh: So'leah's Gambit",
+      "Tazavesh: Streets of Wonder",
+    ]);
   });
 });
 
