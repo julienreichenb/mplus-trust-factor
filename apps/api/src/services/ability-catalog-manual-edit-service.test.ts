@@ -62,16 +62,20 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
       {
         draft: {
           category: "INTERRUPT",
-          availability: stormkeeper!.availability,
         },
       },
       audit,
     );
     expect(saved.draftStatus).toBe("READY_FOR_PUBLISH_REVIEW");
     expect(saved.draftVersion).toBe(1);
-    const savedDraft = saved.draft as { category?: string; cooldownSeconds?: number };
+    const savedDraft = saved.draft as {
+      category?: string;
+      cooldownSeconds?: number;
+      availability?: string;
+    };
     expect(savedDraft.category).toBe("INTERRUPT");
     expect(savedDraft.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
+    expect(savedDraft.availability).toBe(stormkeeper!.availability);
 
     const activeAfterSave = await releases.loadReleaseArtifact(baseReleaseId);
     const unchanged = activeAfterSave.artifact.rules.find(
@@ -87,6 +91,7 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     );
     expect(updated?.cooldownSeconds).toBe(stormkeeper!.cooldownSeconds);
     expect(updated?.category).toBe("INTERRUPT");
+    expect(updated?.availability).toBe(stormkeeper!.availability);
   });
 
   it("rejects source-owned fields in manual edit payload", async () => {
@@ -116,7 +121,6 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
       {
         draft: {
           category: stormkeeper!.category,
-          availability: stormkeeper!.availability,
         },
       },
       audit,

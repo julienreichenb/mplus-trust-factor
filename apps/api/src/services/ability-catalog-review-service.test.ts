@@ -638,6 +638,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       audit,
     );
     expect(ready.draftStatus).toBe("READY_FOR_PUBLISH_REVIEW");
+    expect((ready.draftRule as { availability?: string }).availability).toBe("BASELINE");
 
     const accepted = await service.decideItem(
       ve.id,
@@ -659,13 +660,13 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         expectedVersion: readyDraft.version,
         businessMetadata: {
           category: null,
-          availability: "TALENT",
         },
       },
       audit,
     );
     expect(reopened.decisionAction).toBeNull();
     expect(reopened.draftStatus).toBe("NEEDS_METADATA");
+    expect((reopened.draftRule as { availability?: string }).availability).toBe("BASELINE");
     expect(
       reopened.decisionEvents.some(
         (e) => (e.newState as { action?: string }).action === "DRAFT_UPDATE_REOPEN",
@@ -946,6 +947,21 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         {
           expectedVersion: draftVersion,
           businessMetadata: { category: "DEFENSIVE_MINOR", spellIds: [1] } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(
+      service.updateDraft(
+        ve.id,
+        {
+          expectedVersion: draftVersion,
+          businessMetadata: { category: "DEFENSIVE_MINOR", availability: "TALENT" } as never,
         },
         {
           actorType: "admin_key" as const,
