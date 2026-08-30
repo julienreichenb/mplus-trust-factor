@@ -10,6 +10,7 @@ import type {
   InventoryScopeClassification,
   SourceObservation,
 } from "../types.js";
+import { bindingRoleRank } from "../bindings.js";
 import { getAllRegisteredRules } from "../../registry.js";
 import type { CuratedDraftRuleInput, DraftBinding } from "./draft-validation.js";
 import { suggestCuratedCanonicalKey } from "./import-plan.js";
@@ -42,17 +43,24 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function parseCandidateBindings(value: unknown): DraftBinding[] {
+/** Project source binding evidence into unique curated spellId+role bindings. */
+export function parseCandidateBindings(value: unknown): DraftBinding[] {
   if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
   const out: DraftBinding[] = [];
   for (const row of value) {
     if (!row || typeof row !== "object") continue;
     const spellId = asNumber((row as { spellId?: unknown }).spellId);
     const role = (row as { role?: unknown }).role;
     if (spellId == null || spellId <= 0 || typeof role !== "string") continue;
+    const key = `${spellId}:${role}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push({ spellId, role: role as AbilitySpellBindingRole });
   }
-  return out;
+  return out.sort(
+    (a, b) => a.spellId - b.spellId || bindingRoleRank(a.role) - bindingRoleRank(b.role),
+  );
 }
 
 function parseSourceObservations(value: unknown): SourceObservation[] {

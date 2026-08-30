@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   candidateEvidenceFromDiffEntry,
   mergeCuratedDraftInput,
+  parseCandidateBindings,
   prefillCuratedDraftDefaults,
   provenanceFromRefreshEvidence,
 } from "./draft-prefill.js";
 import { membershipFromScope, mergeSimcMembership } from "../extract/simc-availability.js";
+import { applyBusinessMetadataToReviewDraft } from "./business-metadata.js";
+import { validateCuratedDraftRule } from "./draft-validation.js";
 
 describe("draft prefill from refresh evidence", () => {
   const rollTheBonesEvidence = {
@@ -184,5 +187,124 @@ describe("draft prefill from refresh evidence", () => {
       wowBuild: "69299",
     });
     expect(provenance.source).toBe("BLIZZARD_API");
+  });
+});
+
+describe("parseCandidateBindings curated projection", () => {
+  it("collapses duplicate logical bindings from multiple source observations", () => {
+    expect(
+      parseCandidateBindings([
+        { spellId: 101545, role: "PRIMARY_ACTIVATION", source: "SIMULATIONCRAFT" },
+        { spellId: 101545, role: "PRIMARY_ACTIVATION", source: "BLIZZARD" },
+      ]),
+    ).toEqual([{ spellId: 101545, role: "PRIMARY_ACTIVATION" }]);
+  });
+
+  it("preserves different roles for the same spell id", () => {
+    expect(
+      parseCandidateBindings([
+        { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+        { spellId: 101545, role: "TRIGGERED_EFFECT" },
+      ]),
+    ).toEqual([
+      { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+      { spellId: 101545, role: "TRIGGERED_EFFECT" },
+    ]);
+  });
+
+  it("does not collapse different primary spell ids", () => {
+    const bindings = parseCandidateBindings([
+      { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+      { spellId: 999999, role: "PRIMARY_ACTIVATION" },
+    ]);
+    expect(bindings).toEqual([
+      { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+      { spellId: 999999, role: "PRIMARY_ACTIVATION" },
+    ]);
+    const validation = validateCuratedDraftRule({
+      canonicalKey: "monk.windwalker.flying-serpent-kick",
+      name: "Flying Serpent Kick",
+      spellIds: [101545, 999999],
+      bindings,
+      category: "MOVEMENT_UTILITY",
+      availability: "BASELINE",
+      provenance: {
+        source: "SIMC_ADVISORY",
+        verifiedAt: "2026-08-30T00:00:00.000Z",
+        gameVersion: "69299",
+      },
+    });
+    expect(validation.errors.some((issue) => issue.code === "MULTIPLE_PRIMARY_BINDING")).toBe(true);
+    expect(validation.errors.some((issue) => issue.code === "DUPLICATE_BINDING")).toBe(false);
+  });
+
+  it("prefills and validates Flying Serpent Kick from sync-shaped duplicate evidence", () => {
+    const fskMembership = mergeSimcMembership(
+      membershipFromScope("class_spell"),
+      membershipFromScope("spec_spell"),
+    );
+    const evidence = {
+      status: "MISSING_FROM_CURRENT_CATALOG",
+      candidateKey: "monk.refresh.flying-serpent-kick-101545",
+      ownershipKind: "PLAYABLE_PLAYER",
+      cooldownSeconds: 30,
+      validFromBuild: "69299",
+      availability: "BASELINE",
+      simcMembership: fskMembership,
+      candidateBindings: [
+        { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+        { spellId: 101545, role: "PRIMARY_ACTIVATION" },
+      ],
+      sourceObservations: [
+        {
+          source: "BLIZZARD",
+          state: "IDENTITY_ONLY",
+          identity: {
+            source: "BLIZZARD",
+            datasetKind: "PINNED",
+            sourceRevision: "69299",
+            retrievedAt: "2026-08-30T10:45:51.144Z",
+            captureProvenance: "REAL_CAPTURE",
+          },
+        },
+        {
+          source: "SIMULATIONCRAFT",
+          state: "PRESENT",
+          identity: {
+            source: "SIMULATIONCRAFT",
+            datasetKind: "PINNED",
+            sourceRevision: "a060a35",
+            retrievedAt: "2026-08-30T10:45:35.119Z",
+            validFromBuild: "69299",
+            captureProvenance: "REAL_CAPTURE",
+          },
+        },
+      ],
+    };
+
+    const prefill = prefillCuratedDraftDefaults({
+      name: "Flying Serpent Kick",
+      primarySpellId: 101545,
+      matchedCanonicalKey: null,
+      classSlug: "monk",
+      specSlugs: ["windwalker"],
+      raceSlugs: [],
+      evidence,
+      sourceProvenance: { sourceObservations: evidence.sourceObservations },
+      wowBuild: "69299",
+      generatedAt: "2026-08-30T10:45:51.144Z",
+    });
+
+    expect(prefill.bindings).toEqual([{ spellId: 101545, role: "PRIMARY_ACTIVATION" }]);
+    expect(prefill.availability).toBe("BASELINE");
+
+    const merged = applyBusinessMetadataToReviewDraft(prefill, {
+      category: "MOVEMENT_UTILITY",
+    });
+    const validation = validateCuratedDraftRule(merged);
+    expect(validation.errors.some((issue) => issue.code === "DUPLICATE_BINDING")).toBe(false);
+    expect(validation.errors.some((issue) => issue.code === "MULTIPLE_PRIMARY_BINDING")).toBe(false);
+    expect(validation.readyForPublishReview).toBe(true);
+    expect(validation.status).toBe("READY_FOR_PUBLISH_REVIEW");
   });
 });
