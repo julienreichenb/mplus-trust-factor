@@ -75,6 +75,8 @@ export interface EnsureSeasonDataReadyInput {
     blizzardSeasonId: number;
     regionCode: string;
   }) => Promise<void>;
+  /** When fixture, skip live WCL authority comparison during readiness. */
+  providerMode?: string;
 }
 
 function catalogFromDiscovered(
@@ -111,9 +113,21 @@ async function resolveCatalogForSeason(input: {
   season: Season | null;
   discoverActiveMplusCatalog?: SeasonCatalogDiscoverFn;
   registry: MplusZoneCatalogRegistry;
+  preDiscoveredCatalog?: MplusZoneCatalogEntry | null;
 }): Promise<{ catalog: MplusZoneCatalogEntry; source: SeasonCatalogSyncSource } | { error: string }> {
-  const { blizzardSeasonId, selectionMode, season, discoverActiveMplusCatalog, registry } = input;
+  const {
+    blizzardSeasonId,
+    selectionMode,
+    season,
+    discoverActiveMplusCatalog,
+    registry,
+    preDiscoveredCatalog,
+  } = input;
   let discoveryError: string | null = null;
+
+  if (preDiscoveredCatalog) {
+    return { catalog: preDiscoveredCatalog, source: "warcraftlogs_world_data" };
+  }
 
   // Live WCL "active zone" discovery is AUTO-only. PINNED historical seasons
   // must not bind whatever zone is currently active worldwide.
@@ -194,8 +208,36 @@ export async function ensureSeasonDataReady(
     expectedDungeonCount: null,
   });
 
+  let authoritativeCatalog: MplusZoneCatalogEntry | null = null;
+  if (
+    selectionMode !== "PINNED" &&
+    input.discoverActiveMplusCatalog &&
+    input.providerMode !== "fixture"
+  ) {
+    try {
+      const discovered = await input.discoverActiveMplusCatalog({
+        blizzardSeasonId: input.blizzardSeasonId,
+      });
+      authoritativeCatalog = catalogFromDiscovered(discovered, input.blizzardSeasonId);
+    } catch (error) {
+      input.logger.warn(
+        {
+          event: "season_catalog_authority_discovery_failed",
+          region: regionCode,
+          seasonId: season?.id ?? null,
+          blizzardSeasonId: input.blizzardSeasonId,
+          error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+        },
+        "authoritative catalog discovery failed during readiness check",
+      );
+    }
+  }
+
   let before = season
-    ? await evaluateSeasonCatalogReadiness(input.prisma, season)
+    ? await evaluateSeasonCatalogReadiness(input.prisma, season, {
+        registry,
+        authoritativeCatalog,
+      })
     : emptyReadiness(["season_row_missing", "season_dungeon_bindings_empty"]);
 
   const base = (): Omit<
@@ -331,6 +373,7 @@ export async function ensureSeasonDataReady(
     season,
     discoverActiveMplusCatalog: input.discoverActiveMplusCatalog,
     registry,
+    preDiscoveredCatalog: authoritativeCatalog,
   });
 
   if ("error" in resolved) {
@@ -368,7 +411,10 @@ export async function ensureSeasonDataReady(
       `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: catalog write did not persist blizzard season ${input.blizzardSeasonId}`,
     );
   }
-  const after = await evaluateSeasonCatalogReadiness(input.prisma, season);
+  const after = await evaluateSeasonCatalogReadiness(input.prisma, season, {
+    registry,
+    authoritativeCatalog,
+  });
   return finish({
     catalogSource: resolved.source,
     skippedReady: false,

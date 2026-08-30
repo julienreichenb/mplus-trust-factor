@@ -157,6 +157,7 @@ export async function runRefreshContractPreflight(
     allowProviderSync: true,
     correlationId: opts.correlationId ?? jobPayload.correlationId ?? null,
     now: deps.now,
+    providerMode: deps.env.PROVIDER_MODE,
     discoverActiveMplusCatalog: resolveDiscoverer(deps),
   });
 
@@ -296,6 +297,7 @@ export async function resolvePublicationRefreshContract(
     allowProviderSync: true,
     correlationId: opts.correlationId ?? jobPayload.correlationId ?? null,
     now: deps.now,
+    providerMode: deps.env.PROVIDER_MODE,
     discoverActiveMplusCatalog: resolveDiscoverer(deps),
   });
 

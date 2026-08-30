@@ -51,6 +51,7 @@ export async function runScheduledScoringSeasonDataSync(input: {
         blizzardSeasonId,
         selectionMode,
         discoverActiveMplusCatalog: discoverer,
+        providerMode: input.providerMode,
         requestDistributionRefresh: async ({ seasonId, regionCode }) => {
           await session.refreshRegion({ seasonId, regionCode });
         },

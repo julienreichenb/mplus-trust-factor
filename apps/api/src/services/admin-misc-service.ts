@@ -359,6 +359,7 @@ export class AdminMiscService {
           blizzardSeasonId: input.blizzardSeasonId,
           selectionMode: input.selectionMode,
           discoverActiveMplusCatalog: discoverer,
+          providerMode: this.container.env.PROVIDER_MODE,
           requestDistributionRefresh: async ({ seasonId, regionCode }) => {
             await session.refreshRegion({ seasonId, regionCode });
           },

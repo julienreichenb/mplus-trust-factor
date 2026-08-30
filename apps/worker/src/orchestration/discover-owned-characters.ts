@@ -150,6 +150,7 @@ export async function runDiscoverOwnedCharacters(
           regionId,
           allowProviderSync: true,
           correlationId: requestId,
+          providerMode: env.PROVIDER_MODE,
           discoverActiveMplusCatalog: resolveScoringCatalogDiscoverer({
             warcraftlogs: providers.warcraftlogs,
             providerMode: env.PROVIDER_MODE,

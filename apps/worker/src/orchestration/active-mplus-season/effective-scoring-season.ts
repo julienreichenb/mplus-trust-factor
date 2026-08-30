@@ -77,6 +77,8 @@ export interface ResolveEffectiveScoringSeasonInput {
    * validated catalog. PINNED never calls this.
    */
   discoverActiveMplusCatalog?: DiscoverActiveMplusCatalogFn;
+  /** When fixture, skip live WCL authority comparison (registry checks still apply). */
+  providerMode?: string;
 }
 
 function isPlaceholderSeason(season: Season): boolean {
@@ -158,6 +160,18 @@ export function resolveScoringCatalogDiscoverer(input: {
   return undefined;
 }
 
+async function resolveAuthoritativeCatalogForReadiness(
+  discover: DiscoverActiveMplusCatalogFn,
+  blizzardSeasonId: number,
+): Promise<{ wclZoneId: number; dungeonSlugs: string[] } | null> {
+  try {
+    const discovered = await discover({ blizzardSeasonId });
+    return { wclZoneId: discovered.wclZoneId, dungeonSlugs: discovered.dungeonSlugs };
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveEffectiveScoringSeason(
   input: ResolveEffectiveScoringSeasonInput,
 ): Promise<EffectiveScoringSeason> {
@@ -208,7 +222,17 @@ export async function resolveEffectiveScoringSeason(
     );
   }
 
-  let readiness = await evaluateSeasonCatalogReadiness(input.prisma, season);
+  let readiness = await evaluateSeasonCatalogReadiness(input.prisma, season, {
+    authoritativeCatalog:
+      selection.mode === "AUTO" &&
+      input.discoverActiveMplusCatalog &&
+      input.providerMode !== "fixture"
+        ? await resolveAuthoritativeCatalogForReadiness(
+            input.discoverActiveMplusCatalog,
+            effectiveBlizzardSeasonId,
+          )
+        : null,
+  });
   let bootstrapped = false;
   let catalogSource: EffectiveScoringSeason["catalogSource"] = "season_dungeon_bindings";
 
@@ -242,7 +266,17 @@ export async function resolveEffectiveScoringSeason(
       );
     }
     season = reloaded;
-    readiness = await evaluateSeasonCatalogReadiness(input.prisma, season);
+    readiness = await evaluateSeasonCatalogReadiness(input.prisma, season, {
+      authoritativeCatalog:
+        selection.mode === "AUTO" &&
+        input.discoverActiveMplusCatalog &&
+        input.providerMode !== "fixture"
+          ? await resolveAuthoritativeCatalogForReadiness(
+              input.discoverActiveMplusCatalog,
+              effectiveBlizzardSeasonId,
+            )
+          : null,
+    });
     if (!readiness.ready) {
       if (selection.mode === "PINNED") {
         throw new SeasonDungeonBindingsMissingError(

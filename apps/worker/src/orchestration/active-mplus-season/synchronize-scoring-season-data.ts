@@ -27,6 +27,7 @@ export async function synchronizeScoringSeasonData(input: {
   blizzardSeasonId: number;
   selectionMode?: EnsureSeasonDataReadyInput["selectionMode"];
   discoverActiveMplusCatalog?: EnsureSeasonDataReadyInput["discoverActiveMplusCatalog"];
+  providerMode?: EnsureSeasonDataReadyInput["providerMode"];
   registry?: EnsureSeasonDataReadyInput["registry"];
   requestDistributionRefresh?: EnsureSeasonDataReadyInput["requestDistributionRefresh"];
   now?: Date;
@@ -63,6 +64,7 @@ export async function synchronizeScoringSeasonData(input: {
         blizzardSeasonId: input.blizzardSeasonId,
         selectionMode: input.selectionMode,
         discoverActiveMplusCatalog: input.discoverActiveMplusCatalog,
+        providerMode: input.providerMode,
         registry: input.registry,
         requestDistributionRefresh: input.requestDistributionRefresh,
         now: input.now,
