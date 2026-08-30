@@ -8,6 +8,7 @@ import type { PrismaClient, Season } from "@mplus/database";
 import { evaluateSeasonCatalogReadiness, type CatalogReadinessResult } from "./catalog-readiness.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
 import { synchronizeActiveMplusSeasonCatalog } from "./synchronize.js";
+import { enrichSeasonDungeonArtwork } from "./enrich-dungeon-artwork.js";
 import {
   createDefaultMplusZoneCatalogRegistry,
   lookupZoneCatalogByBlizzardSeasonId,
@@ -17,6 +18,7 @@ import {
 } from "./zone-catalog-registry.js";
 import { ActiveMplusSeasonAmbiguousError, ActiveMplusSeasonCatalogIncompleteError } from "./types.js";
 import { isNonProductSeasonSlug, seasonAuthoritySlug } from "../season-authority.js";
+import type { BlizzardProvider } from "@mplus/contracts";
 
 export type SeasonCatalogDiscoverFn = (input: {
   blizzardSeasonId: number;
@@ -75,6 +77,8 @@ export interface EnsureSeasonDataReadyInput {
     blizzardSeasonId: number;
     regionCode: string;
   }) => Promise<void>;
+  /** Optional Blizzard provider for non-critical dungeon artwork enrichment. */
+  blizzard?: BlizzardProvider;
   /** When fixture, skip live WCL authority comparison during readiness. */
   providerMode?: string;
 }
@@ -295,6 +299,30 @@ export async function ensureSeasonDataReady(
             error: distributionError.slice(0, 300),
           },
           "catalog ready; median-key distribution request failed",
+        );
+      }
+    }
+
+    // Artwork is display metadata: enrich even when catalog was already ready.
+    if (after.ready && season && input.blizzard) {
+      try {
+        await enrichSeasonDungeonArtwork({
+          prisma: input.prisma,
+          blizzard: input.blizzard,
+          logger: input.logger,
+          seasonId: season.id,
+          regionCode,
+          now: input.now,
+        });
+      } catch (error) {
+        input.logger.warn(
+          {
+            event: "dungeon_artwork_enrichment_failed",
+            region: regionCode,
+            seasonId: season.id,
+            error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+          },
+          "catalog ready; dungeon artwork enrichment failed",
         );
       }
     }

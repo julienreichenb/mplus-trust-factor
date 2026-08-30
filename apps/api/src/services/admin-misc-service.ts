@@ -360,6 +360,7 @@ export class AdminMiscService {
           selectionMode: input.selectionMode,
           discoverActiveMplusCatalog: discoverer,
           providerMode: this.container.env.PROVIDER_MODE,
+          blizzard: this.container.worker.providers.blizzard,
           requestDistributionRefresh: async ({ seasonId, regionCode }) => {
             await session.refreshRegion({ seasonId, regionCode });
           },

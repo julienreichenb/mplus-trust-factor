@@ -5,7 +5,7 @@
  */
 import type { Logger } from "@mplus/observability";
 import type { PrismaClient } from "@mplus/database";
-import { KEY_CONTEXT_REGION_CODES } from "@mplus/contracts";
+import { KEY_CONTEXT_REGION_CODES, type BlizzardProvider } from "@mplus/contracts";
 import { ensureRegionalBlizzardSeason } from "../../persistence/run-repository.js";
 import {
   ensureSeasonDataReady,
@@ -30,6 +30,7 @@ export async function synchronizeScoringSeasonData(input: {
   providerMode?: EnsureSeasonDataReadyInput["providerMode"];
   registry?: EnsureSeasonDataReadyInput["registry"];
   requestDistributionRefresh?: EnsureSeasonDataReadyInput["requestDistributionRefresh"];
+  blizzard?: BlizzardProvider;
   now?: Date;
 }): Promise<{
   blizzardSeasonId: number;
@@ -67,6 +68,7 @@ export async function synchronizeScoringSeasonData(input: {
         providerMode: input.providerMode,
         registry: input.registry,
         requestDistributionRefresh: input.requestDistributionRefresh,
+        blizzard: input.blizzard,
         now: input.now,
       });
       regions.push({

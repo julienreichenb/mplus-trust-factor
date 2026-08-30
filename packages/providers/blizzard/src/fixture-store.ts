@@ -31,6 +31,11 @@ export interface FixtureManifest {
     index: string;
     byId: Record<string, string>;
   };
+  /** Optional journal-instance fixtures for dungeon artwork enrichment. */
+  journalInstances?: {
+    index: string;
+    mediaById: Record<string, string>;
+  };
   items: Record<string, { item: string; media: string }>;
   errors: Record<string, string>;
 }

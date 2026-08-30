@@ -4,6 +4,8 @@ import type {
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
+  BlizzardJournalInstanceDTO,
+  BlizzardJournalInstanceMediaDTO,
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
@@ -38,6 +40,8 @@ import {
   normalizeItem,
   normalizeLeaderboard,
   normalizeMedia,
+  normalizeJournalInstance,
+  normalizeJournalInstanceMedia,
   normalizeMythicProfileIndex,
   normalizeMythicRuns,
   normalizePeriod,
@@ -62,6 +66,8 @@ import {
   equipmentSchema,
   itemMediaSchema,
   itemSchema,
+  journalInstanceIndexSchema,
+  journalInstanceMediaSchema,
   leaderboardSchema,
   mediaSchema,
   mythicKeystoneProfileIndexSchema,
@@ -998,6 +1004,75 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     const raw = parseOrThrow(dungeonSchema, result.data, endpointKey);
     return buildProviderResult({
       data: normalizeDungeon(raw),
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async getJournalInstanceIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceDTO[]>> {
+    const region = this.region(ctx);
+    const endpointKey = "journal-instance.index";
+    const fingerprint = fingerprintFor({
+      region: region.key,
+      endpointKey,
+      pathParams: {},
+    });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "static",
+      path: "data/wow/journal-instance/index",
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.dungeon,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(journalInstanceIndexSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: raw.instances.map((row) => normalizeJournalInstance(row)),
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async getJournalInstanceMedia(
+    journalInstanceId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceMediaDTO>> {
+    const region = this.region(ctx);
+    const endpointKey = "journal-instance.media";
+    const fingerprint = fingerprintFor({
+      region: region.key,
+      endpointKey,
+      pathParams: { journalInstanceId: String(journalInstanceId) },
+    });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "static",
+      path: `data/wow/media/journal-instance/${journalInstanceId}`,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.dungeon,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(journalInstanceMediaSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: normalizeJournalInstanceMedia(journalInstanceId, raw),
       ctx,
       endpointKey,
       sourceUrl: result.sourceUrl,

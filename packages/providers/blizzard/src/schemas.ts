@@ -343,6 +343,23 @@ export const itemMediaSchema = z
   })
   .passthrough();
 
+export const journalInstanceIndexSchema = z
+  .object({
+    instances: z
+      .array(z.object({ id: z.number(), name: z.string() }).passthrough())
+      .default([]),
+  })
+  .passthrough();
+
+export const journalInstanceMediaSchema = z
+  .object({
+    assets: z
+      .array(z.object({ key: z.string(), value: z.string() }))
+      .optional()
+      .default([]),
+  })
+  .passthrough();
+
 export const leaderboardSchema = z
   .object({
     map: z.record(z.string(), z.unknown()).optional(),

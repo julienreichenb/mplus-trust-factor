@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { CanonicalDungeonEvidencePublicDTO, PerformanceSummaryDTO, SurvivalSummaryPublicDTO } from "@mplus/contracts";
 import { resolveParsePercentileColor } from "../../lib/parsePercentileColor";
-import { dungeonBackgroundUrl } from "../../lib/dungeonArt";
+import { sanitizeDungeonImageUrl } from "../../lib/dungeonArt";
 import CanonicalSelectedRunLinks from "./CanonicalSelectedRunLinks.vue";
 
 const props = defineProps<{
@@ -54,7 +54,8 @@ function parsePctClass(value: number | null | undefined): string {
 }
 
 function dungeonArtUrl(slug: string): string | null {
-  return dungeonBackgroundUrl(slug);
+  const dungeon = current.value?.dungeons.find((row) => row.dungeonSlug === slug);
+  return sanitizeDungeonImageUrl(dungeon?.dungeonImageUrl);
 }
 
 type LegacyDungeon = NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number];

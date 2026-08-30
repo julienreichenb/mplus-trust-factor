@@ -158,6 +158,22 @@ export interface BlizzardDungeonDTO {
   mapId: number | null;
 }
 
+/** Static journal-instance index entry (dungeon/raid journal). */
+export interface BlizzardJournalInstanceDTO {
+  journalInstanceId: number;
+  name: string;
+  /** Canonical slug derived from the official Blizzard name. */
+  slug: string;
+}
+
+/** Official journal-instance media assets (static namespace). */
+export interface BlizzardJournalInstanceMediaDTO {
+  journalInstanceId: number;
+  /** Official HTTPS tile asset URL when Blizzard returns one; otherwise null. */
+  tileUrl: string | null;
+  assets: Array<{ key: string; url: string }>;
+}
+
 export interface BlizzardItemDTO {
   blizzardItemId: number;
   name: string;
@@ -272,6 +288,15 @@ export interface BlizzardProvider {
     dungeonId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardDungeonDTO>>;
+  /** Static journal-instance index (names + ids for artwork matching). */
+  getJournalInstanceIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceDTO[]>>;
+  /** Official journal-instance media (tile asset URLs). */
+  getJournalInstanceMedia(
+    journalInstanceId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceMediaDTO>>;
   /** Fetch item details only for explicitly requested IDs (aggressively cached). */
   getItems(
     itemIds: number[],

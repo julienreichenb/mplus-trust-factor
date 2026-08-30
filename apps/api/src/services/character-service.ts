@@ -71,7 +71,7 @@ import {
 import { resolveProductScoreDto, type ResolvedProductScore } from "../lib/product-score-resolve.js";
 import { resolveProfilePerformanceSummary } from "../lib/character-score-read.js";
 import { mapJobStatusWithEta } from "./refresh-eta-service.js";
-import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, readDungeonTileUrlFromMetadata, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
 import { mapPersistedBoostAssessment } from "../lib/map-boost-assessment.js";
@@ -1444,6 +1444,24 @@ export class CharacterService {
       }),
     );
 
+    const dungeonSlugs = [
+      ...new Set([
+        ...(scoringRunSelection?.selectedRuns.map((r) => r.dungeonSlug) ?? []),
+        ...(performanceSummary?.currentSeason.dungeons.map((d) => d.dungeonSlug) ?? []),
+      ]),
+    ].filter(Boolean);
+    const dungeonImageBySlug: Record<string, string | null> = {};
+    if (dungeonSlugs.length > 0) {
+      const dungeonRows = await this.container.worker.prisma.dungeon.findMany({
+        where: { slug: { in: dungeonSlugs } },
+        select: { slug: true, metadata: true },
+      });
+      for (const row of dungeonRows) {
+        const tile = readDungeonTileUrlFromMetadata(row.metadata);
+        dungeonImageBySlug[row.slug] = tile;
+      }
+    }
+
     const enrichments = applyProfileWarnings(
       buildProfileEnrichments({
         character: characterDetail,
@@ -1475,6 +1493,7 @@ export class CharacterService {
         detailedRunCount: coverageCounts.detailedRunCount,
         runNamesById,
         wclUrlByRunId,
+        dungeonImageBySlug,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,

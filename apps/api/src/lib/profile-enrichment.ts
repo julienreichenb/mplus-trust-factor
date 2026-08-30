@@ -66,6 +66,8 @@ export interface CharacterEnrichmentInput {
   runNamesById?: Record<string, { dungeonName: string }>;
   /** Real WCL report URLs keyed by canonical run id — never fabricated. */
   wclUrlByRunId?: Record<string, string | null>;
+  /** Official Blizzard tile URLs keyed by dungeon slug — HTTPS only. */
+  dungeonImageBySlug?: Record<string, string | null>;
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
@@ -106,6 +108,7 @@ export function mapSelectedRunsFromCanonicalSelection(
   runNamesById?: Record<string, { dungeonName: string }>,
   performanceSummary?: PerformanceSummaryDTO | null,
   wclUrlByRunId?: Record<string, string | null>,
+  dungeonImageBySlug?: Record<string, string | null>,
 ): SelectedRunSummaryDTO[] {
   if (!scoringRunSelection) return [];
 
@@ -119,12 +122,17 @@ export function mapSelectedRunsFromCanonicalSelection(
       perfDungeon?.bestParsePercentile ?? perfDungeon?.bestRun?.parsePercentile ?? null;
     const wclUrl =
       runId != null ? sanitizeWarcraftLogsUrl(wclUrlByRunId?.[runId] ?? null) : null;
+    const dungeonImageUrl =
+      sanitizeHttpsUrl(entry.dungeonImageUrl) ??
+      sanitizeHttpsUrl(dungeonImageBySlug?.[entry.dungeonSlug] ?? null) ??
+      sanitizeHttpsUrl(perfDungeon?.dungeonImageUrl ?? null);
 
     return {
       runId,
       dungeonSlug: entry.dungeonSlug,
       dungeonName:
         runNamesById?.[runId ?? ""]?.dungeonName ?? entry.dungeonName ?? entry.dungeonSlug,
+      dungeonImageUrl,
       keyLevel: entry.keyLevel,
       completedAt: entry.completedAt,
       timed: entry.timed ?? false,
@@ -182,6 +190,25 @@ export function attachWclUrlsToPerformanceSummary(
   };
 }
 
+export function attachDungeonImagesToPerformanceSummary(
+  summary: PerformanceSummaryDTO | null | undefined,
+  dungeonImageBySlug: Record<string, string | null>,
+): PerformanceSummaryDTO | null {
+  if (!summary) return null;
+  return {
+    ...summary,
+    currentSeason: {
+      ...summary.currentSeason,
+      dungeons: summary.currentSeason.dungeons.map((dungeon) => ({
+        ...dungeon,
+        dungeonImageUrl:
+          sanitizeHttpsUrl(dungeon.dungeonImageUrl) ??
+          sanitizeHttpsUrl(dungeonImageBySlug[dungeon.dungeonSlug] ?? null),
+      })),
+    },
+  };
+}
+
 function sanitizeHttpsUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -192,6 +219,14 @@ function sanitizeHttpsUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/** Read official Blizzard tile URL from Dungeon.metadata.blizzard.tileUrl. */
+export function readDungeonTileUrlFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const blizzard = (metadata as Record<string, unknown>).blizzard;
+  if (!blizzard || typeof blizzard !== "object" || Array.isArray(blizzard)) return null;
+  return sanitizeHttpsUrl((blizzard as Record<string, unknown>).tileUrl);
 }
 
 function mapEquipmentItem(raw: unknown): EquipmentItemDTO | null {
@@ -488,6 +523,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     detailedRunCount = null,
     runNamesById = {},
     wclUrlByRunId = {},
+    dungeonImageBySlug = {},
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
@@ -551,7 +587,17 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
   }));
 
-  const canonicalScoringRunSelection = scoringRunSelection;
+  const canonicalScoringRunSelection = scoringRunSelection
+    ? {
+        ...scoringRunSelection,
+        selectedRuns: scoringRunSelection.selectedRuns.map((entry) => ({
+          ...entry,
+          dungeonImageUrl:
+            sanitizeHttpsUrl(entry.dungeonImageUrl) ??
+            sanitizeHttpsUrl(dungeonImageBySlug[entry.dungeonSlug] ?? null),
+        })),
+      }
+    : null;
 
   const selectedRuns = mapSelectedRunsFromCanonicalSelection(
     canonicalScoringRunSelection,
@@ -559,11 +605,12 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     runNamesById,
     performanceSummary,
     wclUrlByRunId,
+    dungeonImageBySlug,
   );
 
-  const performanceSummaryWithUrls = attachWclUrlsToPerformanceSummary(
-    performanceSummary,
-    wclUrlByRunId,
+  const performanceSummaryWithUrls = attachDungeonImagesToPerformanceSummary(
+    attachWclUrlsToPerformanceSummary(performanceSummary, wclUrlByRunId),
+    dungeonImageBySlug,
   );
 
   return {

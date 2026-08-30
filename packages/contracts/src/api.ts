@@ -140,6 +140,8 @@ export interface CharacterAutocompleteResponse {
 export interface SelectedRunSummary {
   dungeonSlug: string;
   dungeonName: string;
+  /** Official Blizzard journal-instance tile URL when known; otherwise null. */
+  dungeonImageUrl?: string | null;
   canonicalRunId: string | null;
   keyLevel: number | null;
   timed: boolean | null;
@@ -177,6 +179,8 @@ export interface SelectedRunSummaryDTO {
   runId: string | null;
   dungeonSlug: string;
   dungeonName: string;
+  /** Official Blizzard journal-instance tile URL when known; otherwise null. */
+  dungeonImageUrl?: string | null;
   keyLevel: number | null;
   completedAt: IsoDateTime | null;
   timed: boolean;
@@ -287,6 +291,8 @@ export interface PerformanceExplanatoryRunDTO {
 export interface PerformanceDungeonSummaryDTO {
   dungeonSlug: string;
   dungeonName: string;
+  /** Official Blizzard journal-instance tile URL when known; otherwise null. */
+  dungeonImageUrl?: string | null;
   encounterId?: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;

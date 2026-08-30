@@ -409,6 +409,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
         logger: container.logger,
         blizzardSeasonId: payload.blizzardSeasonId,
         warcraftlogs: container.providers.warcraftlogs,
+        blizzard: container.providers.blizzard,
         providerMode: container.env.PROVIDER_MODE,
       });
     },

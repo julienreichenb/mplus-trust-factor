@@ -16,6 +16,8 @@ import type {
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
+  BlizzardJournalInstanceDTO,
+  BlizzardJournalInstanceMediaDTO,
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
@@ -55,6 +57,37 @@ export function slugifyLabel(value: string | null | undefined): string | null {
     .replace(/['']/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/** Deterministic canonical dungeon slug from an official Blizzard display name. */
+export function canonicalDungeonSlug(value: string | null | undefined): string | null {
+  return slugifyLabel(value);
+}
+
+export function normalizeJournalInstance(payload: {
+  id: number;
+  name: string;
+}): BlizzardJournalInstanceDTO {
+  return {
+    journalInstanceId: payload.id,
+    name: payload.name,
+    slug: canonicalDungeonSlug(payload.name) ?? `journal-${payload.id}`,
+  };
+}
+
+export function normalizeJournalInstanceMedia(
+  journalInstanceId: number,
+  payload: { assets?: Array<{ key: string; value: string }> },
+): BlizzardJournalInstanceMediaDTO {
+  const assets = (payload.assets ?? [])
+    .map((a) => ({ key: a.key, url: sanitizeHttpsUrl(a.value) ?? "" }))
+    .filter((a) => a.url.length > 0);
+  const tile = assets.find((a) => a.key === "tile")?.url ?? null;
+  return {
+    journalInstanceId,
+    tileUrl: tile,
+    assets,
+  };
 }
 
 export function roleFromSpecType(type: string | null | undefined | { type?: string }): CanonicalCharacter["role"] {

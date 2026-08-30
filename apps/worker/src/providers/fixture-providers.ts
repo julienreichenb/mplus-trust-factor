@@ -7,6 +7,8 @@ import {
   type BlizzardCharacterMediaDTO,
   type BlizzardDungeonDTO,
   type BlizzardItemDTO,
+  type BlizzardJournalInstanceDTO,
+  type BlizzardJournalInstanceMediaDTO,
   type BlizzardMythicKeystoneProfileDTO,
   type BlizzardMythicLeaderboardDTO,
   type BlizzardProvider,
@@ -500,6 +502,42 @@ class FixtureBlizzardProvider implements BlizzardProvider {
       provenance: buildProvenance("blizzard", ctx.now),
       freshness: buildFreshness(ctx.now),
       metadata: buildMetadata("blizzard", "getMythicKeystoneDungeon", ctx.now),
+    };
+  }
+
+  async getJournalInstanceIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceDTO[]>> {
+    const data: BlizzardJournalInstanceDTO[] = DUNGEON_SLUGS.map((slug, index) => ({
+      journalInstanceId: 9000 + index,
+      name: slug
+        .split("-")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" "),
+      slug,
+    }));
+    return {
+      data,
+      provenance: buildProvenance("blizzard", ctx.now),
+      freshness: buildFreshness(ctx.now),
+      metadata: buildMetadata("blizzard", "getJournalInstanceIndex", ctx.now),
+    };
+  }
+
+  async getJournalInstanceMedia(
+    journalInstanceId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceMediaDTO>> {
+    const tileUrl = `https://render.worldofwarcraft.com/eu/zones/fixture-${journalInstanceId}-small.jpg`;
+    return {
+      data: {
+        journalInstanceId,
+        tileUrl,
+        assets: [{ key: "tile", url: tileUrl }],
+      },
+      provenance: buildProvenance("blizzard", ctx.now),
+      freshness: buildFreshness(ctx.now),
+      metadata: buildMetadata("blizzard", "getJournalInstanceMedia", ctx.now),
     };
   }
 

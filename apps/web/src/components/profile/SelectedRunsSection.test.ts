@@ -4,6 +4,62 @@ import SelectedRunsSection from "./SelectedRunsSection.vue";
 import { aleriaScoringRunSelection } from "../../api/mock/fixtures";
 
 describe("SelectedRunsSection affordance", () => {
+  it("uses provider-derived dungeonImageUrl for arbitrary slugs", () => {
+    const wrapper = mount(SelectedRunsSection, {
+      props: {
+        selection: {
+          seasonSlug: "season-future",
+          expectedDungeonCount: 1,
+          selectedRuns: [
+            {
+              dungeonSlug: "future-hollow-spire",
+              dungeonName: "Future Hollow Spire",
+              dungeonImageUrl: "https://render.worldofwarcraft.com/eu/zones/future-hollow-spire-small.jpg",
+              canonicalRunId: "run-1",
+              keyLevel: 12,
+              timed: true,
+              completedAt: "2026-08-30T00:00:00.000Z",
+              wclReportMatched: true,
+              selectionReason: "HIGHEST_KEY",
+              coverageRatio: 1,
+            },
+          ],
+        },
+      },
+    });
+    const art = wrapper.find(".run-card__art");
+    expect(art.attributes("style") ?? art.attributes("class")).toBeTruthy();
+    expect(wrapper.html()).toContain("--run-art");
+    expect(wrapper.html()).toContain("future-hollow-spire-small.jpg");
+  });
+
+  it("renders empty art state when dungeonImageUrl is null", () => {
+    const wrapper = mount(SelectedRunsSection, {
+      props: {
+        selection: {
+          seasonSlug: "season-future",
+          expectedDungeonCount: 1,
+          selectedRuns: [
+            {
+              dungeonSlug: "future-hollow-spire",
+              dungeonName: "Future Hollow Spire",
+              dungeonImageUrl: null,
+              canonicalRunId: "run-1",
+              keyLevel: 12,
+              timed: true,
+              completedAt: "2026-08-30T00:00:00.000Z",
+              wclReportMatched: false,
+              selectionReason: "HIGHEST_KEY",
+              coverageRatio: null,
+            },
+          ],
+        },
+      },
+    });
+    expect(wrapper.html()).toContain("run-card__art--empty");
+    expect(wrapper.html()).not.toContain("--run-art");
+  });
+
   it("renders the dungeon click hint and interactive cards", async () => {
     const wrapper = mount(SelectedRunsSection, {
       props: {
