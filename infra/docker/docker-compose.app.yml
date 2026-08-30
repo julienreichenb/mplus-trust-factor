@@ -138,6 +138,33 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # One-shot Ability Catalog source sync (SimC + Blizzard → pending classification).
+  # Never activates releases. Not part of normal app deploy.
+  #   docker compose -p <stack> -f docker-compose.app.yml -f docker-compose.<env>.yml \
+  #     --env-file <env> --profile catalog-sync run --rm catalog-sync
+  catalog-sync:
+    image: ghcr.io/${GHCR_OWNER}/mplus-catalog-sync:${IMAGE_TAG}
+    profiles: ["catalog-sync"]
+    env_file:
+      - ${ENV_FILE:?ENV_FILE must point to the environment .env}
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV}
+      APP_VERSION: ${IMAGE_TAG}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      ABILITY_CATALOG_SIMC_BIN: /usr/local/bin/simc
+      RAW_ARTIFACTS_DIR: /data/raw-artifacts
+    volumes:
+      - raw_artifacts:/data/raw-artifacts
+    networks:
+      - app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
   postgres:
     image: postgres:16-alpine
     restart: *default-restart

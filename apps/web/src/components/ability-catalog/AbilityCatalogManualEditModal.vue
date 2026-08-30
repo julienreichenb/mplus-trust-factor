@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import {
-  DRAFT_ABILITY_CATEGORIES,
-  DRAFT_AVAILABILITIES,
-  DRAFT_DIMENSION_TAGS,
-  DRAFT_SOURCE_OWNERSHIPS,
-} from "@mplus/abilities";
+import { DRAFT_ABILITY_CATEGORIES } from "@mplus/abilities";
 import { api } from "../../api/client";
 import type { ManualCatalogEditDetail } from "../../api/types";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../../integrations/wowhead/tooltips";
@@ -23,52 +18,12 @@ const emit = defineEmits<{
   saved: [];
 }>();
 
-interface DraftForm {
-  name: string;
-  spellIds: number[];
-  iconName: string | null;
-  classSlug: string;
-  specSlugsText: string;
-  raceSlugsText: string;
-  category: string;
-  dimensionTags: string[];
-  availability: string;
-  cooldownSeconds: string;
-  charges: string;
-  sourceOwnership: string;
-  notes: string;
-  validFromBuild: string;
-  validToBuild: string;
-  provenanceSource: string;
-}
-
 const loading = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const detail = ref<ManualCatalogEditDetail | null>(null);
 const draftVersion = ref<number | null>(null);
-const draftForm = ref<DraftForm>(emptyForm());
-
-function emptyForm(): DraftForm {
-  return {
-    name: "",
-    spellIds: [],
-    iconName: null,
-    classSlug: "",
-    specSlugsText: "",
-    raceSlugsText: "",
-    category: "",
-    dimensionTags: [],
-    availability: "",
-    cooldownSeconds: "",
-    charges: "",
-    sourceOwnership: "",
-    notes: "",
-    validFromBuild: "",
-    validToBuild: "",
-    provenanceSource: "",
-  };
-}
+const category = ref("");
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -86,65 +41,48 @@ function asNumberArray(value: unknown): number[] {
   return value.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 }
 
-function populateFormFromDraft(draft: unknown) {
+function populateBusinessFieldsFromDraft(draft: unknown) {
   const d = asRecord(draft);
-  const provenance = asRecord(d.provenance);
-  draftForm.value = {
-    name: String(d.name ?? ""),
-    spellIds: asNumberArray(d.spellIds),
-    iconName: typeof d.iconName === "string" ? d.iconName : null,
-    classSlug: String(d.classSlug ?? ""),
-    specSlugsText: asStringArray(d.specSlugs).join(", "),
-    raceSlugsText: asStringArray(d.raceSlugs).join(", "),
-    category: String(d.category ?? ""),
-    dimensionTags: asStringArray(d.dimensionTags),
-    availability: String(d.availability ?? ""),
-    cooldownSeconds: d.cooldownSeconds != null ? String(d.cooldownSeconds) : "",
-    charges: d.charges != null ? String(d.charges) : "",
-    sourceOwnership: String(d.sourceOwnership ?? ""),
-    notes: String(d.notes ?? ""),
-    validFromBuild: String(d.validFromBuild ?? d.validityBuild ?? ""),
-    validToBuild: String(d.validToBuild ?? provenance.validToBuild ?? ""),
-    provenanceSource: String(provenance.source ?? "CURATED_OVERRIDE"),
-  };
+  category.value = String(d.category ?? "");
 }
 
-function parseCsvStrings(text: string): string[] {
-  return text
-    .split(/[,;\s]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+function formatAvailabilityLabel(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "Unknown source availability";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
-function draftPayload(): Record<string, unknown> {
-  const bindings = asRecord(detail.value?.draft).bindings;
+const sourceFacts = computed(() => {
+  const draft = asRecord(detail.value?.draft);
+  const active = asRecord(detail.value?.activeRule);
+  const provenance = asRecord(draft.provenance ?? active.provenance);
+  const spellIds = asNumberArray(draft.spellIds).length
+    ? asNumberArray(draft.spellIds)
+    : asNumberArray(active.spellIds);
+  const cooldown = draft.cooldownSeconds ?? active.cooldownSeconds;
+  const charges = draft.charges ?? active.charges;
   return {
-    canonicalKey: props.canonicalKey,
-    name: draftForm.value.name.trim(),
-    spellIds: [...draftForm.value.spellIds],
-    bindings: Array.isArray(bindings) ? bindings : [],
-    iconName: draftForm.value.iconName,
-    classSlug: draftForm.value.classSlug || null,
-    specSlugs: parseCsvStrings(draftForm.value.specSlugsText),
-    raceSlugs: parseCsvStrings(draftForm.value.raceSlugsText),
-    category: draftForm.value.category || null,
-    dimensionTags: [...draftForm.value.dimensionTags],
-    availability: draftForm.value.availability || null,
-    cooldownSeconds: draftForm.value.cooldownSeconds ? Number(draftForm.value.cooldownSeconds) : null,
-    charges: draftForm.value.charges ? Number(draftForm.value.charges) : null,
-    sourceOwnership: draftForm.value.sourceOwnership || null,
-    notes: draftForm.value.notes || null,
-    validFromBuild: draftForm.value.validFromBuild || null,
-    validToBuild: draftForm.value.validToBuild || null,
-    provenance: {
-      source: draftForm.value.provenanceSource || "CURATED_OVERRIDE",
-      verifiedAt: new Date().toISOString(),
-      gameVersion: draftForm.value.validFromBuild || null,
-    },
+    name: String(draft.name ?? active.name ?? ""),
+    spellIds,
+    iconName: typeof draft.iconName === "string" ? draft.iconName : (active.iconName as string | null) ?? null,
+    classSlug: String(draft.classSlug ?? active.classSlug ?? "—"),
+    specSlugs: asStringArray(draft.specSlugs ?? active.specSlugs).join(", ") || "—",
+    raceSlugs: asStringArray(draft.raceSlugs ?? active.raceSlugs).join(", ") || "—",
+    cooldownSeconds: cooldown != null ? String(cooldown) : "—",
+    charges: charges != null ? String(charges) : "—",
+    sourceOwnership: String(draft.sourceOwnership ?? active.sourceOwnership ?? "—"),
+    validFromBuild: String(draft.validFromBuild ?? draft.validityBuild ?? provenance.validFromBuild ?? "—"),
+    validToBuild: String(draft.validToBuild ?? provenance.validToBuild ?? "—"),
+    provenanceSource: String(provenance.source ?? "—"),
+    dimensionTags: asStringArray(draft.dimensionTags),
+    availability: formatAvailabilityLabel(draft.availability ?? active.availability),
   };
-}
+});
 
-const primarySpellId = computed(() => draftForm.value.spellIds[0] ?? null);
+const primarySpellId = computed(() => sourceFacts.value.spellIds[0] ?? null);
 
 const aliasSpellIds = computed(() => {
   const active = asRecord(detail.value?.activeRule);
@@ -153,8 +91,8 @@ const aliasSpellIds = computed(() => {
 
 const spellIdRows = computed(() => {
   const primary = primarySpellId.value;
-  const abilityName = draftForm.value.name.trim();
-  return draftForm.value.spellIds.map((spellId) => {
+  const abilityName = sourceFacts.value.name.trim();
+  return sourceFacts.value.spellIds.map((spellId) => {
     const isPrimary = spellId === primary;
     const isAlias = aliasSpellIds.value.includes(spellId) && !isPrimary;
     const label = isPrimary && abilityName ? abilityName : isAlias ? `Alias spell ${spellId}` : `Spell ${spellId}`;
@@ -166,6 +104,12 @@ const spellIdRows = computed(() => {
     };
   });
 });
+
+function businessPayload(): { category: string | null } {
+  return {
+    category: category.value || null,
+  };
+}
 
 async function refreshTooltips(): Promise<void> {
   await nextTick();
@@ -181,7 +125,7 @@ async function loadDetail(): Promise<void> {
     detail.value = loaded;
     draftVersion.value = loaded.draftVersion;
     if (loaded.draft) {
-      populateFormFromDraft(loaded.draft);
+      populateBusinessFieldsFromDraft(loaded.draft);
     }
     await refreshTooltips();
   } catch (e) {
@@ -196,14 +140,14 @@ async function save(): Promise<void> {
   error.value = null;
   try {
     const body: {
-      draft: Record<string, unknown>;
+      draft: { category: string | null };
       expectedVersion?: number;
-    } = { draft: draftPayload() };
+    } = { draft: businessPayload() };
     if (draftVersion.value != null) body.expectedVersion = draftVersion.value;
     const saved = await api.saveManualCatalogEdit(props.canonicalKey, body);
     detail.value = saved;
     draftVersion.value = saved.draftVersion;
-    if (saved.draft) populateFormFromDraft(saved.draft);
+    if (saved.draft) populateBusinessFieldsFromDraft(saved.draft);
     emit("saved");
     emit("close");
   } catch (e) {
@@ -213,18 +157,11 @@ async function save(): Promise<void> {
   }
 }
 
-function toggleDimensionTag(tag: string): void {
-  const tags = new Set(draftForm.value.dimensionTags);
-  if (tags.has(tag)) tags.delete(tag);
-  else tags.add(tag);
-  draftForm.value.dimensionTags = [...tags];
-}
-
 watch(
   () => [props.open, props.canonicalKey] as const,
   ([open, key]) => {
     if (!open || !key) return;
-    draftForm.value = emptyForm();
+    category.value = "";
     detail.value = null;
     draftVersion.value = null;
     void loadWowheadTooltipScript().catch(() => {
@@ -241,7 +178,7 @@ watch(
       class="manual-edit-dialog"
       role="dialog"
       aria-modal="true"
-      :aria-label="`Edit ${draftForm.name || canonicalKey}`"
+      :aria-label="`Edit ${sourceFacts.name || canonicalKey}`"
     >
       <header class="manual-edit-header" data-testid="manual-edit-header">
         <a
@@ -251,13 +188,13 @@ watch(
           target="_blank"
           rel="noopener noreferrer"
           :data-wowhead="`spell=${primarySpellId}`"
-          :aria-label="`${draftForm.name || 'Spell'} on Wowhead`"
+          :aria-label="`${sourceFacts.name || 'Spell'} on Wowhead`"
           data-testid="manual-edit-header-icon"
         >
           <SpellWowIcon
-            :icon-name="draftForm.iconName"
+            :icon-name="sourceFacts.iconName"
             :spell-id="primarySpellId"
-            :alt="draftForm.name"
+            :alt="sourceFacts.name"
             :width="44"
             :height="44"
           />
@@ -265,14 +202,14 @@ watch(
         <SpellWowIcon
           v-else-if="primarySpellId"
           class="manual-edit-header__icon-static"
-          :icon-name="draftForm.iconName"
+          :icon-name="sourceFacts.iconName"
           :spell-id="primarySpellId"
-          :alt="draftForm.name"
+          :alt="sourceFacts.name"
           :width="44"
           :height="44"
         />
         <div class="manual-edit-header__text">
-          <h3 class="manual-edit-header__title">{{ draftForm.name || "Catalog rule" }}</h3>
+          <h3 class="manual-edit-header__title">{{ sourceFacts.name || "Catalog rule" }}</h3>
           <p class="manual-edit-header__slug mono" data-testid="manual-edit-slug">{{ canonicalKey }}</p>
         </div>
       </header>
@@ -281,148 +218,78 @@ watch(
       <p v-if="loading" class="muted">Loading rule…</p>
 
       <form v-else class="manual-edit-form" @submit.prevent="save">
-        <label>
-          Display name
-          <input v-model="draftForm.name" class="admin-control" type="text" required />
-        </label>
-
-        <div class="spell-id-field">
-          <span class="spell-id-field__label">Spell IDs</span>
-          <ul v-if="spellIdRows.length" class="spell-id-list" data-testid="manual-edit-spell-list">
-            <li v-for="row in spellIdRows" :key="row.spellId" class="spell-id-list__item">
-              <a
-                v-if="row.url"
-                class="spell-id-link"
-                :href="row.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                :data-wowhead="`spell=${row.spellId}`"
-                :aria-label="`${row.label} on Wowhead (opens in new tab)`"
-                data-testid="manual-edit-spell-link"
-              >
-                <SpellWowIcon
-                  class="spell-id-link__icon"
-                  :spell-id="row.spellId"
-                  :alt="row.label"
-                  :width="24"
-                  :height="24"
-                />
-                <span class="spell-id-link__label">{{ row.label }}</span>
-                <svg
-                  class="spell-id-link__external"
-                  viewBox="0 0 12 12"
-                  width="11"
-                  height="11"
-                  aria-hidden="true"
-                  focusable="false"
+        <section class="source-facts" aria-label="Source facts (read-only)">
+          <h4 class="section-title">Source facts</h4>
+          <p class="section-hint muted">WoW/provider data — not editable here.</p>
+          <dl class="source-facts__grid">
+            <div><dt>Name</dt><dd>{{ sourceFacts.name || "—" }}</dd></div>
+            <div><dt>Class</dt><dd>{{ sourceFacts.classSlug }}</dd></div>
+            <div><dt>Specs</dt><dd>{{ sourceFacts.specSlugs }}</dd></div>
+            <div><dt>Races</dt><dd>{{ sourceFacts.raceSlugs }}</dd></div>
+            <div><dt>Cooldown</dt><dd data-testid="manual-edit-cooldown-readonly">{{ sourceFacts.cooldownSeconds }}s</dd></div>
+            <div><dt>Charges</dt><dd>{{ sourceFacts.charges }}</dd></div>
+            <div><dt>Ownership</dt><dd>{{ sourceFacts.sourceOwnership }}</dd></div>
+            <div><dt>Valid from build</dt><dd>{{ sourceFacts.validFromBuild }}</dd></div>
+            <div><dt>Valid to build</dt><dd>{{ sourceFacts.validToBuild }}</dd></div>
+            <div><dt>Provenance</dt><dd>{{ sourceFacts.provenanceSource }}</dd></div>
+            <div class="source-facts__wide">
+              <dt>Compiled dimensions</dt>
+              <dd>{{ sourceFacts.dimensionTags.join(", ") || "—" }}</dd>
+            </div>
+          </dl>
+          <div class="spell-id-field">
+            <span class="spell-id-field__label">Spell IDs</span>
+            <ul v-if="spellIdRows.length" class="spell-id-list" data-testid="manual-edit-spell-list">
+              <li v-for="row in spellIdRows" :key="row.spellId" class="spell-id-list__item">
+                <a
+                  v-if="row.url"
+                  class="spell-id-link"
+                  :href="row.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :data-wowhead="`spell=${row.spellId}`"
+                  :aria-label="`${row.label} on Wowhead (opens in new tab)`"
+                  data-testid="manual-edit-spell-link"
                 >
-                  <path
-                    d="M3.5 2H10v6.5M10 2 2 10"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                  <SpellWowIcon
+                    class="spell-id-link__icon"
+                    :spell-id="row.spellId"
+                    :alt="row.label"
+                    :width="24"
+                    :height="24"
                   />
-                </svg>
-              </a>
-              <span v-else class="spell-id-link spell-id-link--static">
-                <SpellWowIcon
-                  class="spell-id-link__icon"
-                  :spell-id="row.spellId"
-                  :alt="row.label"
-                  :width="24"
-                  :height="24"
-                />
-                <span class="spell-id-link__label">{{ row.label }}</span>
-              </span>
-            </li>
-          </ul>
-          <p v-else class="muted spell-id-empty">No spell IDs on this rule.</p>
-        </div>
-
-        <label>
-          Class
-          <input v-model="draftForm.classSlug" class="admin-control" type="text" />
-        </label>
-        <label>
-          Specs (csv)
-          <input v-model="draftForm.specSlugsText" class="admin-control" type="text" />
-        </label>
-        <label>
-          Races (csv)
-          <input v-model="draftForm.raceSlugsText" class="admin-control" type="text" />
-        </label>
-        <label>
-          Category *
-          <select v-model="draftForm.category" class="admin-control" data-testid="manual-edit-category" required>
-            <option value="">—</option>
-            <option v-for="c in DRAFT_ABILITY_CATEGORIES" :key="c" :value="c">{{ c }}</option>
-          </select>
-        </label>
-        <fieldset class="tag-fieldset">
-          <legend>Dimensions</legend>
-          <div class="tag-fieldset__grid">
-            <label
-              v-for="tag in DRAFT_DIMENSION_TAGS"
-              :key="tag"
-              class="tag-toggle"
-              :class="{ 'tag-toggle--active': draftForm.dimensionTags.includes(tag) }"
-            >
-              <input
-                type="checkbox"
-                class="tag-toggle__input"
-                :checked="draftForm.dimensionTags.includes(tag)"
-                @change="toggleDimensionTag(tag)"
-              />
-              <span class="tag-toggle__label">{{ tag }}</span>
-            </label>
+                  <span class="spell-id-link__label">{{ row.label }}</span>
+                </a>
+                <span v-else class="spell-id-link spell-id-link--static">
+                  <SpellWowIcon
+                    class="spell-id-link__icon"
+                    :spell-id="row.spellId"
+                    :alt="row.label"
+                    :width="24"
+                    :height="24"
+                  />
+                  <span class="spell-id-link__label">{{ row.label }}</span>
+                </span>
+              </li>
+            </ul>
+            <p v-else class="muted spell-id-empty">No spell IDs on this rule.</p>
           </div>
-        </fieldset>
-        <label>
-          Availability
-          <select v-model="draftForm.availability" class="admin-control">
-            <option value="">—</option>
-            <option v-for="a in DRAFT_AVAILABILITIES" :key="a" :value="a">{{ a }}</option>
-          </select>
-        </label>
-        <label>
-          Cooldown (seconds)
-          <input
-            v-model="draftForm.cooldownSeconds"
-            class="admin-control"
-            type="number"
-            min="0"
-            data-testid="manual-edit-cooldown"
-          />
-        </label>
-        <label>
-          Charges
-          <input v-model="draftForm.charges" class="admin-control" type="number" min="0" />
-        </label>
-        <label>
-          Ownership
-          <select v-model="draftForm.sourceOwnership" class="admin-control">
-            <option value="">—</option>
-            <option v-for="o in DRAFT_SOURCE_OWNERSHIPS" :key="o" :value="o">{{ o }}</option>
-          </select>
-        </label>
-        <label>
-          Valid from build
-          <input v-model="draftForm.validFromBuild" class="admin-control" type="text" />
-        </label>
-        <label>
-          Valid to build
-          <input v-model="draftForm.validToBuild" class="admin-control" type="text" />
-        </label>
-        <label>
-          Provenance source
-          <input v-model="draftForm.provenanceSource" class="admin-control" type="text" />
-        </label>
-        <label>
-          Notes
-          <textarea v-model="draftForm.notes" class="admin-control" rows="3" />
-        </label>
+        </section>
+
+        <section class="business-metadata" aria-label="Trust Factor semantics">
+          <h4 class="section-title">Trust Factor semantics</h4>
+          <label>
+            Category *
+            <select v-model="category" class="admin-control" data-testid="manual-edit-category" required>
+              <option value="">—</option>
+              <option v-for="c in DRAFT_ABILITY_CATEGORIES" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </label>
+          <div class="source-availability" data-testid="manual-edit-availability">
+            <span class="source-availability__label">Availability</span>
+            <span class="source-availability__value">{{ sourceFacts.availability }}</span>
+          </div>
+        </section>
 
         <p
           v-if="detail?.draftValidation && !detail.draftValidation.readyForPublishReview"
@@ -510,6 +377,47 @@ watch(
   word-break: break-word;
 }
 
+.section-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.section-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+}
+
+.source-facts,
+.business-metadata {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-facts__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.source-facts__grid dt {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.source-facts__grid dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.9rem;
+}
+
+.source-facts__wide {
+  grid-column: 1 / -1;
+}
+
 .spell-id-field {
   display: grid;
   gap: 0.35rem;
@@ -565,16 +473,6 @@ watch(
   white-space: nowrap;
 }
 
-.spell-id-link__external {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.spell-id-link:hover .spell-id-link__external,
-.spell-id-link:focus-visible .spell-id-link__external {
-  color: var(--accent);
-}
-
 .spell-id-empty {
   margin: 0;
   font-size: 0.85rem;
@@ -597,39 +495,6 @@ watch(
   gap: 0.5rem;
   justify-content: flex-end;
   margin-top: 0.5rem;
-}
-
-.tag-fieldset {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-}
-
-.tag-fieldset__grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.tag-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 0.75rem;
-}
-
-.tag-toggle--active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.tag-toggle__input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
 }
 
 .mono {

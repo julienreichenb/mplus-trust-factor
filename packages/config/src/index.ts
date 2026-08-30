@@ -408,6 +408,31 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   return parsed.data;
 }
 
+/**
+ * Minimal env for Ability Catalog source-sync one-shot (CLI / catalog-sync container).
+ * Does not require REDIS_URL, ADMIN_API_KEY, or SESSION_SECRET.
+ */
+export const catalogSyncEnvSchema = z.object({
+  DATABASE_URL: z.string().min(1),
+  BLIZZARD_CLIENT_ID: z.string().min(1),
+  BLIZZARD_CLIENT_SECRET: z.string().min(1),
+  ABILITY_CATALOG_SIMC_BIN: z.string().optional(),
+  RAW_ARTIFACTS_DIR: z.string().default("./data/raw-artifacts"),
+});
+
+export type CatalogSyncEnv = z.infer<typeof catalogSyncEnvSchema>;
+
+export function loadCatalogSyncEnv(source: NodeJS.ProcessEnv = process.env): CatalogSyncEnv {
+  const parsed = catalogSyncEnvSchema.safeParse(source);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Invalid catalog-sync configuration: ${details}`);
+  }
+  return parsed.data;
+}
+
 export function getEnv(): AppEnv {
   if (!cachedEnv) {
     return loadEnv();

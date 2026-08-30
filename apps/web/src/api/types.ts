@@ -204,6 +204,7 @@ export interface AbilityCatalogReviewItemSummary {
   draftTopology: Record<string, unknown> | null;
   draftStatus: string | null;
   draftValidation: AbilityCatalogDraftValidation | null;
+  mplusRelevance?: "INCLUDED" | "EXCLUDED" | "UNCLASSIFIED";
   decisionEvents: AbilityCatalogReviewDecisionEvent[];
   wowheadUrl: string | null;
 }
@@ -294,15 +295,38 @@ export interface MplusApiClient {
     body: {
       expectedVersion: number;
       action: string;
-      draft?: Record<string, unknown>;
+      businessMetadata?: {
+        category?: string | null;
+        availability?: string | null;
+      };
       note?: string;
     },
     signal?: AbortSignal,
   ): Promise<AbilityCatalogReviewItemSummary>;
-  getAbilityCatalogReviewItem(
-    itemId: string,
+  listAbilityCatalogExclusions(signal?: AbortSignal): Promise<{
+    exclusions: Array<{
+      id: string;
+      stableAbilityIdentity: string;
+      canonicalKey: string | null;
+      primarySpellId: number | null;
+      excludedByUserId: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }>;
+  createAbilityCatalogExclusion(
+    body: { canonicalKey?: string; primarySpellId?: number; note?: string },
     signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
+  ): Promise<{
+    id: string;
+    stableAbilityIdentity: string;
+    canonicalKey: string | null;
+    primarySpellId: number | null;
+  }>;
+  clearAbilityCatalogExclusion(
+    body: { canonicalKey?: string; primarySpellId?: number; note?: string },
+    signal?: AbortSignal,
+  ): Promise<{ cleared: number }>;
   listAbilityCatalogReleases(signal?: AbortSignal): Promise<{
     releases: AbilityCatalogReleaseSummary[];
   }>;
@@ -312,19 +336,19 @@ export interface MplusApiClient {
     notice?: string;
   }>;
   getAbilityCatalogWorkflow(signal?: AbortSignal): Promise<Record<string, unknown>>;
-  refreshAbilityCatalog(signal?: AbortSignal): Promise<Record<string, unknown>>;
-  activateAbilityCatalogRelease(
-    releaseId: string,
-    body: {
-      confirmationDigest: string;
-      confirm: true;
-      expectedPreviousActiveId?: string | null;
-    },
+  getAbilityCatalogPublishStatus(signal?: AbortSignal): Promise<Record<string, unknown>>;
+  publishAbilityCatalogChanges(
+    body?: { expectedPreviousActiveId?: string | null; notes?: string },
     signal?: AbortSignal,
   ): Promise<{
-    release: AbilityCatalogReleaseSummary;
-    activation: { id: string };
-    notice?: string;
+    success: boolean;
+    stage: string;
+    message: string;
+    previousActive?: { id: string; releaseKey: string; contentDigest: string } | null;
+    newActive?: { id: string; releaseKey: string; contentDigest: string; activatedAt: string } | null;
+    candidateRelease?: { id: string; releaseKey: string; validationStatus: string | null } | null;
+    replay?: { id: string; status: string } | null;
+    errors?: string[];
   }>;
   rollbackAbilityCatalogRelease(
     releaseId: string,
@@ -340,36 +364,16 @@ export interface MplusApiClient {
     activation: { id: string };
     notice?: string;
   }>;
-  updateAbilityCatalogDraft(
-    itemId: string,
-    body: {
-      expectedVersion: number;
-      draft: Record<string, unknown>;
-      note?: string;
-    },
-    signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
-  ensureAbilityCatalogDraft(
-    itemId: string,
-    body?: { draft?: Record<string, unknown> },
-    signal?: AbortSignal,
-  ): Promise<AbilityCatalogReviewItemSummary>;
-  validateAbilityCatalogDraft(
-    itemId: string,
-    body?: { draft?: Record<string, unknown> },
-    signal?: AbortSignal,
-  ): Promise<{
-    itemId: string;
-    validation: AbilityCatalogDraftValidation;
-    draft: unknown | null;
-  }>;
   listManualCatalogEdits(signal?: AbortSignal): Promise<{ edits: ManualCatalogEditSummary[] }>;
   getManualCatalogEdit(canonicalKey: string, signal?: AbortSignal): Promise<ManualCatalogEditDetail>;
   saveManualCatalogEdit(
     canonicalKey: string,
     body: {
       expectedVersion?: number;
-      draft: Record<string, unknown>;
+      draft: {
+        category?: string | null;
+        availability?: string | null;
+      };
       note?: string;
     },
     signal?: AbortSignal,

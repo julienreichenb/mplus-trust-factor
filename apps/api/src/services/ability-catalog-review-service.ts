@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@mplus/database";
 import type {
+  AbilityBusinessMetadataPatch,
   AbilityCatalogDraftValidationDTO,
+  AbilityCatalogExclusionDTO,
   AbilityCatalogReviewBatchDTO,
   AbilityCatalogReviewItemDTO,
   DecideAbilityCatalogReviewItemRequest,
@@ -11,6 +13,7 @@ import {
   NEW_ABILITY_DECISIONS,
   REMOVAL_DECISIONS,
   TOPOLOGY_DECISIONS,
+  abilityCatalogExclusionMutationSchema,
   decideAbilityCatalogReviewItemRequestSchema,
   designateAbilityCatalogBaselineRequestSchema,
   firstZodIssueMessage,
@@ -19,20 +22,29 @@ import {
 } from "@mplus/contracts";
 import type { CatalogRefreshReport } from "@mplus/abilities";
 import {
+  applyBusinessMetadataToReviewDraft,
   buildReviewImportPlan,
   dimensionTagsForRule,
+  filterReviewImportItems,
   getAllRegisteredRules,
-  mergeCuratedDraftInput,
   prefillCuratedDraftDefaults,
   projectCurrentRuleBindings,
-  suggestCuratedCanonicalKey,
+  resolveMplusRelevance,
   validateCuratedDraftRule,
   wowheadSpellUrl,
   ABILITY_CATALOG_REVIEW_PLAN_SCHEMA_VERSION,
   type AbilityRule,
+  type CuratedDraftRuleInput,
+  type MplusRelevanceContext,
   type TopologyClassificationLike,
   type ReviewImportPlan,
 } from "@mplus/abilities";
+import {
+  clearAbilityCatalogExclusion,
+  loadMplusRelevanceContext,
+  toExclusionDto,
+  upsertAbilityCatalogExclusion,
+} from "./ability-catalog-mplus-context.js";
 import { createPostgresArtifactStore } from "@mplus/database";
 import type { ZodType } from "zod";
 import { HttpError } from "../errors.js";
@@ -163,6 +175,19 @@ export class AbilityCatalogReviewService {
         error instanceof Error ? error.message : "Invalid PINNED report",
       );
     }
+
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
+    const filteredItems = filterReviewImportItems(plan.items, mplusCtx);
+    plan = {
+      ...plan,
+      items: filteredItems,
+      summaryCounts: {
+        ...plan.summaryCounts,
+        newAbilityCandidates: filteredItems.filter((item) => item.kind === "NEW_ABILITY_CANDIDATE")
+          .length,
+        removalReviews: filteredItems.filter((item) => item.kind === "REMOVAL_REVIEW").length,
+      },
+    };
 
     const reviewPlanDigest = digestReviewPlan(plan);
     const identityKey = sourceIdentityKey(plan.simcRevision, plan.wowBuild);
@@ -448,10 +473,10 @@ export class AbilityCatalogReviewService {
     } else if (query.decisionState === "deferred") {
       where.decisionAction = "DEFER";
     } else if (query.decisionState === "rejected") {
-      where.decisionAction = { in: ["REJECT"] };
+      where.decisionAction = { in: ["REJECT", "EXCLUDE"] };
     } else if (query.decisionState === "accepted") {
       where.decisionAction = {
-        in: ["ACCEPT", "ACCEPT_PROPOSED", "KEEP_CURRENT", "CUSTOMIZE", "CONFIRM_REMOVAL"],
+        in: ["ACCEPT", "ACCEPT_PROPOSED", "KEEP_CURRENT", "CONFIRM_REMOVAL"],
       };
     } else if (query.decisionState === "decided") {
       where.decisionAction = { not: null };
@@ -477,8 +502,9 @@ export class AbilityCatalogReviewService {
 
     const total = filtered.length;
     const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
     return {
-      items: pageRows.map(toItemDto),
+      items: pageRows.map((row) => toItemDto(row, mplusCtx)),
       total,
       page,
       pageSize,
@@ -497,7 +523,62 @@ export class AbilityCatalogReviewService {
     if (!row) {
       throw HttpError.notFound("REVIEW_ITEM_NOT_FOUND", "Ability catalog review item was not found");
     }
-    return toItemDto(row);
+    const mplusCtx = await loadMplusRelevanceContext(this.prisma);
+    return toItemDto(row, mplusCtx);
+  }
+
+  async listExclusions(): Promise<AbilityCatalogExclusionDTO[]> {
+    const rows = await this.prisma.abilityCatalogExclusion.findMany({
+      orderBy: { updatedAt: "desc" },
+    });
+    return rows.map(toExclusionDto);
+  }
+
+  async createExclusion(
+    body: unknown,
+    audit: AbilityCatalogReviewAuditContext,
+  ): Promise<AbilityCatalogExclusionDTO> {
+    const input = parseBody(abilityCatalogExclusionMutationSchema, body);
+    const stableId = await this.prisma.$transaction(async (tx) =>
+      upsertAbilityCatalogExclusion(tx, {
+        canonicalKey: input.canonicalKey,
+        primarySpellId: input.primarySpellId,
+        userId: audit.userId ?? null,
+      }),
+    );
+    const row = await this.prisma.abilityCatalogExclusion.findUnique({
+      where: { stableAbilityIdentity: stableId },
+    });
+    if (!row) {
+      throw HttpError.internal("Failed to load persisted exclusion");
+    }
+    await this.audit("ability_catalog.exclusion.create", row.id, audit, {
+      stableAbilityIdentity: stableId,
+      canonicalKey: input.canonicalKey ?? null,
+      primarySpellId: input.primarySpellId ?? null,
+      note: input.note ?? null,
+    });
+    return toExclusionDto(row);
+  }
+
+  async clearExclusion(
+    body: unknown,
+    audit: AbilityCatalogReviewAuditContext,
+  ): Promise<{ cleared: number }> {
+    const input = parseBody(abilityCatalogExclusionMutationSchema, body);
+    const cleared = await this.prisma.$transaction(async (tx) =>
+      clearAbilityCatalogExclusion(tx, {
+        canonicalKey: input.canonicalKey,
+        primarySpellId: input.primarySpellId,
+      }),
+    );
+    await this.audit("ability_catalog.exclusion.clear", input.canonicalKey ?? String(input.primarySpellId), audit, {
+      canonicalKey: input.canonicalKey ?? null,
+      primarySpellId: input.primarySpellId ?? null,
+      cleared,
+      note: input.note ?? null,
+    });
+    return { cleared };
   }
 
   async decideItem(
@@ -562,7 +643,7 @@ export class AbilityCatalogReviewService {
             decisionAction: input.action,
             decisionNote: input.note ?? null,
             version: input.expectedVersion + 1,
-            draft: input.draft ?? null,
+            businessMetadata: input.businessMetadata ?? null,
           } as Prisma.InputJsonValue,
           note: input.note ?? null,
         },
@@ -594,7 +675,7 @@ export class AbilityCatalogReviewService {
     if (!item.draftRule) {
       throw HttpError.badRequest(
         "DRAFT_NOT_FOUND",
-        "No curated draft exists for this item; ACCEPT or CUSTOMIZE first",
+        "No curated draft exists for this item; ACCEPT first",
       );
     }
     if (item.draftRule.version !== input.expectedVersion) {
@@ -605,7 +686,7 @@ export class AbilityCatalogReviewService {
       );
     }
 
-    const draftInput = mergeDraftInput(item, input.draft);
+    const draftInput = composeReviewDraftInput(item, input.businessMetadata);
     const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
     const validation = validateCuratedDraftRule(draftInput, {
       existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
@@ -625,7 +706,6 @@ export class AbilityCatalogReviewService {
       "ACCEPT",
       "ACCEPT_PROPOSED",
       "KEEP_CURRENT",
-      "CUSTOMIZE",
       "CONFIRM_REMOVAL",
     ]);
     const reopenAccepted =
@@ -669,7 +749,7 @@ export class AbilityCatalogReviewService {
           previousState: previousState as Prisma.InputJsonValue,
           newState: {
             action: reopenAccepted ? "DRAFT_UPDATE_REOPEN" : "DRAFT_UPDATE",
-            draft: input.draft,
+            businessMetadata: input.businessMetadata,
             status: validation.status,
             version: input.expectedVersion + 1,
             decisionAction: reopenAccepted ? null : item.decisionAction,
@@ -720,11 +800,16 @@ export class AbilityCatalogReviewService {
       return this.getItem(itemId);
     }
 
-    const draftInput = mergeDraftInput(item, input.draft ?? {}, {
+    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
+    const reservedCanonicalKeys = new Set<string>([
+      ...getAllRegisteredRules().map((r) => r.canonicalKey),
+      ...otherDraftKeys,
+    ]);
+    const draftInput = composeReviewDraftInput(item, input.businessMetadata, {
       wowBuild: item.batch.wowBuild,
       generatedAt: item.batch.createdAt.toISOString(),
+      reservedCanonicalKeys,
     });
-    const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
     const validation = validateCuratedDraftRule(draftInput, {
       existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
       otherDraftCanonicalKeys: otherDraftKeys,
@@ -775,18 +860,19 @@ export class AbilityCatalogReviewService {
     if (!item) {
       throw HttpError.notFound("REVIEW_ITEM_NOT_FOUND", "Ability catalog review item was not found");
     }
-    const draftInput = input.draft
-      ? mergeDraftInput(item, input.draft, {
-          wowBuild: item.batch.wowBuild,
-          generatedAt: item.batch.createdAt.toISOString(),
-        })
-      : item.draftRule
-        ? draftRowToInput(item.draftRule)
-        : mergeDraftInput(item, {}, {
-            wowBuild: item.batch.wowBuild,
-            generatedAt: item.batch.createdAt.toISOString(),
-          });
     const otherDraftKeys = await loadOtherDraftCanonicalKeys(this.prisma, item.id);
+    const draftInput = composeReviewDraftInput(
+      item,
+      input.businessMetadata,
+      {
+        wowBuild: item.batch.wowBuild,
+        generatedAt: item.batch.createdAt.toISOString(),
+        reservedCanonicalKeys: new Set<string>([
+          ...getAllRegisteredRules().map((r) => r.canonicalKey),
+          ...otherDraftKeys,
+        ]),
+      },
+    );
     const validation = validateCuratedDraftRule(draftInput, {
       existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
       otherDraftCanonicalKeys: otherDraftKeys,
@@ -1029,62 +1115,51 @@ export class AbilityCatalogReviewService {
       specSlugs: Prisma.JsonValue;
       raceSlugs: Prisma.JsonValue;
       evidence: Prisma.JsonValue;
-      draftRule: { id: string; version: number } | null;
+      sourceProvenance: Prisma.JsonValue;
+      draftRule: {
+        id: string;
+        version: number;
+        canonicalKey: string | null;
+        name: string;
+        spellIds: Prisma.JsonValue;
+        bindings: Prisma.JsonValue;
+        iconName: string | null;
+        classSlug: string | null;
+        specSlugs: Prisma.JsonValue;
+        raceSlugs: Prisma.JsonValue;
+        category: string | null;
+        dimensionTags: Prisma.JsonValue;
+        availability: string | null;
+        cooldownSeconds: number | null;
+        charges: number | null;
+        sourceOwnership: string | null;
+        provenance: Prisma.JsonValue;
+        validityBuild: string | null;
+        notes: string | null;
+      } | null;
       draftTopology: { id: string; version: number } | null;
     },
     input: DecideAbilityCatalogReviewItemRequest,
     audit: AbilityCatalogReviewAuditContext,
   ): Promise<void> {
+    if (item.kind === "NEW_ABILITY_CANDIDATE" && input.action === "EXCLUDE") {
+      await upsertAbilityCatalogExclusion(tx, {
+        canonicalKey: item.matchedCanonicalKey,
+        primarySpellId: item.primarySpellId,
+        userId: audit.userId ?? null,
+      });
+      return;
+    }
+
     if (item.kind === "NEW_ABILITY_CANDIDATE" && input.action === "ACCEPT") {
-      const spellIds =
-        input.draft?.spellIds ??
-        (item.primarySpellId != null ? [item.primarySpellId] : []);
-      const bindings =
-        input.draft?.bindings ??
-        (item.primarySpellId != null
-          ? [{ spellId: item.primarySpellId, role: "PRIMARY_ACTIVATION" as const }]
-          : []);
-      const canonicalKey =
-        input.draft?.canonicalKey?.trim() ||
-        suggestCuratedCanonicalKey(
-          {
-            classSlug: input.draft?.classSlug ?? item.classSlug,
-            specSlugs: input.draft?.specSlugs ?? asStringArray(item.specSlugs),
-            raceSlugs: input.draft?.raceSlugs ?? asStringArray(item.raceSlugs),
-            name: input.draft?.name ?? item.name,
-            primarySpellId: item.primarySpellId,
-          },
-          {
-            reservedKeys: new Set(getAllRegisteredRules().map((rule) => rule.canonicalKey)),
-          },
-        );
-      const draftInput = {
-        canonicalKey,
-        name: input.draft?.name ?? item.name,
-        spellIds,
-        bindings,
-        iconName: input.draft?.iconName ?? null,
-        classSlug: input.draft?.classSlug ?? item.classSlug,
-        specSlugs: input.draft?.specSlugs ?? asStringArray(item.specSlugs),
-        raceSlugs: input.draft?.raceSlugs ?? asStringArray(item.raceSlugs),
-        category: (input.draft?.category ?? null) as never,
-        dimensionTags: (input.draft?.dimensionTags ?? []) as never,
-        availability: (input.draft?.availability ?? null) as never,
-        cooldownSeconds: input.draft?.cooldownSeconds ?? null,
-        charges: input.draft?.charges ?? null,
-        sourceOwnership: (input.draft?.sourceOwnership ?? null) as never,
-        provenance: {
-          source: input.draft?.provenance?.source ?? "ability_catalog_review",
-          verifiedAt: input.draft?.provenance?.verifiedAt ?? null,
-          gameVersion: input.draft?.provenance?.gameVersion ?? null,
-          ...(input.draft?.provenance?.notes ? { notes: input.draft.provenance.notes } : {}),
-        },
-        validityBuild: input.draft?.validFromBuild ?? null,
-        validFromBuild: input.draft?.validFromBuild ?? null,
-        validToBuild: input.draft?.validToBuild ?? null,
-        notes: input.draft?.notes ?? input.note ?? null,
-      };
       const otherDraftKeys = await loadOtherDraftCanonicalKeys(tx, item.id);
+      const reservedCanonicalKeys = new Set<string>([
+        ...getAllRegisteredRules().map((r) => r.canonicalKey),
+        ...otherDraftKeys,
+      ]);
+      const draftInput = composeReviewDraftInput(item, input.businessMetadata, {
+        reservedCanonicalKeys,
+      });
       const validation = validateCuratedDraftRule(draftInput, {
         existingCanonicalKeys: new Set(getAllRegisteredRules().map((r) => r.canonicalKey)),
         otherDraftCanonicalKeys: otherDraftKeys,
@@ -1135,6 +1210,8 @@ export class AbilityCatalogReviewService {
         return;
       }
 
+      if (input.action !== "ACCEPT_PROPOSED") return;
+
       const evidence = asRecord(item.evidence);
       const bindingChanges = Array.isArray(evidence.bindingChanges)
         ? (evidence.bindingChanges as Array<{
@@ -1143,38 +1220,32 @@ export class AbilityCatalogReviewService {
             candidateRoles?: string[];
           }>)
         : [];
-      let bindings: Array<{ spellId: number; role: string }> = [];
-      if (input.action === "ACCEPT_PROPOSED") {
-        for (const change of bindingChanges) {
-          for (const role of change.candidateRoles ?? []) {
-            bindings.push({ spellId: change.spellId, role });
-          }
+      const bindings: Array<{ spellId: number; role: string }> = [];
+      for (const change of bindingChanges) {
+        for (const role of change.candidateRoles ?? []) {
+          bindings.push({ spellId: change.spellId, role });
         }
-      } else if (input.action === "CUSTOMIZE") {
-        if (!input.draft?.bindings?.length) {
-          throw HttpError.badRequest(
-            "CUSTOMIZE_BINDINGS_REQUIRED",
-            "CUSTOMIZE requires draft.bindings",
-          );
-        }
-        bindings = input.draft.bindings;
       }
+      const catalogRule = resolveCatalogRuleByKey(item.matchedCanonicalKey);
+      const basePrefill = catalogRule
+        ? catalogRuleToCuratedDraftInput(catalogRule)
+        : reviewDraftPrefill(item);
       const spellIds = [...new Set(bindings.map((b) => b.spellId))];
-      const draftInput = {
-        canonicalKey: item.matchedCanonicalKey,
-        name: input.draft?.name ?? item.name,
-        spellIds: input.draft?.spellIds?.length ? input.draft.spellIds : spellIds,
-        bindings: bindings as never,
-        classSlug: input.draft?.classSlug ?? item.classSlug,
-        specSlugs: input.draft?.specSlugs ?? asStringArray(item.specSlugs),
-        raceSlugs: input.draft?.raceSlugs ?? asStringArray(item.raceSlugs),
-        notes: input.draft?.notes ?? input.note ?? null,
+      const withBindings: CuratedDraftRuleInput = {
+        ...basePrefill,
+        canonicalKey: item.matchedCanonicalKey ?? basePrefill.canonicalKey,
+        name: item.name,
+        spellIds: spellIds.length > 0 ? spellIds : basePrefill.spellIds,
+        bindings: bindings as CuratedDraftRuleInput["bindings"],
+        notes: input.note ?? basePrefill.notes ?? null,
       };
-      const validation = validateCuratedDraftRule(draftInput as never, {
+      const draftInput = input.businessMetadata
+        ? applyBusinessMetadataToReviewDraft(withBindings, input.businessMetadata)
+        : withBindings;
+      const validation = validateCuratedDraftRule(draftInput, {
         existingCanonicalKeys: new Set(), // binding drafts may reuse runtime keys
         otherDraftCanonicalKeys: new Set(),
       });
-      // Binding drafts intentionally keep matchedCanonicalKey; ignore collision against runtime.
       const status =
         validation.errors.filter((e) => e.code !== "CANONICAL_KEY_COLLISION").length > 0
           ? "NEEDS_METADATA"
@@ -1451,7 +1522,7 @@ function draftPersistData(
   };
 }
 
-function mergeDraftInput(
+function reviewDraftPrefill(
   item: {
     name: string;
     primarySpellId: number | null;
@@ -1481,25 +1552,70 @@ function mergeDraftInput(
       notes: string | null;
     } | null;
   },
-  patch: Record<string, unknown>,
-  context?: { wowBuild?: string | null; generatedAt?: string | null },
-) {
-  const base = item.draftRule
-    ? draftRowToInput(item.draftRule)
-    : prefillCuratedDraftDefaults({
-        name: item.name,
-        primarySpellId: item.primarySpellId,
-        matchedCanonicalKey: item.matchedCanonicalKey,
-        classSlug: item.classSlug,
-        specSlugs: asStringArray(item.specSlugs),
-        raceSlugs: asStringArray(item.raceSlugs),
-        evidence: asRecord(item.evidence ?? null),
-        sourceProvenance: asRecord(item.sourceProvenance ?? null),
-        wowBuild: context?.wowBuild ?? null,
-        generatedAt: context?.generatedAt ?? null,
-      });
+  context?: {
+    wowBuild?: string | null;
+    generatedAt?: string | null;
+    reservedCanonicalKeys?: ReadonlySet<string>;
+  },
+): CuratedDraftRuleInput {
+  if (item.draftRule) {
+    return draftRowToInput(item.draftRule);
+  }
+  return prefillCuratedDraftDefaults({
+    name: item.name,
+    primarySpellId: item.primarySpellId,
+    matchedCanonicalKey: item.matchedCanonicalKey,
+    classSlug: item.classSlug,
+    specSlugs: asStringArray(item.specSlugs),
+    raceSlugs: asStringArray(item.raceSlugs),
+    evidence: asRecord(item.evidence ?? null),
+    sourceProvenance: asRecord(item.sourceProvenance ?? null),
+    wowBuild: context?.wowBuild ?? null,
+    generatedAt: context?.generatedAt ?? null,
+    reservedCanonicalKeys: context?.reservedCanonicalKeys,
+  });
+}
 
-  return mergeCuratedDraftInput(base, patch, item.draftRule ? "update" : "create");
+function composeReviewDraftInput(
+  item: {
+    name: string;
+    primarySpellId: number | null;
+    matchedCanonicalKey: string | null;
+    classSlug: string | null;
+    specSlugs: Prisma.JsonValue;
+    raceSlugs: Prisma.JsonValue;
+    evidence?: Prisma.JsonValue;
+    sourceProvenance?: Prisma.JsonValue;
+    draftRule?: {
+      canonicalKey: string | null;
+      name: string;
+      spellIds: Prisma.JsonValue;
+      bindings: Prisma.JsonValue;
+      iconName: string | null;
+      classSlug: string | null;
+      specSlugs: Prisma.JsonValue;
+      raceSlugs: Prisma.JsonValue;
+      category: string | null;
+      dimensionTags: Prisma.JsonValue;
+      availability: string | null;
+      cooldownSeconds: number | null;
+      charges: number | null;
+      sourceOwnership: string | null;
+      provenance: Prisma.JsonValue;
+      validityBuild: string | null;
+      notes: string | null;
+    } | null;
+  },
+  businessMetadata?: AbilityBusinessMetadataPatch,
+  context?: {
+    wowBuild?: string | null;
+    generatedAt?: string | null;
+    reservedCanonicalKeys?: ReadonlySet<string>;
+  },
+): CuratedDraftRuleInput {
+  const prefill = reviewDraftPrefill(item, context);
+  if (!businessMetadata) return prefill;
+  return applyBusinessMetadataToReviewDraft(prefill, businessMetadata);
 }
 
 function draftRowToInput(row: {
@@ -1643,7 +1759,7 @@ function decisionCounts(
     } else {
       decided += 1;
       if (action === "DEFER") deferred += 1;
-      else if (action === "REJECT") rejected += 1;
+      else if (action === "REJECT" || action === "EXCLUDE") rejected += 1;
       else accepted += 1;
     }
     if (item.draftRule?.status === "NEEDS_METADATA") draftsNeedsMetadata += 1;
@@ -1752,7 +1868,7 @@ function toItemDto(row: {
     note: string | null;
     createdAt: Date;
   }>;
-}): AbilityCatalogReviewItemDTO {
+}, mplusCtx: MplusRelevanceContext): AbilityCatalogReviewItemDTO {
   const draftValidation = row.draftRule
     ? toValidationDto(
         validateCuratedDraftRule(draftRowToInput(row.draftRule), {
@@ -1760,6 +1876,11 @@ function toItemDto(row: {
         }),
       )
     : null;
+  const mplusRelevance = resolveMplusRelevance({
+    canonicalKey: row.matchedCanonicalKey,
+    primarySpellId: row.primarySpellId,
+    ...mplusCtx,
+  });
   return {
     id: row.id,
     batchId: row.batchId,
@@ -1784,6 +1905,7 @@ function toItemDto(row: {
     draftTopology: row.draftTopology ?? null,
     draftStatus: row.draftRule?.status ?? null,
     draftValidation,
+    mplusRelevance,
     decisionEvents: (row.decisionEvents ?? []).map((ev) => ({
       id: ev.id,
       actorUserId: ev.actorUserId,

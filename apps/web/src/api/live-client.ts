@@ -3,7 +3,6 @@ import type {
   AdminAbilityCatalogResponse,
   AdminRealmSyncResponse,
   AdminScoreModelDTO,
-  AbilityCatalogDraftValidation,
   AbilityCatalogReviewBatchSummary,
   AbilityCatalogReviewItemSummary,
   AbilityCatalogReleaseSummary,
@@ -286,9 +285,32 @@ export function createLiveApiClient(options: {
         signal,
       ),
 
-    getAbilityCatalogReviewItem: (itemId, signal) =>
-      get<AbilityCatalogReviewItemSummary>(
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}`,
+    listAbilityCatalogExclusions: (signal) =>
+      get<{
+        exclusions: Array<{
+          id: string;
+          stableAbilityIdentity: string;
+          canonicalKey: string | null;
+          primarySpellId: number | null;
+          excludedByUserId: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+      }>("/api/v1/admin/ability-catalog/exclusions", signal),
+
+    createAbilityCatalogExclusion: (body, signal) =>
+      send<{
+        id: string;
+        stableAbilityIdentity: string;
+        canonicalKey: string | null;
+        primarySpellId: number | null;
+      }>("POST", "/api/v1/admin/ability-catalog/exclusions", body, signal),
+
+    clearAbilityCatalogExclusion: (body, signal) =>
+      send<{ cleared: number }>(
+        "DELETE",
+        "/api/v1/admin/ability-catalog/exclusions",
+        body,
         signal,
       ),
 
@@ -308,20 +330,20 @@ export function createLiveApiClient(options: {
     getAbilityCatalogWorkflow: (signal) =>
       get<Record<string, unknown>>("/api/v1/admin/ability-catalog/workflow", signal),
 
-    refreshAbilityCatalog: (signal) =>
-      send<Record<string, unknown>>("POST", "/api/v1/admin/ability-catalog/refresh", {}, signal),
+    getAbilityCatalogPublishStatus: (signal) =>
+      get<Record<string, unknown>>("/api/v1/admin/ability-catalog/publish-status", signal),
 
-    activateAbilityCatalogRelease: (releaseId, body, signal) =>
+    publishAbilityCatalogChanges: (body, signal) =>
       send<{
-        release: AbilityCatalogReleaseSummary;
-        activation: { id: string };
-        notice?: string;
-      }>(
-        "POST",
-        `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/activate`,
-        body,
-        signal,
-      ),
+        success: boolean;
+        stage: string;
+        message: string;
+        previousActive?: { id: string; releaseKey: string; contentDigest: string } | null;
+        newActive?: { id: string; releaseKey: string; contentDigest: string; activatedAt: string } | null;
+        candidateRelease?: { id: string; releaseKey: string; validationStatus: string | null } | null;
+        replay?: { id: string; status: string } | null;
+        errors?: string[];
+      }>("POST", "/api/v1/admin/ability-catalog/publish", body ?? {}, signal),
 
     rollbackAbilityCatalogRelease: (releaseId, body, signal) =>
       send<{
@@ -332,34 +354,6 @@ export function createLiveApiClient(options: {
         "POST",
         `/api/v1/admin/ability-catalog/releases/${encodeURIComponent(releaseId)}/rollback`,
         body,
-        signal,
-      ),
-
-    updateAbilityCatalogDraft: (itemId, body, signal) =>
-      send<AbilityCatalogReviewItemSummary>(
-        "PATCH",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft`,
-        body,
-        signal,
-      ),
-
-    ensureAbilityCatalogDraft: (itemId, body, signal) =>
-      send<AbilityCatalogReviewItemSummary>(
-        "POST",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/ensure`,
-        body ?? {},
-        signal,
-      ),
-
-    validateAbilityCatalogDraft: (itemId, body, signal) =>
-      send<{
-        itemId: string;
-        validation: AbilityCatalogDraftValidation;
-        draft: unknown | null;
-      }>(
-        "POST",
-        `/api/v1/admin/ability-catalog/review/items/${encodeURIComponent(itemId)}/draft/validate`,
-        body ?? {},
         signal,
       ),
 

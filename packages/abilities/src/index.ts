@@ -259,6 +259,16 @@ export {
   type AbilityCatalogReviewItemKind,
 } from "./refresh/review/import-plan.js";
 export {
+  MPLUS_RELEVANCE_STATES,
+  stableAbilityIdentity,
+  resolveMplusRelevance,
+  filterReviewImportItems,
+  collectStableIdentities,
+  type MplusRelevance,
+  type MplusRelevanceContext,
+  type StableAbilityIdentityInput,
+} from "./refresh/mplus-relevance.js";
+export {
   prefillCuratedDraftDefaults,
   mergeCuratedDraftInput,
   candidateEvidenceFromDiffEntry,
@@ -270,6 +280,13 @@ export {
   type DraftPrefillMergeMode,
   type CatalogDiffCandidateMetadata,
 } from "./refresh/review/draft-prefill.js";
+export {
+  applyBusinessMetadataToCuratedDraft,
+  applyBusinessMetadataToReviewDraft,
+  dimensionTagsForBusinessMetadataEdit,
+  dimensionTagsForReviewDraftEdit,
+  type AbilityBusinessMetadataPatch,
+} from "./refresh/review/business-metadata.js";
 export {
   validateCuratedDraftRule,
   DRAFT_ABILITY_CATEGORIES,

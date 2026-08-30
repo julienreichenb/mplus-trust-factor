@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
- * Minimal ability-catalog release activation UI (Phase 3B.5).
- * EXPLICIT ACTIVATION != production cutover.
+ * Ability catalog release history — rollback only.
+ * Normal publication uses POST /api/v1/admin/ability-catalog/publish.
  */
 import { onMounted, ref } from "vue";
 import { api } from "../api/client";
-import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 
 type ReleaseRow = {
@@ -33,8 +32,6 @@ const releases = ref<ReleaseRow[]>([]);
 const limitations = ref<{ racialReplayCoverage?: string; trustReplay?: string }>({});
 const rollbackReason = ref("");
 const busyId = ref<string | null>(null);
-const activateTarget = ref<ReleaseRow | null>(null);
-const showActivateConfirm = ref(false);
 
 async function refresh(): Promise<void> {
   loading.value = true;
@@ -52,47 +49,6 @@ async function refresh(): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
-  }
-}
-
-function requestActivate(row: ReleaseRow): void {
-  error.value = null;
-  success.value = null;
-  activateTarget.value = row;
-  showActivateConfirm.value = true;
-}
-
-function cancelActivate(): void {
-  showActivateConfirm.value = false;
-  activateTarget.value = null;
-}
-
-async function confirmActivate(): Promise<void> {
-  const row = activateTarget.value;
-  if (!row) return;
-  busyId.value = row.id;
-  error.value = null;
-  success.value = null;
-  try {
-    // Backend integrity assertion: confirmationDigest must equal release.contentDigest.
-    // UI already holds the release object being confirmed — send that digest exactly.
-    await api.activateAbilityCatalogRelease(row.id, {
-      confirmationDigest: row.contentDigest,
-      confirm: true,
-      expectedPreviousActiveId: active.value?.id ?? null,
-    });
-    showActivateConfirm.value = false;
-    activateTarget.value = null;
-    await refresh();
-    success.value = `Activated ${row.releaseKey}. New analyses pin this release.`;
-  } catch (err) {
-    if (err instanceof ApiClientError) {
-      error.value = err.message;
-    } else {
-      error.value = err instanceof Error ? err.message : String(err);
-    }
-  } finally {
-    busyId.value = null;
   }
 }
 
@@ -140,10 +96,10 @@ onMounted(() => {
     data-testid="ability-catalog-releases-page"
   >
     <header v-if="!props.embedded" class="releases-page__header">
-      <h1>Ability catalog releases</h1>
+      <h1>Catalog history</h1>
       <p class="lede">
-        Activate or rollback immutable catalog releases. New analyses immediately pin the ACTIVE
-        release — no env change or restart required.
+        Release history and emergency rollback. Normal publication happens from the Catalog tab via
+        Publish changes.
       </p>
     </header>
 
@@ -188,69 +144,17 @@ onMounted(() => {
           <div class="actions">
             <button
               type="button"
-              class="btn primary"
-              data-testid="activate-release"
-              :disabled="busyId === row.id || row.status === 'ACTIVE'"
-              @click="requestActivate(row)"
-            >
-              Activate
-            </button>
-            <button
-              type="button"
               class="btn"
               data-testid="rollback-release"
               :disabled="busyId === row.id || row.status === 'ACTIVE'"
               @click="rollback(row)"
             >
-              Rollback / re-activate
+              Rollback
             </button>
           </div>
         </li>
       </ul>
     </section>
-
-    <div
-      v-if="showActivateConfirm && activateTarget"
-      class="modal-backdrop"
-      data-testid="activate-confirm-modal"
-      role="presentation"
-      @click.self="cancelActivate"
-    >
-      <div
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="activate-catalog-title"
-      >
-        <h2 id="activate-catalog-title">Activate release?</h2>
-        <p>
-          Release:
-          <code data-testid="activate-confirm-key">{{ activateTarget.releaseKey }}</code>
-        </p>
-        <p class="mono" data-testid="activate-confirm-digest">
-          Digest:
-          {{ activateTarget.contentDigest }}
-        </p>
-        <p class="muted">
-          This will make this release authoritative for all NEW analyses. Already-enqueued jobs keep
-          their existing pin.
-        </p>
-        <div class="modal__actions">
-          <button type="button" class="btn ghost" :disabled="busyId != null" @click="cancelActivate">
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn primary"
-            data-testid="activate-confirm-submit"
-            :disabled="busyId != null"
-            @click="confirmActivate"
-          >
-            Activate
-          </button>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 

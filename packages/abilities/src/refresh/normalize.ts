@@ -2,6 +2,10 @@ import { normalizeRetailClassSlug } from "../catalog/classes-matrix.js";
 import { normalizeRaceSlug } from "../race.js";
 import { assessCatalogEligibility } from "./eligibility.js";
 import { dedupeBindings } from "./bindings.js";
+import {
+  deriveAvailabilityFromSimcMembership,
+  mergeSimcMembership,
+} from "./extract/simc-availability.js";
 import type {
   CatalogRelevance,
   ExternalAbilityCandidate,
@@ -110,6 +114,11 @@ export function normalizeRecord(
     notes: [],
   });
 
+  const simcMembership = record.simcMembership;
+  const availability = simcMembership
+    ? deriveAvailabilityFromSimcMembership(simcMembership, eligibility.ownershipKind)
+    : null;
+
   return {
     candidateKey: candidateKeyFor(record, classSlug),
     name: record.name,
@@ -129,6 +138,8 @@ export function normalizeRecord(
     validFromBuild: snapshot.identity.validFromBuild,
     validToBuild: snapshot.identity.validToBuild,
     notes: [...(record.notes ?? [])],
+    simcMembership,
+    availability,
     ...eligibility,
   };
 }
@@ -153,13 +164,14 @@ export function mergeCandidates(candidates: ExternalAbilityCandidate[]): Externa
         ? "conflicting"
         : existing.certainty;
     const classSlug = existing.classSlug ?? c.classSlug;
-    const catalogRelevance =
+    const catalogRelevance: CatalogRelevance =
       existing.catalogRelevance === "ACTIVE_CANDIDATE" || c.catalogRelevance === "ACTIVE_CANDIDATE"
         ? "ACTIVE_CANDIDATE"
         : existing.catalogRelevance === "PASSIVE_DISCOVERED" || c.catalogRelevance === "PASSIVE_DISCOVERED"
           ? "PASSIVE_DISCOVERED"
           : existing.catalogRelevance;
-    bySpell.set(c.primarySpellId, {
+    const simcMembership = mergeSimcMembership(existing.simcMembership, c.simcMembership);
+    const mergedBase: ExternalAbilityCandidate = {
       ...existing,
       candidateKey: classSlug ? existing.candidateKey.replace(/^shared\./, `${classSlug}.`) : existing.candidateKey,
       classSlug,
@@ -174,12 +186,17 @@ export function mergeCandidates(candidates: ExternalAbilityCandidate[]): Externa
       charges: existing.charges ?? c.charges,
       stacks: existing.stacks ?? c.stacks,
       isPassive: existing.isPassive ?? c.isPassive,
+      simcMembership,
       eligibilityState: existing.eligibilityState,
       eligibilityReasons: existing.eligibilityReasons,
       ownershipKind: existing.ownershipKind,
+    };
+    const assessed = assessCatalogEligibility(mergedBase);
+    bySpell.set(c.primarySpellId, {
+      ...mergedBase,
+      ...assessed,
+      availability: deriveAvailabilityFromSimcMembership(simcMembership, assessed.ownershipKind),
     });
-    const merged = bySpell.get(c.primarySpellId)!;
-    bySpell.set(c.primarySpellId, { ...merged, ...assessCatalogEligibility(merged) });
   }
   return [...bySpell.values()].sort((a, b) => a.candidateKey.localeCompare(b.candidateKey));
 }

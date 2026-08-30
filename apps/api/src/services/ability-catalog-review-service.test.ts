@@ -104,6 +104,13 @@ function minimalPinnedReport(overrides: Partial<CatalogRefreshReport> = {}): Cat
           raceSlugs: [],
           cooldownSeconds: 120,
           ownershipKind: "PLAYABLE_PLAYER",
+          simcMembership: {
+            classSpell: true,
+            specSpell: true,
+            raceSpell: false,
+            talentSpell: false,
+          },
+          availability: "BASELINE",
           validFromBuild: "69299",
           candidateBindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
           sourceObservations: [
@@ -481,15 +488,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         {
           expectedVersion: ve.version,
           action: "ACCEPT",
-          draft: {
-            canonicalKey: `priest.defensive-minor.vampiric-embrace-${randomUUID().slice(0, 8)}`,
-            name: "Vampiric Embrace",
-            spellIds: [15286],
-            bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-            classSlug: "priest",
-            specSlugs: ["shadow"],
-            availability: "TALENT",
-          },
         },
         audit,
       ),
@@ -498,28 +496,13 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       message: expect.stringMatching(/Category is required/),
     });
 
-    const key = `priest.defensive-minor.vampiric-embrace-${randomUUID().slice(0, 8)}`;
     const accepted = await service.decideItem(
       ve.id,
       {
         expectedVersion: ve.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
-          cooldownSeconds: 120,
-          availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -553,22 +536,8 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       {
         expectedVersion: rejected.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
-          cooldownSeconds: 120,
-          availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -642,7 +611,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
     const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
       (i) => i.primarySpellId === 15286,
     )!;
-    const key = `priest.defensive-minor.ve-${randomUUID().slice(0, 8)}`;
     const ensured = await service.ensureDraft(ve.id, {}, audit);
     expect(ensured.decisionAction).toBeNull();
     expect(ensured.draftRule).toBeTruthy();
@@ -653,7 +621,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       sourceOwnership?: string | null;
       provenance?: { source?: string };
     };
-    expect(ensuredDraft.canonicalKey).toBe("priest.shadow.vampiric-embrace");
+    expect(ensuredDraft.canonicalKey).toBe("priest.shadow.vampiric-embrace-15286");
     expect(ensuredDraft.cooldownSeconds).toBe(120);
     expect(ensuredDraft.sourceOwnership).toBe("PLAYER");
     expect(ensuredDraft.provenance?.source).toBe("SIMC_ADVISORY");
@@ -663,52 +631,22 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       ve.id,
       {
         expectedVersion: draft.version,
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          dimensionTags: ["SURVIVAL_RECOVERY"],
-          availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          cooldownSeconds: 120,
-          validFromBuild: "69299",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
     );
     expect(ready.draftStatus).toBe("READY_FOR_PUBLISH_REVIEW");
+    expect((ready.draftRule as { availability?: string }).availability).toBe("BASELINE");
 
     const accepted = await service.decideItem(
       ve.id,
       {
         expectedVersion: ready.version,
         action: "ACCEPT",
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: "DEFENSIVE_MINOR",
-          dimensionTags: ["SURVIVAL_RECOVERY"],
-          availability: "TALENT",
-          sourceOwnership: "PLAYER",
-          cooldownSeconds: 120,
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
@@ -720,26 +658,15 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       ve.id,
       {
         expectedVersion: readyDraft.version,
-        draft: {
-          canonicalKey: key,
-          name: "Vampiric Embrace",
-          spellIds: [15286],
-          bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          classSlug: "priest",
-          specSlugs: ["shadow"],
+        businessMetadata: {
           category: null,
-          availability: "TALENT",
-          provenance: {
-            source: "CURATED_OVERRIDE",
-            verifiedAt: "2026-08-16T20:00:00.000Z",
-            gameVersion: "12.0.0",
-          },
         },
       },
       audit,
     );
     expect(reopened.decisionAction).toBeNull();
     expect(reopened.draftStatus).toBe("NEEDS_METADATA");
+    expect((reopened.draftRule as { availability?: string }).availability).toBe("BASELINE");
     expect(
       reopened.decisionEvents.some(
         (e) => (e.newState as { action?: string }).action === "DRAFT_UPDATE_REOPEN",
@@ -751,11 +678,7 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
         ve.id,
         {
           expectedVersion: draft.version,
-          draft: {
-            name: "stale",
-            spellIds: [15286],
-            bindings: [{ spellId: 15286, role: "PRIMARY_ACTIVATION" }],
-          },
+          businessMetadata: { category: "DEFENSIVE_MINOR" },
         },
         audit,
       ),
@@ -868,12 +791,6 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       {
         expectedVersion: binding.version,
         action: "KEEP_CURRENT",
-        draft: {
-          category: null,
-          availability: null,
-          dimensionTags: [],
-          name: "Wrong external name",
-        },
       },
       audit,
     );
@@ -982,6 +899,114 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
     ).rejects.toMatchObject({ code: "KEEP_CURRENT_NO_CATALOG_RULE" });
   });
 
+  it("rejects admin attempts to submit source-owned review fields", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (i) => i.primarySpellId === 15286,
+    )!;
+
+    await expect(
+      service.decideItem(
+        ve.id,
+        {
+          expectedVersion: ve.version,
+          action: "ACCEPT",
+          businessMetadata: { category: "DEFENSIVE_MINOR", cooldownSeconds: 1 } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await service.ensureDraft(ve.id, {}, {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    });
+    const withDraft = await service.getItem(ve.id);
+    const draftVersion = (withDraft.draftRule as { version: number }).version;
+
+    await expect(
+      service.updateDraft(
+        ve.id,
+        {
+          expectedVersion: draftVersion,
+          businessMetadata: { category: "DEFENSIVE_MINOR", spellIds: [1] } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(
+      service.updateDraft(
+        ve.id,
+        {
+          expectedVersion: draftVersion,
+          businessMetadata: { category: "DEFENSIVE_MINOR", availability: "TALENT" } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(
+      service.validateDraft(ve.id, {
+        businessMetadata: { category: "DEFENSIVE_MINOR", bindings: [] } as never,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects removed CUSTOMIZE binding decision", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const binding = (await service.listItems(batch.id, { kind: "SPELL_BINDING_REVIEW" })).items[0]!;
+
+    await expect(
+      service.decideItem(
+        binding.id,
+        { expectedVersion: binding.version, action: "CUSTOMIZE" },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_DECISION_ACTION" });
+  });
+
   it("requires admin authorization on decide route", async () => {
     const res = await app!.inject({
       method: "POST",
@@ -989,5 +1014,184 @@ describe.skipIf(!dbAvailable)("ability catalog review curation", () => {
       payload: { expectedVersion: 1, action: "DEFER" },
     });
     expect(res.statusCode).toBeGreaterThanOrEqual(401);
+  });
+
+  it("marks new discoveries UNCLASSIFIED and durable EXCLUDE survives refresh", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const stamp = uniqueName("exclude-refresh");
+    const report = minimalPinnedReport({
+      snapshots: [
+        {
+          source: "SIMULATIONCRAFT",
+          datasetKind: "PINNED",
+          sourceVersion: "spellquery-export-0.1.0",
+          sourceRevision: `simc-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          validFromBuild: `69299-${stamp}`,
+          captureProvenance: "REAL_CAPTURE",
+        },
+        {
+          source: "BLIZZARD",
+          datasetKind: "PINNED",
+          sourceVersion: "wow-game-data",
+          sourceRevision: `69299-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          blizzardNamespace: "static-eu",
+          captureProvenance: "REAL_CAPTURE",
+        },
+      ],
+    });
+    const audit = {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    };
+    const first = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}"}`),
+      },
+      audit,
+    );
+    const ve = (await service.listItems(first.batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+    expect(ve.mplusRelevance).toBe("UNCLASSIFIED");
+
+    const excluded = await service.decideItem(
+      ve.id,
+      { expectedVersion: ve.version, action: "EXCLUDE", note: "not for mplus" },
+      audit,
+    );
+    expect(excluded.decisionAction).toBe("EXCLUDE");
+    expect(excluded.mplusRelevance).toBe("EXCLUDED");
+
+    const second = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}-2"}`),
+      },
+      audit,
+    );
+    expect(second.created).toBe(true);
+    const rediscovered = (await service.listItems(second.batch.id, { kind: "NEW_ABILITY_CANDIDATE" }))
+      .items;
+    expect(rediscovered.some((item) => item.primarySpellId === 15286)).toBe(false);
+
+    const exclusions = await service.listExclusions();
+    expect(
+      exclusions.some(
+        (row) => row.primarySpellId === 15286 || row.stableAbilityIdentity === "spell:15286",
+      ),
+    ).toBe(true);
+
+    const cleared = await service.clearExclusion({ primarySpellId: 15286 }, audit);
+    expect(cleared.cleared).toBeGreaterThan(0);
+
+    const third = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}-3"}`),
+      },
+      audit,
+    );
+    const back = (await service.listItems(third.batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    );
+    expect(back?.mplusRelevance).toBe("UNCLASSIFIED");
+  });
+
+  it("DEFER keeps candidate UNCLASSIFIED without durable exclusion", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const stamp = uniqueName("defer");
+    const report = minimalPinnedReport({
+      snapshots: [
+        {
+          source: "SIMULATIONCRAFT",
+          datasetKind: "PINNED",
+          sourceVersion: "spellquery-export-0.1.0",
+          sourceRevision: `simc-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          validFromBuild: `69299-${stamp}`,
+          captureProvenance: "REAL_CAPTURE",
+        },
+        {
+          source: "BLIZZARD",
+          datasetKind: "PINNED",
+          sourceVersion: "wow-game-data",
+          sourceRevision: `69299-${stamp}`,
+          retrievedAt: "2026-08-16T18:00:00.000Z",
+          blizzardNamespace: "static-eu",
+          captureProvenance: "REAL_CAPTURE",
+        },
+      ],
+    });
+    const audit = {
+      actorType: "admin_key" as const,
+      sessionSecret: container.env.SESSION_SECRET,
+      userId: null,
+    };
+    const { batch } = await service.importPinnedReport(
+      {
+        report,
+        reportBytes: Buffer.from(JSON.stringify(report)),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+        simcBytes: Buffer.from(`{"simc":"${stamp}"}`),
+      },
+      audit,
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+    const deferred = await service.decideItem(
+      ve.id,
+      { expectedVersion: ve.version, action: "DEFER" },
+      audit,
+    );
+    expect(deferred.decisionAction).toBe("DEFER");
+    expect(deferred.mplusRelevance).toBe("UNCLASSIFIED");
+    const exclusions = await service.listExclusions();
+    expect(exclusions.some((row) => row.primarySpellId === 15286)).toBe(false);
+  });
+
+  it("rejects source-owned fields on EXCLUDE decisions", async () => {
+    const service = new AbilityCatalogReviewService(prisma);
+    const { batch } = await service.importPinnedReport(
+      {
+        report: minimalPinnedReport(),
+        reportBytes: Buffer.from(JSON.stringify(minimalPinnedReport())),
+        topologyClassification: { races: [{ key: "haranir", kind: "EXTERNAL_ONLY" }] },
+      },
+      {
+        actorType: "admin_key" as const,
+        sessionSecret: container.env.SESSION_SECRET,
+        userId: null,
+      },
+    );
+    const ve = (await service.listItems(batch.id, { kind: "NEW_ABILITY_CANDIDATE" })).items.find(
+      (item) => item.primarySpellId === 15286,
+    )!;
+
+    await expect(
+      service.decideItem(
+        ve.id,
+        {
+          expectedVersion: ve.version,
+          action: "EXCLUDE",
+          businessMetadata: { cooldownSeconds: 1 } as never,
+        },
+        {
+          actorType: "admin_key" as const,
+          sessionSecret: container.env.SESSION_SECRET,
+          userId: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });

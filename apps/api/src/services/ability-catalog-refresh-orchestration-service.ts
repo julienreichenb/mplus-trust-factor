@@ -1,5 +1,6 @@
 /**
- * Admin catalog refresh orchestration — existing extract/diff/import building blocks.
+ * Admin catalog refresh orchestration — SimC + Blizzard → review import.
+ * Shared by catalog-sync CLI and (dev-only) API refresh.
  */
 
 import { getRegionConfig, BlizzardTokenManager, resolveRegionKey } from "@mplus/provider-blizzard";
@@ -9,7 +10,6 @@ import {
   type RunAdminPinnedCatalogRefreshResult,
 } from "@mplus/abilities/refresh/admin";
 import type { SimcSpellQueryExport } from "@mplus/abilities";
-import type { AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
 import { createPostgresArtifactStore } from "@mplus/database";
 import { HttpError } from "../errors.js";
@@ -18,12 +18,19 @@ import {
   type AbilityCatalogReviewAuditContext,
 } from "./ability-catalog-review-service.js";
 
+/** Env fields actually read by source sync (full AppEnv not required). */
+export type CatalogSyncRuntimeEnv = {
+  ABILITY_CATALOG_SIMC_BIN?: string;
+  BLIZZARD_CLIENT_ID?: string;
+  BLIZZARD_CLIENT_SECRET?: string;
+};
+
 export class AbilityCatalogRefreshOrchestrationService {
   private readonly review: AbilityCatalogReviewService;
 
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly env: AppEnv,
+    private readonly env: CatalogSyncRuntimeEnv,
   ) {
     this.review = new AbilityCatalogReviewService(prisma);
   }

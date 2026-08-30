@@ -52,6 +52,7 @@ describe("SpellQuery XML parser", () => {
     expect(parseSpellQueryXml(SPELLQUERY_RACE_SPELL_XML).some((s) => s.isPassive === true)).toBe(true);
     expect(simcArgsForQuery("class_spell", "out.xml")[0]).toBe("ptr=0");
     expect(simcArgsForQuery("class_spell", "out.xml").some((a) => /^ptr=1$/i.test(a))).toBe(false);
+    expect(simcArgsForQuery("class_spell", "out.xml").some((a) => a.includes("cooldown>=1000"))).toBe(true);
     const identity = parseSimcBinaryBanner(liveBanner(SHA), "C:\\simc.exe");
     expect(identity.dataMode).toBe("LIVE");
     expect(() => assertLiveSimcIdentity(identity, { expectedRevision: SHA })).not.toThrow();
@@ -87,6 +88,20 @@ describe("SpellQuery XML parser", () => {
     expect(() => parseSpellQueryXml("<spell id=\"1\" name=\"x\">")).toThrow(/truncated|missing/i);
   });
 });
+
+function scopeFromSpellQuery(query: string | undefined): string | undefined {
+  if (!query) return undefined;
+  if (
+    query === "class_spell" ||
+    query === "spec_spell" ||
+    query === "race_spell" ||
+    query === "talent_spell"
+  ) {
+    return query;
+  }
+  const scope = query.match(/^(class_spell|spec_spell|race_spell|talent_spell)\./)?.[1];
+  return scope;
+}
 
 describe("SimC extractor failures never become complete inventories", () => {
   it("rejects missing binary; revision comes from binary not env", async () => {
@@ -143,6 +158,9 @@ describe("SimC extractor failures never become complete inventories", () => {
       class_spell: SPELLQUERY_CLASS_SPELL_XML,
       spec_spell: SPELLQUERY_SPEC_SPELL_XML,
       race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
     };
     const snapshot = await extractSimcSpellQuerySnapshot({
       simcBin: fakeBin,
@@ -152,7 +170,8 @@ describe("SimC extractor failures never become complete inventories", () => {
         if (isProbe(args)) return { exitCode: 0, stdout: liveBanner(SHA), stderr: "" };
         const q = args.find((a) => a.startsWith("spell_query="))?.slice("spell_query=".length);
         const xml = args.find((a) => a.startsWith("spell_query_xml_output_file="))?.slice(28);
-        if (q && xml) writeFileSync(xml, xmlByQuery[q] ?? "");
+        const scope = scopeFromSpellQuery(q);
+        if (scope && xml) writeFileSync(xml, xmlByQuery[scope] ?? "");
         return { exitCode: 0, stdout: "ok", stderr: "" };
       },
     });
@@ -160,7 +179,7 @@ describe("SimC extractor failures never become complete inventories", () => {
     expect(snapshot.binaryIdentity?.gitRevision).toBe(SHA.slice(0, 7));
     expect(snapshot.binaryIdentity?.revisionPrecision).toBe("PREFIX");
     expect(snapshot.simcCommitSha).toBe(SHA.slice(0, 7));
-    expect(snapshot.extractionStats?.processCount).toBe(4);
+    expect(snapshot.extractionStats?.processCount).toBe(5);
     expect(snapshot.inventories.some((i) => i.kind === "SPEC" && i.queryClaim === "COMPLETE_FOR_QUERY")).toBe(
       true,
     );
@@ -179,6 +198,9 @@ describe("SimC extractor failures never become complete inventories", () => {
       class_spell: SPELLQUERY_CLASS_SPELL_XML,
       spec_spell: SPELLQUERY_SPEC_SPELL_XML,
       race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
     };
     const snapshot = await extractSimcSpellQuerySnapshot({
       simcBin: fakeBin,
@@ -188,13 +210,52 @@ describe("SimC extractor failures never become complete inventories", () => {
         if (isProbe(args)) return { exitCode: 0, stdout: liveBanner(SHA), stderr: "" };
         const q = args.find((a) => a.startsWith("spell_query="))?.slice("spell_query=".length);
         const xml = args.find((a) => a.startsWith("spell_query_xml_output_file="))?.slice(28);
-        if (q && xml) writeFileSync(xml, xmlByQuery[q] ?? "");
+        const scope = scopeFromSpellQuery(q);
+        if (scope && xml) writeFileSync(xml, xmlByQuery[scope] ?? "");
         return { exitCode: 0, stdout: "ok", stderr: "" };
       },
     });
     expect(snapshot.simcCommitSha).toBe(SHA);
     expect(snapshot.binaryIdentity?.revisionPrecision).toBe("FULL_SHA");
     expect(snapshot.binaryIdentity?.resolvedFullRevision).toBe(SHA);
+  });
+
+  it("emits only active cooldown-bearing spells with schema-compatible output", async () => {
+    const workDir = mkdtempSync(join(tmpdir(), "simc-filter-"));
+    const fakeBin = join(workDir, "bin");
+    writeFileSync(fakeBin, "x");
+    const xmlByQuery: Record<string, string> = {
+      class_spell: SPELLQUERY_CLASS_SPELL_XML,
+      spec_spell: SPELLQUERY_SPEC_SPELL_XML,
+      race_spell: SPELLQUERY_RACE_SPELL_XML,
+      talent_spell: `<?xml version="1.0" encoding="UTF-8"?>
+<spell_query>
+</spell_query>`,
+    };
+    const snapshot = await extractSimcSpellQuerySnapshot({
+      simcBin: fakeBin,
+      workDir,
+      runner: async ({ args }) => {
+        if (isProbe(args)) return { exitCode: 0, stdout: liveBanner(SHA), stderr: "" };
+        const q = args.find((a) => a.startsWith("spell_query="))?.slice("spell_query=".length);
+        const xml = args.find((a) => a.startsWith("spell_query_xml_output_file="))?.slice(28);
+        const scope = scopeFromSpellQuery(q);
+        if (scope && xml) writeFileSync(xml, xmlByQuery[scope] ?? "");
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    });
+
+    expect(snapshot.schemaVersion).toBe("simc-spellquery-export-v1");
+    expect(snapshot.spells.some((s) => s.spellId === 118)).toBe(false);
+    expect(snapshot.spells.some((s) => s.spellId === 20596)).toBe(false);
+    expect(snapshot.spells.some((s) => s.spellId === 15286)).toBe(true);
+    expect(snapshot.spells.every((s) => s.catalogRelevant === true)).toBe(true);
+    expect(snapshot.spells.every((s) => s.isPassive !== true)).toBe(true);
+    expect(snapshot.spells.every((s) => s.cooldownSeconds != null && s.cooldownSeconds >= 1)).toBe(true);
+
+    const imported = importSimcSpellQuerySnapshot(snapshot);
+    expect(imported.records.length).toBe(snapshot.spells.length);
+    expect(imported.records.every((r) => r.catalogRelevant === true)).toBe(true);
   });
 
   it("fails closed on PTR, unreported revision, and expected revision mismatch", async () => {

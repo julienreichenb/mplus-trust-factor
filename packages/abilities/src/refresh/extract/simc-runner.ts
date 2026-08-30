@@ -4,15 +4,31 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { SIMC_SPELLQUERY_EXPORT_SCHEMA, type SimcSpellQueryExport } from "../sources/simc.js";
 import type { ScopedInventory } from "../types.js";
-import { SIMC_EXTRACTOR_VERSION, SIMC_SPELLQUERY_EXPRESSIONS, simcArgsForQuery } from "./simc-plan.js";
+import {
+  SIMC_EXTRACTOR_VERSION,
+  SIMC_SPELLQUERY_SCOPES,
+  simcSpellQueryExpression,
+  simcArgsForQuery,
+} from "./simc-plan.js";
 import {
   assertLiveSimcIdentity,
   liveQueryArgs,
   parseSimcBinaryBanner,
   type SimcBinaryIdentity,
 } from "./simc-identity.js";
-import { bindingsFromParsedSpell, parseSpellQueryXml, resolveSpellCooldownSeconds, SpellQueryXmlError } from "./simc-xml.js";
+import {
+  bindingsFromParsedSpell,
+  isCooldownCatalogCandidate,
+  parseSpellQueryXml,
+  resolveSpellCooldownSeconds,
+  SpellQueryXmlError,
+} from "./simc-xml.js";
 import { classifySpecScope } from "../scope-classify.js";
+import {
+  membershipFromScope,
+  mergeSimcMembership,
+  type SimcSpellMembership,
+} from "./simc-availability.js";
 
 export class SimcExtractionError extends Error {
   readonly code: string;
@@ -145,8 +161,9 @@ export async function extractSimcSpellQuerySnapshot(
   }
 
   try {
-    for (const expression of SIMC_SPELLQUERY_EXPRESSIONS) {
-      const xmlPath = join(workDir, `${expression}.xml`);
+    for (const scope of SIMC_SPELLQUERY_SCOPES) {
+      const expression = simcSpellQueryExpression(scope);
+      const xmlPath = join(workDir, `${scope}.xml`);
       const result = await runner({
         command: input.simcBin,
         args: simcArgsForQuery(expression, xmlPath),
@@ -155,21 +172,21 @@ export async function extractSimcSpellQuerySnapshot(
       if (result.exitCode !== 0) {
         throw new SimcExtractionError(
           "PROCESS_FAILED",
-          `SimC ${expression} exited ${result.exitCode}`,
+          `SimC ${scope} exited ${result.exitCode}`,
           { stdout: result.stdout, stderr: result.stderr },
         );
       }
       if (/\bptr\s*=\s*1\b/i.test(`${result.stdout}\n${result.stderr}`)) {
         throw new SimcExtractionError(
           "PTR_DATA_REJECTED",
-          `SimC ${expression} output indicates ptr=1`,
+          `SimC ${scope} output indicates ptr=1`,
           { stdout: result.stdout, stderr: result.stderr },
         );
       }
       if (!existsSync(xmlPath) || statSync(xmlPath).size === 0) {
         throw new SimcExtractionError(
           "PARTIAL_OUTPUT",
-          `SimC ${expression} produced no XML at ${xmlPath}`,
+          `SimC ${scope} produced no XML at ${xmlPath}`,
           { stdout: result.stdout, stderr: result.stderr },
         );
       }
@@ -181,7 +198,7 @@ export async function extractSimcSpellQuerySnapshot(
         parsed = parseSpellQueryXml(xmlText);
       } catch (error) {
         const message = error instanceof SpellQueryXmlError ? error.message : String(error);
-        throw new SimcExtractionError("MALFORMED_XML", `${expression}: ${message}`, {
+        throw new SimcExtractionError("MALFORMED_XML", `${scope}: ${message}`, {
           stdout: result.stdout,
           stderr: result.stderr,
         });
@@ -192,19 +209,24 @@ export async function extractSimcSpellQuerySnapshot(
       const raceSeen = new Set<string>();
 
       for (const spell of parsed) {
+        if (!isCooldownCatalogCandidate(spell)) continue;
+
+        const cooldownSeconds = resolveSpellCooldownSeconds(spell);
         const existing = spellsById.get(spell.spellId);
+        const scopeMembership = membershipFromScope(scope);
         const next = {
           spellId: spell.spellId,
           name: spell.name,
           classSlug: spell.classSlug,
           specSlugs: [...spell.specSlugs],
           raceSlugs: [...spell.raceSlugs],
-          cooldownSeconds: resolveSpellCooldownSeconds(spell),
+          cooldownSeconds,
           charges: spell.charges,
           stacks: spell.maxStack,
           isPassive: spell.isPassive,
-          catalogRelevant: spell.isPassive !== true,
+          catalogRelevant: true,
           bindings: bindingsFromParsedSpell(spell),
+          simcMembership: scopeMembership,
           notes: [
             `query=${expression}`,
             ...(spell.maxStack != null && spell.maxStack > 1
@@ -223,6 +245,10 @@ export async function extractSimcSpellQuerySnapshot(
           existing.charges = existing.charges ?? next.charges;
           existing.stacks = existing.stacks ?? next.stacks;
           existing.isPassive = existing.isPassive ?? next.isPassive;
+          existing.simcMembership = mergeSimcMembership(
+            existing.simcMembership as SimcSpellMembership | undefined,
+            scopeMembership,
+          );
           existing.notes = [...new Set([...(existing.notes ?? []), ...(next.notes ?? [])])];
           const bindings = [...(existing.bindings ?? []), ...(next.bindings ?? [])];
           const seen = new Set<string>();
@@ -240,7 +266,7 @@ export async function extractSimcSpellQuerySnapshot(
         for (const race of spell.raceSlugs) raceSeen.add(race);
       }
 
-      if (expression === "class_spell") {
+      if (scope === "class_spell") {
         for (const cls of [...classSeen].sort()) {
           inventories.push({
             kind: "CLASS",
@@ -253,7 +279,7 @@ export async function extractSimcSpellQuerySnapshot(
           });
         }
       }
-      if (expression === "spec_spell") {
+      if (scope === "spec_spell") {
         for (const key of [...specSeen].sort()) {
           const [classSlug, specSlug] = key.split("/");
           inventories.push({
@@ -268,7 +294,7 @@ export async function extractSimcSpellQuerySnapshot(
           });
         }
       }
-      if (expression === "race_spell") {
+      if (scope === "race_spell") {
         for (const race of [...raceSeen].sort()) {
           inventories.push({
             kind: "RACE",
@@ -320,5 +346,5 @@ export async function extractSimcSpellQuerySnapshot(
 }
 
 export function simcQueryProvenance(): string[] {
-  return [...SIMC_SPELLQUERY_EXPRESSIONS];
+  return SIMC_SPELLQUERY_SCOPES.map((scope) => simcSpellQueryExpression(scope));
 }

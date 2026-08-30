@@ -6,7 +6,8 @@
  * module stays browser-safe when re-exported from the package barrel.
  */
 
-import type { CatalogRefreshReport, CatalogDiffEntry, SourceObservation } from "../types.js";
+import type { CatalogRefreshReport, CatalogDiffEntry } from "../types.js";
+import { candidateEvidenceFromDiffEntry } from "./draft-prefill.js";
 
 /** Bump only when import-plan semantics / item identity format changes. */
 export const ABILITY_CATALOG_REVIEW_PLAN_SCHEMA_VERSION = "ability-catalog-review-plan-v3";
@@ -73,22 +74,6 @@ function provenanceFromDiff(entry: CatalogDiffEntry): Record<string, unknown> {
     sourceObservations: entry.sourceObservations,
     notes: entry.notes,
   };
-}
-
-function candidateEvidenceFromDiffEntry(entry: CatalogDiffEntry): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (entry.candidateKey) out.candidateKey = entry.candidateKey;
-  if (entry.cooldownSeconds != null) out.cooldownSeconds = entry.cooldownSeconds;
-  if (entry.charges != null) out.charges = entry.charges;
-  if (entry.isPassive != null) out.isPassive = entry.isPassive;
-  if (entry.ownershipKind) out.ownershipKind = entry.ownershipKind;
-  if (entry.validFromBuild) out.validFromBuild = entry.validFromBuild;
-  if (entry.validToBuild) out.validToBuild = entry.validToBuild;
-  if (entry.candidateBindings?.length) out.candidateBindings = entry.candidateBindings;
-  if (entry.sourceObservations?.length) {
-    out.sourceObservations = entry.sourceObservations as SourceObservation[];
-  }
-  return out;
 }
 
 function fromDiffEntry(
@@ -330,16 +315,19 @@ export function resolveCanonicalKeyCollision(
   }
   if (!reservedKeys.has(baseKey)) return baseKey;
 
-  for (let n = 2; n <= 99; n++) {
-    const candidate = `${baseKey}-${n}`;
+  // Prefer deterministic spell-id suffix when available (stable across drafts).
+  if (options?.spellId != null && options.spellId > 0) {
+    const candidate = `${baseKey}-${options.spellId}`;
     if (isValidCanonicalKeyFormat(candidate) && !reservedKeys.has(candidate)) {
       return candidate;
     }
   }
 
-  if (options?.spellId != null && options.spellId > 0) {
-    const candidate = `${baseKey}-${options.spellId}`;
-    if (!reservedKeys.has(candidate)) return candidate;
+  for (let n = 2; n <= 99; n++) {
+    const candidate = `${baseKey}-${n}`;
+    if (isValidCanonicalKeyFormat(candidate) && !reservedKeys.has(candidate)) {
+      return candidate;
+    }
   }
 
   throw new Error(`Unable to resolve canonical key collision for ${baseKey}`);

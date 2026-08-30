@@ -703,10 +703,22 @@ export function createMockApiClient(): MplusApiClient {
       throw new Error("Mock client does not persist ability-catalog review decisions");
     },
 
-    async getAbilityCatalogReviewItem(_itemId, signal) {
+    async listAbilityCatalogExclusions(signal) {
       await delay(20);
       assertNotAborted(signal);
-      throw new Error("Mock client has no ability-catalog review items");
+      return { exclusions: [] };
+    },
+
+    async createAbilityCatalogExclusion(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client cannot create ability-catalog exclusions");
+    },
+
+    async clearAbilityCatalogExclusion(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { cleared: 0 };
     },
 
     async listAbilityCatalogReleases(signal) {
@@ -735,10 +747,16 @@ export function createMockApiClient(): MplusApiClient {
       return { state: "IDLE" };
     },
 
-    async refreshAbilityCatalog(signal) {
+    async getAbilityCatalogPublishStatus(signal) {
       await delay(20);
       assertNotAborted(signal);
-      return { state: "REVIEW_REQUIRED" };
+      return { status: "NO_CHANGES", pending: { hasPublishableChanges: false } };
+    },
+
+    async publishAbilityCatalogChanges(_body, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      throw new Error("Mock client cannot publish ability catalog");
     },
 
     async listManualCatalogEdits(signal) {
@@ -787,44 +805,10 @@ export function createMockApiClient(): MplusApiClient {
       return { discarded: true as const };
     },
 
-    async activateAbilityCatalogRelease(_releaseId, _body, signal) {
-      await delay(20);
-      assertNotAborted(signal);
-      throw new Error("Mock client does not activate ability-catalog releases");
-    },
-
     async rollbackAbilityCatalogRelease(_releaseId, _body, signal) {
       await delay(20);
       assertNotAborted(signal);
       throw new Error("Mock client does not rollback ability-catalog releases");
-    },
-
-    async updateAbilityCatalogDraft(_itemId, _body, signal) {
-      await delay(20);
-      assertNotAborted(signal);
-      throw new Error("Mock client does not persist ability-catalog drafts");
-    },
-
-    async ensureAbilityCatalogDraft(_itemId, _body, signal) {
-      await delay(20);
-      assertNotAborted(signal);
-      throw new Error("Mock client does not ensure ability-catalog drafts");
-    },
-
-    async validateAbilityCatalogDraft(_itemId, _body, signal) {
-      await delay(20);
-      assertNotAborted(signal);
-      return {
-        itemId: _itemId,
-        validation: {
-          status: "NEEDS_METADATA",
-          readyForPublishReview: false,
-          reasonCodes: ["MISSING_CATEGORY"],
-          errors: [],
-          warnings: [],
-        },
-        draft: null,
-      };
     },
 
     async syncRealmCatalog(input, signal) {
