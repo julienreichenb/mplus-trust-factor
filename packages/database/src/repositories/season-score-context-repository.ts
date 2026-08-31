@@ -1,11 +1,13 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   KEY_CONTEXT_REGION_CODES,
+  RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
   type SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import {
   defaultNeutralTierFactors,
   validateMedianKeyDistributionPoints,
+  validatePackedDungeonKeyDistribution,
   validatePercentileAnchors,
   validateSpecAssignments,
   validateTierFactors,
@@ -173,6 +175,15 @@ export class SeasonScoreContextRepository {
         code: "INVALID_MEDIAN_KEY_DISTRIBUTION",
         issues: validated.issues,
       });
+    }
+    if (input.source === RAIDER_IO_ADDON_DISTRIBUTION_SOURCE) {
+      const packed = validatePackedDungeonKeyDistribution(validated.value.points);
+      if (!packed.ok) {
+        throw Object.assign(new Error("INVALID_MEDIAN_KEY_DISTRIBUTION"), {
+          code: "KEY_FIELD_SATURATION",
+          issues: packed.issues,
+        });
+      }
     }
     return this.prisma.seasonMedianKeyDistributionSnapshot.upsert({
       where: {

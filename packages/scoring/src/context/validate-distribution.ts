@@ -95,6 +95,38 @@ export function validateMedianKeyDistributionPoints(
   return { ok: true, value: { points: ordered, contentHash } };
 }
 
+/**
+ * Fail-closed check derived from Raider.IO's 6-bit dungeon key field
+ * (`ReadDungeonLevelStats` in core.lua). Thresholds in the saturated tail
+ * (57–63) are the signature of packed-record misalignment, not a real
+ * population.
+ */
+export function validatePackedDungeonKeyDistribution(
+  points: readonly MedianKeyDistributionPoint[],
+): { ok: true } | { ok: false; issues: DistributionValidationIssue[] } {
+  const keyFieldBits = 6;
+  const fieldMax = (1 << keyFieldBits) - 1;
+  const saturatedMin = fieldMax - 6;
+  const issues: DistributionValidationIssue[] = [];
+  points.forEach((point, index) => {
+    if (point.medianKeyThreshold > fieldMax) {
+      issues.push({
+        path: `points[${index}].medianKeyThreshold`,
+        message: `medianKeyThreshold ${point.medianKeyThreshold} exceeds the ${keyFieldBits}-bit packed key field max ${fieldMax}`,
+      });
+      return;
+    }
+    if (point.medianKeyThreshold >= saturatedMin) {
+      issues.push({
+        path: `points[${index}].medianKeyThreshold`,
+        message: `medianKeyThreshold ${point.medianKeyThreshold} sits in the saturated tail (${saturatedMin}–${fieldMax}) of the ${keyFieldBits}-bit packed key field`,
+      });
+    }
+  });
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true };
+}
+
 export function validatePercentileAnchors(
   raw: unknown,
 ): { ok: true; anchors: Array<{ percentileBps: number; factor: number }> } | { ok: false; issues: DistributionValidationIssue[] } {

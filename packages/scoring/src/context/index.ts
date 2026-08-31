@@ -16,6 +16,7 @@ export {
 } from "./apply-score-context.js";
 export {
   validateMedianKeyDistributionPoints,
+  validatePackedDungeonKeyDistribution,
   validatePercentileAnchors,
   validateTierFactors,
   type DistributionValidationIssue,
