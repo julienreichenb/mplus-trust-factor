@@ -287,7 +287,7 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
     expect(body.settingsVersion).toBeGreaterThan(version);
   });
 
-  it("Run relevant discovery now enqueues with admin trigger in development", async () => {
+  it("Run relevant discovery now enqueues with admin trigger", async () => {
     const enqueue = vi.spyOn(container.producers, "enqueueRelevantCharacterDiscovery");
     enqueue.mockResolvedValue({
       jobId: "manual-job-1",
@@ -296,7 +296,6 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
       enqueued: true,
     });
     try {
-      expect(container.env.APP_ENV).toBe("development");
       const response = await app.inject({
         method: "POST",
         url: "/api/v1/admin/misc/relevant-refresh/run",

@@ -9736,6 +9736,115 @@
         }
       }
     },
+    "/api/v1/admin/misc/relevant-refresh": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "properties": {
+                  "relevantRefreshEnabled": {
+                    "type": "boolean"
+                  },
+                  "refreshConcurrencyEnabled": {
+                    "type": "boolean"
+                  },
+                  "concurrencyOperation": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  },
+                  "relevantCandidateTarget": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  },
+                  "relevantCandidatePercentileBps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  },
+                  "wclPreResetDrainSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/misc/relevant-refresh/run": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "regionCode": {
+                    "type": "string",
+                    "enum": [
+                      "EU",
+                      "US",
+                      "KR",
+                      "TW"
+                    ]
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "daily_discovery",
+                      "drain_feed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/admin/faq": {
       "get": {
         "tags": [
