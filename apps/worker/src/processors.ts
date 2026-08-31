@@ -12,11 +12,13 @@ import {
   generateAddonExportJobSchema,
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
+  relevantCharacterDiscoveryJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
 } from "@mplus/contracts";
 import { toJsonSafeSanitized } from "@mplus/observability";
 import type { WorkerContainer } from "./container.js";
+import { createQueueProducers } from "./queues.js";
 import {
   bulkCharacterProcessingDedupeKey,
   finalizeEvidenceBatchV2DedupeKey,
@@ -31,6 +33,7 @@ import { runScoringEvidenceExportJob } from "./orchestration/scoring-evidence-ex
 import { runScoringShadowCanaryJob } from "./orchestration/scoring/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runKeyDistributionRefresh } from "./orchestration/key-distribution-refresh.js";
+import { runRelevantCharacterDiscovery } from "./orchestration/relevant-character-discovery.js";
 import { runScheduledScoringSeasonDataSync } from "./orchestration/active-mplus-season/scoring-season-data-sync.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -415,6 +418,17 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
+  const relevantDiscoveryProducers = createQueueProducers(connection, container);
+  const relevantDiscovery = new Worker(
+    QUEUE_NAMES.relevantCharacterDiscovery,
+    async (job) => {
+      const payload = relevantCharacterDiscoveryJobSchema.parse(job.data);
+      const result = await runRelevantCharacterDiscovery(container, payload, relevantDiscoveryProducers);
+      return result.counters;
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
   for (const worker of [
     refresh,
     refreshCalibration,
@@ -430,6 +444,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     evidenceFinalize,
     keyDistribution,
     scoringSeasonDataSync,
+    relevantDiscovery,
   ]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
@@ -454,6 +469,12 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     return originalEvidenceSlotClose(force);
   };
 
+  const originalRelevantClose = relevantDiscovery.close.bind(relevantDiscovery);
+  relevantDiscovery.close = async (force?: boolean) => {
+    await relevantDiscoveryProducers.close();
+    return originalRelevantClose(force);
+  };
+
   return [
     refresh,
     refreshCalibration,
@@ -469,6 +490,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     evidenceFinalize,
     keyDistribution,
     scoringSeasonDataSync,
+    relevantDiscovery,
   ];
 }
 

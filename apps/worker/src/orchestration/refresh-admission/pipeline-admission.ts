@@ -12,6 +12,10 @@ import type { PrismaClient } from "@mplus/database";
 import type { Redis } from "ioredis";
 import { createRefreshAdmissionGate, type RefreshAdmissionGate } from "./gate.js";
 import {
+  loadRefreshAdmissionRuntimeOverrides,
+  type RefreshAdmissionRuntimeOverrides,
+} from "./runtime-admission-config.js";
+import {
   createRefreshAdmissionRepository,
   type RefreshAdmissionRepository,
 } from "./repository.js";
@@ -34,6 +38,7 @@ export function createPipelineAdmissionGate(input: {
   redis: Redis | null;
   prisma: PrismaClient;
   logger: Logger;
+  runtimeOverrides?: RefreshAdmissionRuntimeOverrides | null;
 }): { gate: RefreshAdmissionGate; repository: RefreshAdmissionRepository } {
   const repository = createRefreshAdmissionRepository(input.prisma);
   const gate = createRefreshAdmissionGate({
@@ -42,8 +47,19 @@ export function createPipelineAdmissionGate(input: {
     appEnv: input.env.APP_ENV,
     repository,
     logger: input.logger,
+    runtimeOverrides: input.runtimeOverrides,
   });
   return { gate, repository };
+}
+
+export async function createPipelineAdmissionGateWithRuntime(input: {
+  env: AppEnv;
+  redis: Redis | null;
+  prisma: PrismaClient;
+  logger: Logger;
+}): Promise<{ gate: RefreshAdmissionGate; repository: RefreshAdmissionRepository }> {
+  const runtimeOverrides = await loadRefreshAdmissionRuntimeOverrides(input.prisma);
+  return createPipelineAdmissionGate({ ...input, runtimeOverrides });
 }
 
 /**

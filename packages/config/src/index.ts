@@ -135,6 +135,14 @@ export const envSchema = z
      * Default false — Stage 3 enforce admits at serial capacity 1 without this flag.
      */
     REFRESH_CONCURRENCY_ENABLED: booleanFromString.default(false),
+    /** Seconds before WCL hourly reset when background refresh may consume spare budget. */
+    WCL_PRE_RESET_DRAIN_SECONDS: z.coerce.number().int().nonnegative().default(300),
+    /** Enable daily relevant-character discovery scheduler. */
+    RELEVANT_REFRESH_ENABLED: booleanFromString.default(false),
+    /** Max refresh jobs enqueued per discovery/drain-feed tick. */
+    RELEVANT_CANDIDATE_TARGET: z.coerce.number().int().positive().default(500),
+    /** Raider.IO addon-db percentile (bps) for relevant candidate cutoff. Default top 10%. */
+    RELEVANT_CANDIDATE_PERCENTILE_BPS: z.coerce.number().int().min(1).max(10_000).default(9000),
     REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
     REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
     /** Indicative share of the configured tracked denominator — not a global WoW percentile. */
@@ -472,6 +480,7 @@ export {
 
 export {
   buildRefreshAdmissionConfig,
+  mergeRefreshAdmissionRuntimeOverrides,
   clampWorkerConcurrency,
   clampGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
@@ -481,6 +490,9 @@ export {
   computeEmergencyReservePoints,
   computeNormalAvailablePoints,
   computeEmergencyAvailablePoints,
+  computePointsResetInSeconds,
+  isWclPreResetDrainActive,
+  resolveAdmissionReservePolicy,
   deriveWclWindowId,
   isWclSnapshotFresh,
   REFRESH_ADMISSION_POLICY_VERSION,

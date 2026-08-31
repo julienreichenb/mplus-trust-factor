@@ -10,6 +10,7 @@ import {
   type QueueName,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
+  type RelevantCharacterDiscoveryJob,
 } from "@mplus/contracts";
 
 export function buildDedupeKey(queue: QueueName, parts: string[]): string {
@@ -77,8 +78,18 @@ export function discoverOwnedCharactersDedupeKey(job: DiscoverOwnedCharactersJob
   ]);
 }
 
+/** Daily discovery is idempotent per UTC date + region; drain feeds may repeat. */
+export function relevantCharacterDiscoveryDedupeKey(job: RelevantCharacterDiscoveryJob): string {
+  const day =
+    job.mode === "daily_discovery" ? job.requestedAt.slice(0, 10) : job.requestedAt.slice(0, 16);
+  return buildDedupeKey(QUEUE_NAMES.relevantCharacterDiscovery, [
+    job.mode,
+    job.regionCode,
+    day,
+  ]);
+}
+
 /**
- * Orchestrator ticks share a logical dedupe key per operation, but each follow-up tick
  * must not be blocked by a completed prior tick — append requestedAt for uniqueness of
  * successive ticks while create/resume uses a stable key until terminal.
  */

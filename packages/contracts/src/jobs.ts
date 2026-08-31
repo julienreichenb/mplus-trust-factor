@@ -50,6 +50,8 @@ export const QUEUE_NAMES = {
    * Calls synchronizeScoringSeasonData — does not mutate published policy.
    */
   scoringSeasonDataSync: "scoring-season-data-sync",
+  /** Daily relevant-character discovery + pre-reset drain feeder. */
+  relevantCharacterDiscovery: "relevant-character-discovery",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -61,6 +63,7 @@ export const refreshTriggerSourceSchema = z.enum([
   "MANUAL_FORCE_REFRESH",
   "ACCOUNT_DISCOVERY",
   "BULK_REFRESH",
+  "RELEVANT_DISCOVERY",
   "SYSTEM",
   "UNKNOWN",
 ]);
@@ -431,6 +434,14 @@ export const scoringSeasonDataSyncJobSchema = z.object({
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
 export type ScoringSeasonDataSyncJob = z.infer<typeof scoringSeasonDataSyncJobSchema>;
+
+export const relevantCharacterDiscoveryJobSchema = z.object({
+  mode: z.enum(["daily_discovery", "drain_feed"]),
+  regionCode: z.enum(["EU", "US"]).default("EU"),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type RelevantCharacterDiscoveryJob = z.infer<typeof relevantCharacterDiscoveryJobSchema>;
 
 export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;
