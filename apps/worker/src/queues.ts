@@ -507,7 +507,6 @@ export function createQueueProducers(
       const job = await queues[QUEUE_NAMES.relevantCharacterDiscovery].add(
         QUEUE_NAMES.relevantCharacterDiscovery,
         payload,
-        { jobId: `${dedupeKey}:${payload.requestedAt}` },
       );
       return {
         jobId: job.id ?? dedupeKey,

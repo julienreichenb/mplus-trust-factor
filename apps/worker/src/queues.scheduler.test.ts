@@ -36,6 +36,7 @@ vi.mock("./orchestration/enqueue.js", () => ({
 
 import { createQueueProducers } from "./queues.js";
 import { QUEUE_NAMES } from "@mplus/contracts";
+import { relevantCharacterDiscoveryDedupeKey } from "./dedupe.js";
 
 function containerFor(
   appEnv: "development" | "staging" | "production",
@@ -187,11 +188,15 @@ describe("automatic scheduler registration by APP_ENV + PROVIDER_DATA_ROLE", () 
     const discovery = await producers.enqueueRelevantCharacterDiscovery({
       mode: "daily_discovery",
       regionCode: "EU",
+      trigger: "admin",
+      requestedAt: "2026-08-31T12:00:00.000Z",
     });
     expect(discovery.enqueued).toBe(true);
     const drain = await producers.enqueueRelevantCharacterDiscovery({
       mode: "drain_feed",
       regionCode: "EU",
+      trigger: "admin",
+      requestedAt: "2026-08-31T12:05:00.000Z",
     });
     expect(drain.enqueued).toBe(true);
 
@@ -199,6 +204,78 @@ describe("automatic scheduler registration by APP_ENV + PROVIDER_DATA_ROLE", () 
     const relQ = queueNamed(QUEUE_NAMES.relevantCharacterDiscovery);
     expect(syncQ?.add).toHaveBeenCalled();
     expect(relQ?.add).toHaveBeenCalledTimes(2);
+    await producers.close();
+  });
+
+  it("manual relevant discovery enqueue does not pass colon-containing BullMQ jobId", async () => {
+    const producers = createQueueProducers({} as never, containerFor("development", "consumer"));
+    const requestedAt = "2026-08-31T12:00:00.000Z";
+    const discovery = await producers.enqueueRelevantCharacterDiscovery({
+      mode: "daily_discovery",
+      regionCode: "EU",
+      trigger: "admin",
+      requestedAt,
+    });
+    const drain = await producers.enqueueRelevantCharacterDiscovery({
+      mode: "drain_feed",
+      regionCode: "US",
+      trigger: "admin",
+      requestedAt: "2026-08-31T12:05:00.000Z",
+    });
+
+    const relQ = queueNamed(QUEUE_NAMES.relevantCharacterDiscovery);
+    expect(relQ?.add).toHaveBeenCalledTimes(2);
+
+    const discoveryCall = relQ?.add.mock.calls[0];
+    const drainCall = relQ?.add.mock.calls[1];
+    expect(discoveryCall?.[2]).toBeUndefined();
+    expect(drainCall?.[2]).toBeUndefined();
+
+    const discoveryPayload = discoveryCall?.[1] as {
+      mode: string;
+      regionCode: string;
+      trigger: string;
+      requestedAt: string;
+    };
+    const drainPayload = drainCall?.[1] as {
+      mode: string;
+      regionCode: string;
+      trigger: string;
+      requestedAt: string;
+    };
+    expect(discoveryPayload).toEqual({
+      mode: "daily_discovery",
+      regionCode: "EU",
+      trigger: "admin",
+      requestedAt,
+    });
+    expect(drainPayload).toEqual({
+      mode: "drain_feed",
+      regionCode: "US",
+      trigger: "admin",
+      requestedAt: "2026-08-31T12:05:00.000Z",
+    });
+
+    const expectedDiscoveryDedupeKey = relevantCharacterDiscoveryDedupeKey(discoveryPayload);
+    const expectedDrainDedupeKey = relevantCharacterDiscoveryDedupeKey(drainPayload);
+    expect(expectedDiscoveryDedupeKey.length).toBeGreaterThan(0);
+    expect(expectedDrainDedupeKey.length).toBeGreaterThan(0);
+
+    expect(discovery).toEqual({
+      jobId: `job-${QUEUE_NAMES.relevantCharacterDiscovery}`,
+      dedupeKey: expectedDiscoveryDedupeKey,
+      reused: false,
+      enqueued: true,
+    });
+    expect(drain).toEqual({
+      jobId: `job-${QUEUE_NAMES.relevantCharacterDiscovery}`,
+      dedupeKey: expectedDrainDedupeKey,
+      reused: false,
+      enqueued: true,
+    });
+    expect(discovery.jobId).not.toContain(":");
+    expect(drain.jobId).not.toContain(":");
+
     await producers.close();
   });
 });
