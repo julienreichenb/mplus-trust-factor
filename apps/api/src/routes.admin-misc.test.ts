@@ -219,4 +219,105 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
       expect(synchronizeScoringSeasonData).toHaveBeenCalled();
     }
   });
+
+  it("loads effective relevant-refresh settings without blank defaults", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/misc/relevant-refresh",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(typeof body.relevantRefreshEnabled).toBe("boolean");
+    expect(body.concurrencyOperation).toBeGreaterThanOrEqual(1);
+    expect(body.concurrencyHardMax).toBe(8);
+    expect(body.relevantCandidateTarget).toBeGreaterThan(0);
+    expect(body.relevantCandidatePercentileBps).toBe(9000);
+    expect(body.relevantPopulationTopPercent).toBe(10);
+    expect(body.wclPreResetDrainSeconds).toBeGreaterThanOrEqual(0);
+    expect(body.appEnv).toBeTruthy();
+    expect(typeof body.automaticSchedulingActive).toBe("boolean");
+    expect(typeof body.killSwitchActive).toBe("boolean");
+    expect(body.settingsVersion).toBeGreaterThanOrEqual(1);
+  });
+
+  it("persists relevant-refresh RuntimeSettings and rejects invalid concurrency", async () => {
+    const loaded = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/misc/relevant-refresh",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+    });
+    expect(loaded.statusCode).toBe(200);
+    const version = loaded.json().settingsVersion as number;
+
+    const bad = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/misc/relevant-refresh",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {
+        concurrencyOperation: 99,
+        expectedVersion: version,
+      },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const ok = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/misc/relevant-refresh",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {
+        relevantRefreshEnabled: true,
+        refreshConcurrencyEnabled: true,
+        concurrencyOperation: 3,
+        relevantCandidateTarget: 250,
+        relevantCandidatePercentileBps: 9900,
+        wclPreResetDrainSeconds: 180,
+        expectedVersion: version,
+      },
+    });
+    expect(ok.statusCode).toBe(200);
+    const body = ok.json();
+    expect(body.relevantRefreshEnabled).toBe(true);
+    expect(body.refreshConcurrencyEnabled).toBe(true);
+    expect(body.concurrencyOperation).toBe(3);
+    expect(body.relevantCandidateTarget).toBe(250);
+    expect(body.relevantCandidatePercentileBps).toBe(9900);
+    expect(body.relevantPopulationTopPercent).toBe(1);
+    expect(body.wclPreResetDrainSeconds).toBe(180);
+    expect(body.settingsVersion).toBeGreaterThan(version);
+  });
+
+  it("Run relevant discovery now enqueues with admin trigger in development", async () => {
+    const enqueue = vi.spyOn(container.producers, "enqueueRelevantCharacterDiscovery");
+    enqueue.mockResolvedValue({
+      jobId: "manual-job-1",
+      dedupeKey: "manual-dedupe",
+      reused: false,
+      enqueued: true,
+    });
+    try {
+      expect(container.env.APP_ENV).toBe("development");
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/admin/misc/relevant-refresh/run",
+        headers: { "x-admin-api-key": ADMIN_KEY },
+        payload: { regionCode: "EU", mode: "daily_discovery" },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: "daily_discovery",
+          regionCode: "EU",
+          trigger: "admin",
+        }),
+      );
+      expect(response.json()).toMatchObject({
+        jobId: "manual-job-1",
+        enqueued: true,
+        trigger: "admin",
+      });
+    } finally {
+      enqueue.mockRestore();
+    }
+  });
 });

@@ -104,7 +104,16 @@ export async function runRelevantCharacterDiscovery(
     drainActive: false,
   };
 
-  if (!settings.enabled) {
+  if (settings.killSwitchActive) {
+    logger.info(
+      { event: "relevant_discovery_skipped", reason: "kill_switch" },
+      "relevant discovery blocked by infrastructure kill switch",
+    );
+    return { counters };
+  }
+
+  const isAdminTrigger = job.trigger === "admin";
+  if (!settings.runtimeEnabled && !isAdminTrigger) {
     logger.info({ event: "relevant_discovery_skipped", reason: "disabled" }, "relevant discovery disabled");
     return { counters };
   }
@@ -120,7 +129,7 @@ export async function runRelevantCharacterDiscovery(
     counters.drainActive = await isDrainFeedWindowActive({
       redis: admissionRedis,
       appEnv: env.APP_ENV,
-      drainWindowSeconds: env.WCL_PRE_RESET_DRAIN_SECONDS,
+      drainWindowSeconds: settings.wclPreResetDrainSeconds,
     });
     if (!counters.drainActive) {
       logger.info({ event: "relevant_drain_feed_skipped", reason: "outside_drain_window" });

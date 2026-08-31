@@ -439,6 +439,8 @@ export type ScoringSeasonDataSyncJob = z.infer<typeof scoringSeasonDataSyncJobSc
 export const relevantCharacterDiscoveryJobSchema = z.object({
   mode: z.enum(["daily_discovery", "drain_feed"]),
   regionCode: z.enum(KEY_CONTEXT_REGION_CODES).default("EU"),
+  /** schedule = automatic policy; admin = explicit Run Now (bypasses relevant_refresh_enabled). */
+  trigger: z.enum(["schedule", "admin"]).default("schedule"),
   requestedAt: z.string().datetime(),
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
