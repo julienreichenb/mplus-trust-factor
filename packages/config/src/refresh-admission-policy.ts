@@ -101,19 +101,33 @@ export function buildRefreshAdmissionConfig(env: RefreshAdmissionEnv): RefreshAd
   };
 }
 
+export type RefreshAdmissionRuntimeOverrides = {
+  concurrencyEnabled?: boolean;
+  /** WCL admission global slots — follows admin `concurrency_operation` when concurrency is enabled. */
+  globalConcurrency?: number;
+  wclPreResetDrainSeconds?: number;
+};
+
 /**
  * Merge env-built admission config with optional runtime overrides (admin RuntimeSetting).
  * Runtime `refresh_concurrency_enabled=true` raises admitted caps without redeploying env.
+ * When concurrency is enabled, `globalConcurrency` follows `concurrency_operation` (same admin knob as lane permits).
  */
 export function mergeRefreshAdmissionRuntimeOverrides(
   config: RefreshAdmissionConfig,
-  overrides?: { concurrencyEnabled?: boolean; wclPreResetDrainSeconds?: number } | null,
+  overrides?: RefreshAdmissionRuntimeOverrides | null,
 ): RefreshAdmissionConfig {
   if (!overrides) return config;
+  const concurrencyEnabled =
+    overrides.concurrencyEnabled != null ? overrides.concurrencyEnabled : config.concurrencyEnabled;
+  let globalConcurrency = config.globalConcurrency;
+  if (concurrencyEnabled && overrides.globalConcurrency != null) {
+    globalConcurrency = clampGlobalConcurrency(overrides.globalConcurrency, config.globalHardMax);
+  }
   return {
     ...config,
-    concurrencyEnabled:
-      overrides.concurrencyEnabled != null ? overrides.concurrencyEnabled : config.concurrencyEnabled,
+    concurrencyEnabled,
+    globalConcurrency,
     wclPreResetDrainSeconds:
       overrides.wclPreResetDrainSeconds != null
         ? Math.max(0, Math.floor(overrides.wclPreResetDrainSeconds))

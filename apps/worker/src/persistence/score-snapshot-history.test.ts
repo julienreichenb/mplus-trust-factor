@@ -132,15 +132,13 @@ describe.skipIf(!dbAvailable)("score snapshot history", () => {
     expect(snapshots.some((s) => s.id === first.snapshot!.id)).toBe(true);
     expect(snapshots.some((s) => s.id === second.snapshot!.id)).toBe(true);
 
-    const pointer = await prisma.characterPublishedScore.findUnique({
+    const pointer = await prisma.characterPublishedScore.findFirst({
       where: {
-        characterId_seasonId_scoreModelId_scopeType_scopeKey: {
-          characterId: character.id,
-          seasonId: season.id,
-          scoreModelId: model.id,
-          scopeType: "CHARACTER",
-          scopeKey: "",
-        },
+        characterId: character.id,
+        seasonId: season.id,
+        scoreModelId: model.id,
+        scopeType: "CHARACTER",
+        scopeKey: null,
       },
     });
     expect(pointer?.publishedSnapshotId).toBe(second.snapshot!.id);

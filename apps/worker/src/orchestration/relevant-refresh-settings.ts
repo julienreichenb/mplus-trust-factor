@@ -50,9 +50,9 @@ export async function loadRelevantRefreshSettings(
     },
   });
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  const runtimeEnabled = readBoolean(byKey.get(RUNTIME_SETTING_KEYS.relevantRefreshEnabled));
   return {
-    enabled:
-      readBoolean(byKey.get(RUNTIME_SETTING_KEYS.relevantRefreshEnabled)) ?? env.RELEVANT_REFRESH_ENABLED,
+    enabled: env.RELEVANT_REFRESH_KILL_SWITCH ? false : (runtimeEnabled ?? false),
     candidateTarget:
       readPositiveInt(byKey.get(RUNTIME_SETTING_KEYS.relevantCandidateTarget)) ??
       env.RELEVANT_CANDIDATE_TARGET,

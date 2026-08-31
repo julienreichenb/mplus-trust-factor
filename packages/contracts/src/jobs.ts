@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { IsoDateTime, RegionCode } from "./identity.js";
 import { abilityCatalogExecutionPinSchema } from "./ability-catalog-execution-pin.js";
+import { KEY_CONTEXT_REGION_CODES } from "./score-context.js";
 
 export const QUEUE_NAMES = {
   refreshCharacter: "refresh-character",
@@ -437,7 +438,7 @@ export type ScoringSeasonDataSyncJob = z.infer<typeof scoringSeasonDataSyncJobSc
 
 export const relevantCharacterDiscoveryJobSchema = z.object({
   mode: z.enum(["daily_discovery", "drain_feed"]),
-  regionCode: z.enum(["EU", "US"]).default("EU"),
+  regionCode: z.enum(KEY_CONTEXT_REGION_CODES).default("EU"),
   requestedAt: z.string().datetime(),
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });

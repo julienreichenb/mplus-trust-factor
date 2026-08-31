@@ -97,7 +97,7 @@ function predictionFromLuaDenial(
 export function createRefreshAdmissionGate(options: {
   env: RefreshAdmissionEnv & { APP_ENV?: string };
   config?: RefreshAdmissionConfig;
-  runtimeOverrides?: { concurrencyEnabled?: boolean; wclPreResetDrainSeconds?: number } | null;
+  runtimeOverrides?: { concurrencyEnabled?: boolean; globalConcurrency?: number; wclPreResetDrainSeconds?: number } | null;
   redis?: AdmissionRedis | null;
   appEnv?: string;
   repository?: RefreshAdmissionRepository | null;
