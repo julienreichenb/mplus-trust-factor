@@ -11,9 +11,6 @@ import {
   SeasonScoreContextRepository,
   type PrismaClient,
 } from "@mplus/database";
-import {
-  validateMedianKeyDistributionPoints,
-} from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent, type AuditInput } from "../iam/audit.js";
@@ -186,24 +183,17 @@ export class AdminScoreContextService {
       points: Array<{ percentileBps: number; medianKeyThreshold: number }>;
       provenance: Record<string, unknown>;
     };
-    const toDistView = (row: {
-      id: string;
-      source: string;
-      sourceVersion: string | null;
-      collectedAt: Date;
-      points: unknown;
-      provenance: unknown;
-    } | null): DistView | null => {
-      if (!row) return null;
-      const parsed = validateMedianKeyDistributionPoints(row.points);
-      if (!parsed?.ok) return null;
+    const toDistViewFromMapped = (
+      mapped: Awaited<ReturnType<SeasonScoreContextRepository["findLatestValidRegionalDistribution"]>>,
+    ): DistView | null => {
+      if (!mapped) return null;
       return {
-        id: row.id,
-        source: row.source,
-        sourceVersion: row.sourceVersion,
-        collectedAt: row.collectedAt.toISOString(),
-        points: parsed.value.points,
-        provenance: asRecord(row.provenance),
+        id: mapped.id,
+        source: mapped.source,
+        sourceVersion: mapped.sourceVersion,
+        collectedAt: mapped.collectedAt,
+        points: mapped.points,
+        provenance: mapped.provenance,
       };
     };
     const policyDoc = draft ?? published;
@@ -258,12 +248,12 @@ export class AdminScoreContextService {
         };
         continue;
       }
-      const [dists, dungeonCount, refreshStatus] = await Promise.all([
-        repo.listDistributionsForSeason(row.id),
+      const [latestValid, dungeonCount, refreshStatus] = await Promise.all([
+        repo.findLatestValidRegionalDistribution(row.id),
         this.prisma.seasonDungeon.count({ where: { seasonId: row.id } }),
         this.getKeyDistributionStatus(row.id),
       ]);
-      const latestDistribution = toDistView(dists[0] ?? null);
+      const latestDistribution = toDistViewFromMapped(latestValid);
       const boundId = boundByRegion[code]?.id ?? null;
       regions[code] = {
         seasonId: row.id,
@@ -628,14 +618,14 @@ export class AdminScoreContextService {
       where: { seasonId },
       orderBy: { createdAt: "desc" },
     });
-    const snapshots = await this.repo().listDistributionsForSeason(seasonId);
-    const hasSnapshot = snapshots.length > 0;
+    const latestValid = await this.repo().findLatestValidRegionalDistribution(seasonId);
+    const hasSnapshot = latestValid != null;
     if (!latest) {
       return {
         status: hasSnapshot ? ("Available" as const) : ("Idle" as const),
         refreshId: null,
         errorMessage: null,
-        snapshotId: snapshots[0]?.id ?? null,
+        snapshotId: latestValid?.id ?? null,
       };
     }
     const status =
@@ -654,7 +644,7 @@ export class AdminScoreContextService {
       status,
       refreshId: latest.id,
       errorMessage: latest.errorMessage,
-      snapshotId: latest.snapshotId ?? snapshots[0]?.id ?? null,
+      snapshotId: latest.snapshotId ?? latestValid?.id ?? null,
     };
   }
 
