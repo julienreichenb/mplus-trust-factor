@@ -13,7 +13,10 @@ import {
   type RefreshCharacterJob,
 } from "@mplus/contracts";
 import { encodeMythicPlusRecord } from "../../../../packages/providers/raiderio/src/addon-db/fixture.js";
-import { MYTHICPLUS_RECORD_SIZE_BYTES } from "../../../../packages/providers/raiderio/src/addon-db/types.js";
+import {
+  LEGACY_MYTHICPLUS_LAYOUT,
+  packedMythicPlusRecordSizeBytes,
+} from "../../../../packages/providers/raiderio/src/addon-db/packed-layout.js";
 import {
   assertTestDatabaseAllowed,
   sanitizeDatabaseUrl,
@@ -41,6 +44,7 @@ afterAll(async () => {
 });
 
 function mockAddonSnapshot() {
+  const size = packedMythicPlusRecordSizeBytes(LEGACY_MYTHICPLUS_LAYOUT);
   const low = encodeMythicPlusRecord({
     currentScore: 1000,
     dungeonLevels: [10, 10, 10, 10, 10, 10, 10, 10],
@@ -49,13 +53,11 @@ function mockAddonSnapshot() {
     currentScore: 3200,
     dungeonLevels: [18, 18, 18, 18, 18, 18, 18, 18],
   });
-  const lookup = new Uint8Array(MYTHICPLUS_RECORD_SIZE_BYTES * 2);
+  const lookup = new Uint8Array(size * 2);
   lookup.set(low, 0);
-  lookup.set(high, MYTHICPLUS_RECORD_SIZE_BYTES);
-  const named = [
-    { realm: "tarren-mill", name: "RelevantOne", byteOffset: MYTHICPLUS_RECORD_SIZE_BYTES + 1 },
-  ];
-  return { lookup, named };
+  lookup.set(high, size);
+  const named = [{ realm: "tarren-mill", name: "RelevantOne", byteOffset: size }];
+  return { lookup, named, layout: LEGACY_MYTHICPLUS_LAYOUT };
 }
 
 async function requireActiveAbilityCatalogRelease() {

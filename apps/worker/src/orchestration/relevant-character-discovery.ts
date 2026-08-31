@@ -10,9 +10,13 @@ import type { RelevantCharacterDiscoveryJob, RegionCode } from "@mplus/contracts
 import { normalizeRealmSlug } from "@mplus/domain";
 import {
   extractRequiredAddonFiles,
+  layoutFromProviderHeader,
   loadLookupBuffer,
   parseNamedCharacterOffsets,
+  parseProviderHeader,
   selectRelevantCandidatesFromAddonSnapshot,
+  validatePackedProviderHeader,
+  type MythicPlusPackedLayout,
 } from "@mplus/provider-raiderio";
 import type { Logger } from "@mplus/observability";
 import type { WorkerContainer } from "../container.js";
@@ -69,15 +73,23 @@ async function loadRegionalAddonSnapshot(
 ): Promise<{
   lookup: Uint8Array;
   named: Awaited<ReturnType<typeof parseNamedCharacterOffsets>>["named"];
+  layout: MythicPlusPackedLayout;
 }> {
   const workingDir = join(tmpdir(), `mplus-relevant-${randomUUID()}`);
   const { downloadReleaseZip, selectLatestMainlineAddonRelease } = await import("@mplus/provider-raiderio");
   const selected = await selectLatestMainlineAddonRelease();
   const { zipPath } = await downloadReleaseZip(selected.assetUrl, workingDir);
   const files = await extractRequiredAddonFiles(zipPath, workingDir, regionCode);
-  const lookup = loadLookupBuffer(await readFile(files.lookupPath, "utf8"));
-  const { named } = await parseNamedCharacterOffsets(files.charactersPath);
-  return { lookup, named };
+  const lookupText = (await readFile(files.lookupPath)).toString("latin1");
+  const lookupHeader = parseProviderHeader(lookupText.slice(0, 32_768));
+  validatePackedProviderHeader(lookupHeader);
+  const layout = layoutFromProviderHeader(lookupHeader);
+  const lookup = loadLookupBuffer(lookupText);
+  const { named } = await parseNamedCharacterOffsets(
+    files.charactersPath,
+    lookupHeader.recordSizeInBytes,
+  );
+  return { lookup, named, layout };
 }
 
 export async function runRelevantCharacterDiscovery(
@@ -166,12 +178,13 @@ export async function runRelevantCharacterDiscovery(
   });
 
   const loadAddon = hooks?.loadAddon ?? loadRegionalAddonSnapshot;
-  const { lookup, named } = await loadAddon(container, season.id, regionCode, logger);
+  const { lookup, named, layout } = await loadAddon(container, season.id, regionCode, logger);
 
   const selection = selectRelevantCandidatesFromAddonSnapshot({
     lookup,
     named,
     percentileBps: settings.candidatePercentileBps,
+    layout,
     maxCandidates: settings.candidateTarget * 4,
   });
   counters.scanned = selection.scanned;

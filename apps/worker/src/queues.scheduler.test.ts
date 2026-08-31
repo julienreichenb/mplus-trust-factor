@@ -155,6 +155,31 @@ describe("automatic scheduler registration by APP_ENV + PROVIDER_DATA_ROLE", () 
     await producers.close();
   });
 
+  it("APP_ENV=staging + collector clears then registers discovery when regions exist", async () => {
+    const producers = createQueueProducers({} as never, containerFor("staging", "collector"));
+    expect(await producers.registerRelevantCharacterDiscoverySchedule()).toEqual({
+      registered: true,
+    });
+    const relQ = queueNamed(QUEUE_NAMES.relevantCharacterDiscovery);
+    // removeRegionSchedulers runs before upsert (legacy + 4 regions × 2).
+    expect(relQ?.removeJobScheduler.mock.calls.length).toBeGreaterThanOrEqual(10);
+    expect(relQ?.upsertJobScheduler).toHaveBeenCalled();
+    await producers.close();
+  });
+
+  it("APP_ENV=staging + collector with no enabled regions removes stale discovery schedulers", async () => {
+    const container = containerFor("staging", "collector");
+    (container.prisma.region.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    const producers = createQueueProducers({} as never, container);
+    expect(await producers.registerRelevantCharacterDiscoverySchedule()).toEqual({
+      registered: false,
+    });
+    const relQ = queueNamed(QUEUE_NAMES.relevantCharacterDiscovery);
+    expect(relQ?.removeJobScheduler).toHaveBeenCalled();
+    expect(relQ?.upsertJobScheduler).not.toHaveBeenCalled();
+    await producers.close();
+  });
+
   it("manual enqueue paths remain callable in development", async () => {
     const producers = createQueueProducers({} as never, containerFor("development", "consumer"));
     const sync = await producers.enqueueScoringSeasonDataSync({ trigger: "admin" });

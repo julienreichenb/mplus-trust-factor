@@ -126,6 +126,7 @@ import {
   RUNTIME_SETTING_KEYS,
   type RefreshWorkloadClass,
 } from "@mplus/contracts";
+import { effectiveOperationLaneLimit } from "./relevant-refresh-settings.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -864,16 +865,28 @@ export async function runRefreshPipeline(
           in: [
             RUNTIME_SETTING_KEYS.concurrencyCalibration,
             RUNTIME_SETTING_KEYS.concurrencyOperation,
+            RUNTIME_SETTING_KEYS.refreshConcurrencyEnabled,
           ],
         },
       },
     });
     const calRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyCalibration);
     const opRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyOperation);
+    const enabledRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.refreshConcurrencyEnabled);
     const cal = Number(calRow?.value) || DEFAULT_CONCURRENCY_CALIBRATION;
     const op = Number(opRow?.value) || DEFAULT_CONCURRENCY_OPERATION;
     const settingsVersion = Math.max(calRow?.version ?? 1, opRow?.version ?? 1, 1);
-    const limit = workloadClass === "CALIBRATION" ? cal : op;
+    const concurrencyEnabled =
+      enabledRow?.value === true ||
+      enabledRow?.value === "true" ||
+      (enabledRow == null && container.env.REFRESH_CONCURRENCY_ENABLED);
+    const limit =
+      workloadClass === "CALIBRATION"
+        ? cal
+        : effectiveOperationLaneLimit({
+            concurrencyOperation: op,
+            refreshConcurrencyEnabled: concurrencyEnabled,
+          });
     const permit = await acquireLanePermit({
       redis: admissionRedis,
       appEnv: container.env.APP_ENV,

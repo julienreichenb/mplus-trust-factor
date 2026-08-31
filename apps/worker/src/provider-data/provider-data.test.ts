@@ -29,6 +29,40 @@ function makePrismaStore(seed: Record<string, Array<Record<string, unknown>>> = 
     async ({ where }: { where: Record<string, unknown> }) => {
       const rows = store[table] ?? [];
       if ("id" in where) return rows.find((r) => r.id === where.id) ?? null;
+      if ("code" in where) return rows.find((r) => r.code === where.code) ?? null;
+      if ("key" in where && !("key_version" in where)) {
+        return rows.find((r) => r.key === where.key) ?? null;
+      }
+      if ("key_version" in where) {
+        const key = where.key_version as { key: string; version: number };
+        return rows.find((r) => r.key === key.key && Number(r.version) === Number(key.version)) ?? null;
+      }
+      if ("slug" in where && Object.keys(where).length === 1) {
+        return rows.find((r) => r.slug === where.slug) ?? null;
+      }
+      if ("regionId_slug" in where) {
+        const key = where.regionId_slug as { regionId: string; slug: string };
+        return rows.find((r) => r.regionId === key.regionId && r.slug === key.slug) ?? null;
+      }
+      if ("classId_slug" in where) {
+        const key = where.classId_slug as { classId: string; slug: string };
+        return rows.find((r) => r.classId === key.classId && r.slug === key.slug) ?? null;
+      }
+      if ("regionId_realmId_normalizedName" in where) {
+        const key = where.regionId_realmId_normalizedName as {
+          regionId: string;
+          realmId: string;
+          normalizedName: string;
+        };
+        return (
+          rows.find(
+            (r) =>
+              r.regionId === key.regionId &&
+              r.realmId === key.realmId &&
+              r.normalizedName === key.normalizedName,
+          ) ?? null
+        );
+      }
       if ("seasonId_dungeonId" in where) {
         const key = where.seasonId_dungeonId as { seasonId: string; dungeonId: string };
         return (
@@ -523,6 +557,154 @@ describe("importProviderDataBundle", () => {
     await expect(
       importProviderDataBundle({ prisma: existing as never, dir }),
     ).rejects.toMatchObject({ code: "IMMUTABLE_CONFLICT" });
+  });
+
+  it("remaps seeded region/score_model natural keys so staging→prod import succeeds", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mplus-pd-seed-"));
+    const seedRegionId = "11111111-1111-4111-8111-111111111101";
+    const exportRegionId = "11111111-1111-4111-8111-111111111102";
+    const seedModelId = "dddddddd-dddd-4ddd-8ddd-dddddddddd01";
+    const exportModelId = "dddddddd-dddd-4ddd-8ddd-dddddddddd02";
+    const seasonId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const characterId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const realmId = "22222222-2222-4222-8222-222222222222";
+    const snapId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    const prisma = makePrismaStore({
+      regions: [
+        {
+          id: seedRegionId,
+          code: "EU",
+          name: "Europe",
+          enabled: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      score_models: [
+        {
+          id: seedModelId,
+          key: "default",
+          version: 6,
+          name: "Seeded",
+          description: "",
+          status: "ACTIVE",
+          config: {},
+          createdAt: "2026-01-01T00:00:00.000Z",
+          activatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const corpus: ProviderDataCorpus = {
+      schemaVersion: PROVIDER_DATA_SCHEMA_VERSION,
+      tables: {
+        ...emptyTables(),
+        regions: [
+          {
+            id: exportRegionId,
+            code: "EU",
+            name: "Europe",
+            enabled: true,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        score_models: [
+          {
+            id: exportModelId,
+            key: "default",
+            version: 6,
+            name: "Staging",
+            description: "",
+            status: "ACTIVE",
+            config: {},
+            createdByUserId: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            activatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        realms: [
+          {
+            id: realmId,
+            regionId: exportRegionId,
+            slug: "outland",
+            name: "Outland",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        seasons: [
+          {
+            id: seasonId,
+            regionId: exportRegionId,
+            blizzardSeasonId: 99,
+            slug: "test-season",
+            name: "Test",
+            startsAt: "2026-01-01T00:00:00.000Z",
+            endsAt: null,
+            isCurrent: true,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        characters: [
+          {
+            id: characterId,
+            regionId: exportRegionId,
+            realmId,
+            normalizedName: "tester",
+            displayName: "Tester",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        score_snapshots: [
+          {
+            id: snapId,
+            characterId,
+            seasonId,
+            scoreModelId: exportModelId,
+            scopeType: "SEASON",
+            scopeKey: null,
+            overallScore: "10",
+            grade: "B",
+            skillScore: "10",
+            authenticityScore: "10",
+            confidence: "0.9",
+            calculatedAt: "2026-06-01T00:00:00.000Z",
+            inputFingerprint: "fp-a",
+            explanation: {},
+            publicationStatus: "PUBLIC",
+            isPublic: true,
+          },
+        ],
+      },
+    };
+    const contentHash = hashCanonicalPayload(corpus);
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({
+        schemaVersion: PROVIDER_DATA_SCHEMA_VERSION,
+        generatedAt: new Date().toISOString(),
+        sourceEnvironment: "staging",
+        contentHash,
+        regions: ["EU"],
+        seasonIds: [seasonId],
+        counts: {},
+      }),
+    );
+    writeFileSync(join(dir, "latest.json.gz"), gzipSync(Buffer.from(canonicalJsonStringify(corpus))));
+
+    const result = await importProviderDataBundle({ prisma: prisma as never, dir });
+    expect(result.skippedDuplicate).toBe(false);
+    expect(prisma._store.regions).toHaveLength(1);
+    expect(prisma._store.regions[0]!.id).toBe(seedRegionId);
+    expect(prisma._store.score_models).toHaveLength(1);
+    expect(prisma._store.score_models[0]!.id).toBe(seedModelId);
+    expect(prisma._store.realms[0]!.regionId).toBe(seedRegionId);
+    expect(prisma._store.characters[0]!.regionId).toBe(seedRegionId);
+    expect(prisma._store.score_snapshots[0]!.scoreModelId).toBe(seedModelId);
   });
 
   it("does not move published pointer backwards", async () => {

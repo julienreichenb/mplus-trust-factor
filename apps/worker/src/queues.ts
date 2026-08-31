@@ -586,6 +586,10 @@ export function createQueueProducers(
         return { registered: false };
       }
 
+      // Always clear region schedulers first so disabled regions and empty target
+      // sets cannot leave stale discovery/drain jobs registered in Redis.
+      await removeRegionSchedulers();
+
       if (targets.length === 0) {
         container.logger.warn(
           { event: "relevant_discovery_schedule_skipped", reason: "no_enabled_addon_regions" },
@@ -593,10 +597,6 @@ export function createQueueProducers(
         );
         return { registered: false };
       }
-
-      // Retire legacy EU-only scheduler ids from earlier patch iterations.
-      await queue.removeJobScheduler("daily-relevant-character-discovery-eu").catch(() => undefined);
-      await queue.removeJobScheduler("relevant-drain-feed").catch(() => undefined);
 
       for (const { code } of targets) {
         const regionKey = code.toLowerCase();

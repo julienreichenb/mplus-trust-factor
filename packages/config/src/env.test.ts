@@ -36,6 +36,7 @@ describe("loadEnv", () => {
     expect(env.SCORING_ENABLED).toBe(false);
     expect(env.SCORING_PUBLICATION_ENABLED).toBe(false);
     expect(env.CALIBRATION_ENABLED).toBe(false);
+    expect(env.PROVIDER_DATA_ROLE).toBe("consumer");
   });
 
   it("accepts UTILITY_PUBLICATION_MODE enum values", () => {

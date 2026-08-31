@@ -14,7 +14,7 @@ export const envSchema = z
      * Only the collector may automatically run expensive WCL population jobs.
      * Not editable from admin UI (infra misconfiguration would duplicate WCL spend).
      */
-    PROVIDER_DATA_ROLE: z.enum(["collector", "consumer"]).default("collector"),
+    PROVIDER_DATA_ROLE: z.enum(["collector", "consumer"]).default("consumer"),
     /**
      * Directory for portable provider-data bundles (manifest + latest.json.gz).
      * Deploy default: /opt/mplus/shared/provider-data

@@ -11,6 +11,8 @@ Avoids duplicate expensive WCL population across deployed environments by export
 
 Env-only. Not exposed in admin UI (misconfiguration would double WCL spend).
 
+**Fail-safe default:** unset `PROVIDER_DATA_ROLE` resolves to `consumer` (no automatic expensive WCL population). Deployed collectors must set `PROVIDER_DATA_ROLE=collector` explicitly.
+
 Bundle directory: `PROVIDER_DATA_DIR` (default `/opt/mplus/shared/provider-data`):
 
 ```text

@@ -364,6 +364,14 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       return { registered: false };
     },
 
+    async registerProviderDataExportSchedule() {
+      return { registered: false };
+    },
+
+    async registerProviderDataImportSchedule() {
+      return { registered: false };
+    },
+
     async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
       const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({
         ...input,

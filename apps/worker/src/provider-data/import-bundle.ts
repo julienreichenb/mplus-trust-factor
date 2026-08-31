@@ -20,6 +20,52 @@ export class ProviderDataImportError extends Error {
   }
 }
 
+/** Maps export UUID → local UUID when seeded structural rows already exist. */
+class ImportIdMap {
+  private readonly map = new Map<string, string>();
+
+  remember(exportId: string, localId: string): void {
+    if (exportId !== localId) this.map.set(exportId, localId);
+  }
+
+  resolve(exportId: unknown): string | null {
+    if (exportId == null) return null;
+    const id = String(exportId);
+    return this.map.get(id) ?? id;
+  }
+
+  applyFields(row: Record<string, unknown>, fields: readonly string[]): void {
+    for (const field of fields) {
+      if (row[field] == null) continue;
+      row[field] = this.resolve(row[field]);
+    }
+  }
+}
+
+const TABLE_FK_FIELDS: Record<string, readonly string[]> = {
+  realms: ["regionId"],
+  seasons: ["regionId"],
+  season_dungeons: ["seasonId", "dungeonId"],
+  game_specializations: ["classId"],
+  characters: ["regionId", "realmId", "classId", "activeSpecId"],
+  character_aliases: ["characterId", "regionId"],
+  character_provider_states: ["characterId"],
+  season_median_key_distribution_snapshots: ["seasonId"],
+  season_score_context_revisions: ["seasonId"],
+  score_context_revision_region_snapshots: ["revisionId", "distributionSnapshotId"],
+  character_run_digests: ["rawRunId", "characterId"],
+  run_ranking_facts: ["rawRunId", "characterId"],
+  wcl_fight_ranking_snapshots: ["rawRunId"],
+  wcl_fight_ranking_entries: ["snapshotId"],
+  character_performance_aggregates: ["characterId", "seasonId"],
+  character_experience_evidence: ["characterId", "seasonId"],
+  character_scores: ["characterId", "seasonId", "contextRevisionId", "contextDistributionSnapshotId"],
+  score_snapshots: ["characterId", "seasonId", "scoreModelId"],
+  dimension_scores: ["scoreSnapshotId"],
+  character_published_scores: ["characterId", "seasonId", "scoreModelId", "publishedSnapshotId"],
+  character_red_flags: ["characterId", "seasonId", "definitionId", "scoreModelId"],
+};
+
 export async function readProviderDataBundle(dir: string): Promise<{
   manifest: ProviderDataManifest;
   corpus: ProviderDataCorpus;
@@ -85,8 +131,14 @@ function asBigInt(value: unknown): bigint | null {
   return BigInt(String(value));
 }
 
-function prepareRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
+function prepareRow(
+  table: string,
+  row: Record<string, unknown>,
+  idMap: ImportIdMap,
+): Record<string, unknown> {
   const next = { ...row };
+  const fks = TABLE_FK_FIELDS[table];
+  if (fks) idMap.applyFields(next, fks);
   if (table === "score_models" || table === "season_score_context_revisions") {
     next.createdByUserId = null;
   }
@@ -115,14 +167,15 @@ async function upsertRows(
   prisma: PrismaClient,
   table: string,
   rows: Array<Record<string, unknown>>,
+  idMap: ImportIdMap,
 ): Promise<{ inserted: number; updated: number; unchanged: number }> {
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
 
   for (const raw of rows) {
-    const row = prepareRow(table, raw);
-    const result = await upsertOne(prisma, table, row);
+    const row = prepareRow(table, raw, idMap);
+    const result = await upsertOne(prisma, table, row, idMap);
     if (result === "inserted") inserted += 1;
     else if (result === "updated") updated += 1;
     else unchanged += 1;
@@ -134,55 +187,94 @@ async function upsertOne(
   prisma: PrismaClient,
   table: string,
   row: Record<string, unknown>,
+  idMap: ImportIdMap,
 ): Promise<"inserted" | "updated" | "unchanged"> {
   switch (table) {
     case "regions": {
-      const existing = await prisma.region.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.region.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.region.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const byCode = await prisma.region.findUnique({ where: { code: String(row.code) } });
+      if (byCode) {
+        idMap.remember(exportId, byCode.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.region.create({ data: row as never });
+      return "inserted";
     }
     case "realms": {
-      const existing = await prisma.realm.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.realm.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.realm.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const regionId = String(row.regionId);
+      const slug = String(row.slug);
+      const byNatural = await prisma.realm.findUnique({
+        where: { regionId_slug: { regionId, slug } },
+      });
+      if (byNatural) {
+        idMap.remember(exportId, byNatural.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.realm.create({ data: row as never });
+      return "inserted";
     }
     case "game_classes": {
-      const existing = await prisma.gameClass.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.gameClass.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.gameClass.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const bySlug = await prisma.gameClass.findUnique({ where: { slug: String(row.slug) } });
+      if (bySlug) {
+        idMap.remember(exportId, bySlug.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.gameClass.create({ data: row as never });
+      return "inserted";
     }
     case "game_specializations": {
-      const existing = await prisma.gameSpecialization.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.gameSpecialization.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.gameSpecialization.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const classId = String(row.classId);
+      const slug = String(row.slug);
+      const byNatural = await prisma.gameSpecialization.findUnique({
+        where: { classId_slug: { classId, slug } },
+      });
+      if (byNatural) {
+        idMap.remember(exportId, byNatural.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.gameSpecialization.create({ data: row as never });
+      return "inserted";
     }
     case "seasons": {
-      const existing = await prisma.season.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.season.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.season.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const regionId = row.regionId == null ? null : String(row.regionId);
+      const slug = String(row.slug);
+      if (regionId) {
+        const byNatural = await prisma.season.findUnique({
+          where: { regionId_slug: { regionId, slug } },
+        });
+        if (byNatural) {
+          idMap.remember(exportId, byNatural.id);
+          return "unchanged";
+        }
       }
-      return "unchanged";
+      await prisma.season.create({ data: row as never });
+      return "inserted";
     }
     case "dungeons": {
-      const existing = await prisma.dungeon.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.dungeon.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.dungeon.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const bySlug = await prisma.dungeon.findUnique({ where: { slug: String(row.slug) } });
+      if (bySlug) {
+        idMap.remember(exportId, bySlug.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.dungeon.create({ data: row as never });
+      return "inserted";
     }
     case "season_dungeons": {
       const seasonId = String(row.seasonId);
@@ -197,43 +289,65 @@ async function upsertOne(
       return "unchanged";
     }
     case "score_models": {
-      const existing = await prisma.scoreModel.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.scoreModel.create({
-          data: {
-            ...row,
-            config: asJson(row.config),
-            createdAt: asRequiredDate(row.createdAt),
-            activatedAt: asDate(row.activatedAt),
-          } as never,
-        });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.scoreModel.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const byKey = await prisma.scoreModel.findUnique({
+        where: { key_version: { key: String(row.key), version: Number(row.version) } },
+      });
+      if (byKey) {
+        idMap.remember(exportId, byKey.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.scoreModel.create({
+        data: {
+          ...row,
+          config: asJson(row.config),
+          createdAt: asRequiredDate(row.createdAt),
+          activatedAt: asDate(row.activatedAt),
+        } as never,
+      });
+      return "inserted";
     }
     case "red_flag_definitions": {
-      const existing = await prisma.redFlagDefinition.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.redFlagDefinition.create({ data: row as never });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.redFlagDefinition.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const byKey = await prisma.redFlagDefinition.findUnique({ where: { key: String(row.key) } });
+      if (byKey) {
+        idMap.remember(exportId, byKey.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.redFlagDefinition.create({ data: row as never });
+      return "inserted";
     }
     case "characters": {
-      const existing = await prisma.character.findUnique({ where: { id: String(row.id) } });
-      if (!existing) {
-        await prisma.character.create({
-          data: {
-            ...row,
-            lastSeenAt: asDate(row.lastSeenAt),
-            lastPublicRefreshAt: asDate(row.lastPublicRefreshAt),
-            createdAt: asRequiredDate(row.createdAt),
-            updatedAt: asRequiredDate(row.updatedAt),
-          } as never,
-        });
-        return "inserted";
+      const exportId = String(row.id);
+      const byId = await prisma.character.findUnique({ where: { id: exportId } });
+      if (byId) return "unchanged";
+      const byNatural = await prisma.character.findUnique({
+        where: {
+          regionId_realmId_normalizedName: {
+            regionId: String(row.regionId),
+            realmId: String(row.realmId),
+            normalizedName: String(row.normalizedName),
+          },
+        },
+      });
+      if (byNatural) {
+        idMap.remember(exportId, byNatural.id);
+        return "unchanged";
       }
-      return "unchanged";
+      await prisma.character.create({
+        data: {
+          ...row,
+          lastSeenAt: asDate(row.lastSeenAt),
+          lastPublicRefreshAt: asDate(row.lastPublicRefreshAt),
+          createdAt: asRequiredDate(row.createdAt),
+          updatedAt: asRequiredDate(row.updatedAt),
+        } as never,
+      });
+      return "inserted";
     }
     case "character_aliases": {
       const existing = await prisma.characterAlias.findUnique({ where: { id: String(row.id) } });
@@ -592,11 +706,12 @@ export async function importProviderDataBundle(input: {
   }
 
   const stats: Record<string, { inserted: number; updated: number; unchanged: number }> = {};
+  const idMap = new ImportIdMap();
   await input.prisma.$transaction(
     async (tx) => {
       for (const table of PROVIDER_DATA_EXPORT_TABLES) {
         const rows = corpus.tables[table] ?? [];
-        stats[table] = await upsertRows(tx as unknown as PrismaClient, table, rows);
+        stats[table] = await upsertRows(tx as unknown as PrismaClient, table, rows, idMap);
       }
       await tx.providerDataImport.create({
         data: {

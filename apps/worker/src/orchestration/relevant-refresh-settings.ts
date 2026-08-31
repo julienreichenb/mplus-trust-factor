@@ -104,3 +104,12 @@ export async function loadRelevantRefreshSettings(
       env.WCL_PRE_RESET_DRAIN_SECONDS,
   };
 }
+
+/** OPERATION lane limit: parallel toggle off forces serial (1). */
+export function effectiveOperationLaneLimit(input: {
+  concurrencyOperation: number;
+  refreshConcurrencyEnabled: boolean;
+}): number {
+  if (!input.refreshConcurrencyEnabled) return 1;
+  return input.concurrencyOperation;
+}
