@@ -70,11 +70,5 @@ export function sliceRecord(lookup: Uint8Array, oneBasedByteOffset: number): Uin
       `Record offset ${oneBasedByteOffset} is outside lookup (${lookup.length} bytes)`,
     );
   }
-  if (lookup.length % MYTHICPLUS_RECORD_SIZE_BYTES !== 0) {
-    throw new AddonDbFormatError(
-      "LOOKUP_LENGTH",
-      `Lookup length ${lookup.length} is not divisible by ${MYTHICPLUS_RECORD_SIZE_BYTES}`,
-    );
-  }
   return lookup.subarray(start, start + MYTHICPLUS_RECORD_SIZE_BYTES);
 }

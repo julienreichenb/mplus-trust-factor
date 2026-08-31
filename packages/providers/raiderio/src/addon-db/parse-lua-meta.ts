@@ -1,6 +1,9 @@
 import { AddonDbFormatError, type AddonProviderHeader, type RioAddonDungeon } from "./types.js";
 
 export function parseDbDungeonsLua(source: string, currentSeasonId: number): RioAddonDungeon[] {
+  const currentBlock = parseNsDungeonsCurrentSeasonBlock(source);
+  if (currentBlock) return currentBlock;
+
   const fromTables = parseNsDungeonTables(source).filter((season) => season.length === 8);
   if (fromTables.length > 0) {
     const idx = currentSeasonId;
@@ -23,6 +26,20 @@ export function parseDbDungeonsLua(source: string, currentSeasonId: number): Rio
     throw new AddonDbFormatError("DUNGEON_COUNT", `Expected 8 current-season dungeons, found ${sliced.length}`);
   }
   return sliced;
+}
+
+/** Raider.IO now ships current-season dungeons in `ns.dungeons` and history in `ns.expansionDungeons`. */
+function parseNsDungeonsCurrentSeasonBlock(source: string): RioAddonDungeon[] | null {
+  const dungeonsIdx = source.indexOf("ns.dungeons");
+  if (dungeonsIdx < 0) return null;
+  const nextMarkers = ["ns.expansionDungeons", "ns.dungeonSeasons", "ns.seasonDungeons"];
+  let blockEnd = source.length;
+  for (const marker of nextMarkers) {
+    const idx = source.indexOf(marker, dungeonsIdx + 1);
+    if (idx >= 0) blockEnd = Math.min(blockEnd, idx);
+  }
+  const dungeons = parseDungeonFieldsFlat(source.slice(dungeonsIdx, blockEnd));
+  return dungeons.length === 8 ? dungeons : null;
 }
 
 function parseNsDungeonTables(source: string): RioAddonDungeon[][] {

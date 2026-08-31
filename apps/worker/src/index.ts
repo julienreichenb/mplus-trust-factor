@@ -213,6 +213,7 @@ async function main(): Promise<void> {
       prisma: container.prisma,
       logger: container.logger,
       warcraftlogs: container.providers.warcraftlogs,
+      blizzard: container.providers.blizzard,
       providerMode: env.PROVIDER_MODE,
     });
   } catch (error) {

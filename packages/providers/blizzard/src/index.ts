@@ -38,6 +38,10 @@ export {
   normalizeTalentSnapshot,
   attachTalentSpellIcons,
   extractSelectedTalentsFromLoadout,
+  slugifyLabel,
+  canonicalDungeonSlug,
+  normalizeJournalInstance,
+  normalizeJournalInstanceMedia,
 } from "./normalize.js";
 export type {
   BlizzardIdentityDiagnostics,

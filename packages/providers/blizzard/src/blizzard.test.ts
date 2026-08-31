@@ -418,6 +418,25 @@ describe("FixtureBlizzardProvider", () => {
     expect(items.data[0]?.blizzardItemId).toBe(194301);
   });
 
+  it("parses journal-instance index and official tile media", async () => {
+    const index = await provider.getJournalInstanceIndex(ctx);
+    const kings = index.data.find((row) => row.slug === "kings-rest");
+    expect(kings?.journalInstanceId).toBe(1041);
+    expect(kings?.name).toBe("Kings' Rest");
+    const media = await provider.getJournalInstanceMedia(1041, ctx);
+    expect(media.data.tileUrl).toBe("https://render.worldofwarcraft.com/eu/zones/kings-rest-small.jpg");
+    const empty = await provider.getJournalInstanceMedia(9999, ctx);
+    expect(empty.data.tileUrl).toBeNull();
+  });
+
+  it("canonicalDungeonSlug normalizes punctuation without aliases", async () => {
+    const { canonicalDungeonSlug } = await import("./normalize.js");
+    expect(canonicalDungeonSlug("King's Rest")).toBe("kings-rest");
+    expect(canonicalDungeonSlug("Kings' Rest")).toBe("kings-rest");
+    expect(canonicalDungeonSlug("Ruby Life Pools")).toBe("ruby-life-pools");
+    expect(canonicalDungeonSlug("Future Hollow Spire")).toBe("future-hollow-spire");
+  });
+
   it("exposes leaderboard method without crawling", async () => {
     const board = await provider.getConnectedRealmMythicLeaderboard(1084, 399, 952, ctx);
     expect(board.data.connectedRealmId).toBe(1084);

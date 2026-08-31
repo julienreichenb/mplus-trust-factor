@@ -190,6 +190,21 @@ function makePrisma(seed: {
         return data;
       },
       update: async () => ({}),
+      deleteMany: async ({
+        where,
+      }: {
+        where: { seasonId: string; dungeonId?: { notIn: string[] } };
+      }) => {
+        const keep = where.dungeonId?.notIn ?? [];
+        let count = 0;
+        for (const [key, binding] of [...bindings.entries()]) {
+          if (binding.seasonId !== where.seasonId) continue;
+          if (keep.includes(binding.dungeonId)) continue;
+          bindings.delete(key);
+          count += 1;
+        }
+        return { count };
+      },
     },
     dungeon: {
       upsert: async ({

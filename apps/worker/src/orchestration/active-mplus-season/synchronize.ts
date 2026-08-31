@@ -153,6 +153,7 @@ export async function synchronizeActiveMplusSeasonCatalog(
   let createdBindings = 0;
   let alreadyPresent = 0;
   const boundSlugs: string[] = [];
+  const boundDungeonIds: string[] = [];
 
   for (let i = 0; i < catalog.dungeonSlugs.length; i++) {
     const dungeonSlug = catalog.dungeonSlugs[i]!;
@@ -190,6 +191,16 @@ export async function synchronizeActiveMplusSeasonCatalog(
       createdBindings += 1;
     }
     boundSlugs.push(dungeonSlug);
+    boundDungeonIds.push(dungeon.id);
+  }
+
+  if (boundDungeonIds.length > 0) {
+    await input.prisma.seasonDungeon.deleteMany({
+      where: {
+        seasonId: season.id,
+        dungeonId: { notIn: boundDungeonIds },
+      },
+    });
   }
 
   const dungeonPoolHash = computeDungeonPoolHash(boundSlugs);

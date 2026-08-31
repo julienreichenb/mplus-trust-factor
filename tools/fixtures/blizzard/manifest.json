@@ -61,6 +61,15 @@
       "399": "dungeon-sample.json"
     }
   },
+  "journalInstances": {
+    "index": "journal-instance-index.json",
+    "mediaById": {
+      "1041": "journal-instance-media-1041.json",
+      "1322": "journal-instance-media-1322.json",
+      "278": "journal-instance-media-278.json",
+      "9999": "journal-instance-media-9999.json"
+    }
+  },
   "items": {
     "194301": {
       "item": "item-sample.json",

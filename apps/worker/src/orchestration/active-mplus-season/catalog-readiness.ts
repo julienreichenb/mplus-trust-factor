@@ -6,6 +6,12 @@ import { canonicalDungeonKey } from "../run-fusion.js";
 import { readActiveMplusCatalogMetadata } from "./catalog-metadata.js";
 import { computeDungeonPoolHash } from "./types.js";
 import { loadSeasonDungeonIdentities } from "./resolve.js";
+import {
+  createDefaultMplusZoneCatalogRegistry,
+  lookupZoneCatalogByWclZoneId,
+  type MplusZoneCatalogEntry,
+  type MplusZoneCatalogRegistry,
+} from "./zone-catalog-registry.js";
 
 export interface CatalogReadinessResult {
   ready: boolean;
@@ -20,13 +26,23 @@ export interface CatalogReadinessResult {
 /**
  * A catalog is ready only when persisted state is coherent and lastKnownGood.
  */
+export interface CatalogReadinessOptions {
+  requireEncounterIds?: boolean;
+  registry?: MplusZoneCatalogRegistry;
+  /**
+   * When set (AUTO live discovery), persisted catalog must match this pool/zone —
+   * same dungeon count with a stale prior-season pool must not read as ready.
+   */
+  authoritativeCatalog?: Pick<MplusZoneCatalogEntry, "wclZoneId" | "dungeonSlugs"> | null;
+}
+
 export async function evaluateSeasonCatalogReadiness(
   prisma: PrismaClient,
   season: Pick<
     Season,
     "id" | "slug" | "blizzardSeasonId" | "dungeonCount" | "metadata"
   >,
-  opts: { requireEncounterIds?: boolean } = {},
+  opts: CatalogReadinessOptions = {},
 ): Promise<CatalogReadinessResult> {
   const reasons: string[] = [];
   const requireEncounterIds = opts.requireEncounterIds !== false;
@@ -94,6 +110,38 @@ export async function evaluateSeasonCatalogReadiness(
     meta.blizzardSeasonId !== season.blizzardSeasonId
   ) {
     reasons.push("blizzard_season_id_mismatch");
+  }
+
+  if (meta?.wclZoneId) {
+    const registry = opts.registry ?? createDefaultMplusZoneCatalogRegistry();
+    const zoneEntry = lookupZoneCatalogByWclZoneId(registry, meta.wclZoneId);
+    if (
+      zoneEntry?.blizzardSeasonId != null &&
+      season.blizzardSeasonId != null &&
+      zoneEntry.blizzardSeasonId !== season.blizzardSeasonId
+    ) {
+      reasons.push(
+        `wcl_zone_season_mismatch:zone=${meta.wclZoneId}:zoneSeason=${zoneEntry.blizzardSeasonId}:season=${season.blizzardSeasonId}`,
+      );
+    }
+  }
+
+  if (opts.authoritativeCatalog && meta) {
+    const auth = opts.authoritativeCatalog;
+    if (auth.wclZoneId !== meta.wclZoneId) {
+      reasons.push(
+        `authoritative_wcl_zone_mismatch:persisted=${meta.wclZoneId}:expected=${auth.wclZoneId}`,
+      );
+    }
+    const authSlugs = auth.dungeonSlugs.map((s) => canonicalDungeonKey(s));
+    const metaSlugs = meta.dungeonSlugs.map((s) => canonicalDungeonKey(s));
+    if (authSlugs.join("\n") !== metaSlugs.join("\n")) {
+      reasons.push("authoritative_dungeon_slugs_mismatch");
+    }
+    const authHash = computeDungeonPoolHash(authSlugs);
+    if (authHash !== meta.dungeonPoolHash) {
+      reasons.push("authoritative_dungeon_pool_mismatch");
+    }
   }
 
   const poolHash =

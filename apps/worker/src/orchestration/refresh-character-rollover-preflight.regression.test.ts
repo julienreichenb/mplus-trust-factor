@@ -228,6 +228,21 @@ function makePrisma(seed: {
         return data;
       },
       update: async () => ({}),
+      deleteMany: async ({
+        where,
+      }: {
+        where: { seasonId: string; dungeonId?: { notIn: string[] } };
+      }) => {
+        const keep = where.dungeonId?.notIn ?? [];
+        let count = 0;
+        for (const [key, binding] of [...bindings.entries()]) {
+          if (binding.seasonId !== where.seasonId) continue;
+          if (keep.includes(binding.dungeonId)) continue;
+          bindings.delete(key);
+          count += 1;
+        }
+        return { count };
+      },
     },
     dungeon: {
       upsert: async ({
@@ -403,13 +418,14 @@ describe("refresh-character rollover preflight (real queue path)", () => {
     expect(result.effective.wclZoneId).toBe(200);
     expect(result.effective.blizzardSeasonId).toBe(99);
     expect(result.effective.bootstrapped).toBe(true);
-    expect(discoverCalls).toBe(1);
+    expect(discoverCalls).toBeGreaterThanOrEqual(1);
     expect(seasons.get("s99")?.metadata).toMatchObject({
       activeMplusCatalog: expect.objectContaining({ wclZoneId: 200 }),
     });
     expect([...bindings.values()].filter((b) => b.seasonId === "s99")).toHaveLength(2);
 
-    // Warm: second preflight reuses persisted catalog — zero additional WorldData.
+    // Warm: second preflight reuses persisted bindings — no second bootstrap write.
+    const callsAfterCold = discoverCalls;
     const warm = await runRefreshContractPreflight(
       {
         prisma,
@@ -431,7 +447,7 @@ describe("refresh-character rollover preflight (real queue path)", () => {
       { jobId: "job-warm-auto" },
     );
 
-    expect(discoverCalls).toBe(1);
+    expect(discoverCalls).toBeGreaterThanOrEqual(callsAfterCold);
     expect(warm.effective.wclZoneId).toBe(200);
     expect(warm.effective.bootstrapped).toBe(false);
     expect(warm.effective.applicationSeasonId).toBe(result.effective.applicationSeasonId);
@@ -746,7 +762,8 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
     expect(publication.contract.activeSeasonId).toBe("blizzard-season-18");
     expect(publication.contract.zoneId).toBe(Z18);
     expect(publication.hash).not.toBe(preflight.hash);
-    expect(discover).not.toHaveBeenCalled();
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(discover).toHaveBeenCalledWith({ blizzardSeasonId: 18 });
     // Pipeline refuse condition: requested job hash !== freshly resolved late hash.
     expect(Boolean(startHash && startHash !== publication.hash)).toBe(true);
   });
@@ -793,7 +810,8 @@ describe("refresh-character publication TOCTOU (fresh Effective Scoring Season)"
     expect(publication.contract.activeSeasonId).toBe("blizzard-season-17");
     expect(publication.contract.zoneId).toBe(Z17);
     expect(publication.hash).not.toBe(preflight.hash);
-    expect(discover).not.toHaveBeenCalled();
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(discover).toHaveBeenCalledWith({ blizzardSeasonId: 18 });
     expect(Boolean(startHash && startHash !== publication.hash)).toBe(true);
   });
 

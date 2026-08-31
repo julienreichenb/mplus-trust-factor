@@ -13,6 +13,7 @@ export async function runScheduledScoringSeasonDataSync(input: {
   logger: Logger;
   blizzardSeasonId?: number;
   warcraftlogs?: Parameters<typeof resolveScoringCatalogDiscoverer>[0]["warcraftlogs"];
+  blizzard?: Parameters<typeof synchronizeScoringSeasonData>[0]["blizzard"];
   providerMode?: string;
   fetchImpl?: typeof fetch;
 }): Promise<{
@@ -51,6 +52,8 @@ export async function runScheduledScoringSeasonDataSync(input: {
         blizzardSeasonId,
         selectionMode,
         discoverActiveMplusCatalog: discoverer,
+        providerMode: input.providerMode,
+        blizzard: input.blizzard,
         requestDistributionRefresh: async ({ seasonId, regionCode }) => {
           await session.refreshRegion({ seasonId, regionCode });
         },

@@ -4,6 +4,8 @@ import type {
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
+  BlizzardJournalInstanceDTO,
+  BlizzardJournalInstanceMediaDTO,
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
@@ -34,6 +36,8 @@ import {
   normalizeDungeon,
   normalizeEquipmentSnapshot,
   normalizeItem,
+  normalizeJournalInstance,
+  normalizeJournalInstanceMedia,
   normalizeLeaderboard,
   normalizeMedia,
   normalizeMythicProfileIndex,
@@ -60,6 +64,8 @@ import {
   equipmentSchema,
   itemMediaSchema,
   itemSchema,
+  journalInstanceIndexSchema,
+  journalInstanceMediaSchema,
   mediaSchema,
   mythicKeystoneProfileIndexSchema,
   mythicKeystoneSeasonProfileSchema,
@@ -583,6 +589,65 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       ctx,
       endpointKey: "mplus.dungeon.get",
       sourceUrl: `fixture://blizzard/mythic-keystone/dungeon/${dungeonId}`,
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.dungeon),
+    });
+  }
+
+  async getJournalInstanceIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceDTO[]>> {
+    const relative = this.store.manifest.journalInstances?.index;
+    if (!relative) {
+      return buildProviderResult({
+        data: [],
+        ctx,
+        endpointKey: "journal-instance.index",
+        sourceUrl: "fixture://blizzard/journal-instance/index",
+        cacheHit: true,
+        statusCode: 200,
+        expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.dungeon),
+      });
+    }
+    const raw = parseOrThrow(
+      journalInstanceIndexSchema,
+      this.store.readJson(relative),
+      "journal-instance.index",
+    );
+    return buildProviderResult({
+      data: raw.instances.map((row) => normalizeJournalInstance(row)),
+      ctx,
+      endpointKey: "journal-instance.index",
+      sourceUrl: "fixture://blizzard/journal-instance/index",
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.dungeon),
+    });
+  }
+
+  async getJournalInstanceMedia(
+    journalInstanceId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardJournalInstanceMediaDTO>> {
+    const relative = this.store.manifest.journalInstances?.mediaById[String(journalInstanceId)];
+    if (!relative) {
+      throw mapStatusToError({
+        statusCode: 404,
+        message: `Journal instance media not found in fixtures: ${journalInstanceId}`,
+        reason: "NOT_FOUND",
+      });
+    }
+    const raw = parseOrThrow(
+      journalInstanceMediaSchema,
+      this.store.readJson(relative),
+      "journal-instance.media",
+    );
+    return buildProviderResult({
+      data: normalizeJournalInstanceMedia(journalInstanceId, raw),
+      ctx,
+      endpointKey: "journal-instance.media",
+      sourceUrl: `fixture://blizzard/media/journal-instance/${journalInstanceId}`,
       cacheHit: true,
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.dungeon),

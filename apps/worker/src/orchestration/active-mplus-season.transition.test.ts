@@ -201,6 +201,20 @@ function createFakePrisma() {
       async count(args: { where: { seasonId: string } }) {
         return bindings.filter((b) => b.seasonId === args.where.seasonId).length;
       },
+      async deleteMany(args: {
+        where: { seasonId: string; dungeonId?: { notIn: string[] } };
+      }) {
+        const keep = args.where.dungeonId?.notIn;
+        let removed = 0;
+        for (let i = bindings.length - 1; i >= 0; i -= 1) {
+          const b = bindings[i]!;
+          if (b.seasonId !== args.where.seasonId) continue;
+          if (keep && keep.includes(b.dungeonId)) continue;
+          bindings.splice(i, 1);
+          removed += 1;
+        }
+        return { count: removed };
+      },
     },
     async $transaction(fn: (tx: typeof prisma) => Promise<unknown>) {
       return fn(prisma);
@@ -551,6 +565,108 @@ describe("ensureSeasonDataReady", () => {
     expect(await prisma.seasonDungeon.count({
       where: { seasonId: [...prisma._seasons.values()].find((s) => s.blizzardSeasonId === 99)!.id },
     })).toBe(0);
+  });
+
+  it("repairs stale AUTO S18 catalog copied from S17 and skips only when genuinely correct", async () => {
+    const prisma = createFakePrisma();
+    const s17Meta = {
+      schemaVersion: "active-mplus-catalog-v1" as const,
+      wclZoneId: 47,
+      blizzardSeasonId: 17,
+      expansionIdentity: "Midnight",
+      dungeonPoolHash: "ignored-for-test",
+      sourceMetadataHash: "src",
+      catalogVersion: "v1",
+      dungeonSlugs: [...ZONE_47_MIDNIGHT_S1_CATALOG.dungeonSlugs],
+      synchronizedAt: "2026-08-01T00:00:00.000Z",
+      validatedAt: "2026-08-01T00:00:00.000Z",
+      lastKnownGood: true,
+      authorityVersion: "active-mplus-season-authority-v1",
+    };
+    const s18 = await prisma.season.create({
+      data: {
+        regionId: "region-eu",
+        slug: "blizzard-season-18",
+        name: "S18",
+        blizzardSeasonId: 18,
+        isCurrent: true,
+        dungeonCount: 8,
+        metadata: {
+          activeMplusCatalog: {
+            ...s17Meta,
+            blizzardSeasonId: 18,
+          },
+        },
+      },
+    });
+    for (let i = 0; i < ZONE_47_MIDNIGHT_S1_CATALOG.dungeonSlugs.length; i++) {
+      const slug = ZONE_47_MIDNIGHT_S1_CATALOG.dungeonSlugs[i]!;
+      const d = await prisma.dungeon.upsert({
+        where: { slug },
+        create: { slug, name: slug },
+        update: { name: slug },
+      });
+      await prisma.seasonDungeon.create({
+        data: { seasonId: s18.id, dungeonId: d.id, sortOrder: i },
+      });
+    }
+
+    const s18Slugs = [
+      "altar-of-fangs",
+      "den-of-nalorakk",
+      "kings-rest",
+      "murder-row",
+      "ruby-life-pools",
+      "temple-of-sethraliss",
+      "the-blinding-vale",
+      "voidscar-arena",
+    ];
+    const discoverer = vi.fn(async ({ blizzardSeasonId }: { blizzardSeasonId: number }) => ({
+      wclZoneId: 55,
+      blizzardSeasonId,
+      expansionIdentity: "Midnight",
+      displayName: "Midnight Season 2 Keystone",
+      dungeonSlugs: s18Slugs,
+      encounterIds: [12993, 12825, 61762, 12813, 112521, 61877, 12859, 12923],
+    }));
+
+    const first = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 18,
+      selectionMode: "AUTO",
+      discoverActiveMplusCatalog: discoverer,
+    });
+    expect(first.catalogReadyBefore).toBe(false);
+    expect(first.skippedReady).toBe(false);
+    expect(first.catalogSynced).toBe(true);
+    expect(first.catalogReadyAfter).toBe(true);
+    expect(first.wclZoneId).toBe(55);
+    expect(first.dungeonCount).toBe(8);
+    expect(await prisma.seasonDungeon.count({ where: { seasonId: s18.id } })).toBe(8);
+    const slugsAfter = (
+      await prisma.seasonDungeon.findMany({
+        where: { seasonId: s18.id },
+        include: { dungeon: true },
+        orderBy: { sortOrder: "asc" },
+      })
+    ).map((b) => b.dungeon.slug);
+    expect(slugsAfter).toEqual(s18Slugs);
+
+    const second = await ensureSeasonDataReady({
+      prisma: prisma as never,
+      logger: silentLogger() as never,
+      regionId: "region-eu",
+      regionCode: "EU",
+      blizzardSeasonId: 18,
+      selectionMode: "AUTO",
+      discoverActiveMplusCatalog: discoverer,
+    });
+    expect(second.skippedReady).toBe(true);
+    expect(second.catalogSynced).toBe(false);
+    expect(discoverer.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("creates future-season bindings from an authoritative discovered catalog", async () => {

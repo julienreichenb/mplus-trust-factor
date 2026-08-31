@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { CanonicalDungeonEvidencePublicDTO } from "@mplus/contracts";
 import type { ScoringRunSelection, SelectedRunSummaryDTO } from "../../api/types";
-import { dungeonBackgroundUrl } from "../../lib/dungeonArt";
+import { sanitizeDungeonImageUrl } from "../../lib/dungeonArt";
 import { canonicalReportsForDungeon } from "../../lib/canonicalSelectedRuns";
 import { sanitizeWarcraftLogsUrl } from "../../lib/warcraftLogsUrl";
 import type { RunDrawerModel } from "./RunDetailsDrawer.vue";
@@ -31,7 +31,9 @@ const detailsBySlug = computed(() => {
 const artBySlug = computed(() => {
   const map = new Map<string, string>();
   for (const run of props.selection?.selectedRuns ?? []) {
-    const url = dungeonBackgroundUrl(run.dungeonSlug);
+    const fromSelection = sanitizeDungeonImageUrl(run.dungeonImageUrl);
+    const fromDetails = sanitizeDungeonImageUrl(detailsBySlug.value.get(run.dungeonSlug)?.dungeonImageUrl);
+    const url = fromSelection ?? fromDetails;
     if (url) map.set(run.dungeonSlug, url);
   }
   return map;
