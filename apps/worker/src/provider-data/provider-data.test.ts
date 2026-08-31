@@ -11,7 +11,8 @@ import {
 import { buildManifest, buildProviderDataCorpus, type ProviderDataCorpus } from "./build-corpus.js";
 import { canonicalJsonStringify, hashCanonicalPayload } from "./canonical.js";
 import { exportProviderDataBundle } from "./export-bundle.js";
-import { importProviderDataBundle, ProviderDataImportError, readProviderDataBundle } from "./import-bundle.js";
+import { importProviderDataBundle, readProviderDataBundle } from "./import-bundle.js";
+import type { ProviderDataImportError } from "./import-bundle.js";
 
 function emptyTables(): Record<string, Array<Record<string, unknown>>> {
   const tables: Record<string, Array<Record<string, unknown>>> = {};

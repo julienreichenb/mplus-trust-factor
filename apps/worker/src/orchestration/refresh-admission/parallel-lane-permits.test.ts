@@ -6,7 +6,6 @@ class InMemoryLaneRedis implements LanePermitRedis {
   private count = 0;
 
   async eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown> {
-    const keys = args.slice(0, numKeys).map(String);
     const argv = args.slice(numKeys).map(String);
     if (script.includes("LANE_LIMIT_REACHED")) {
       const jobId = argv[0]!;

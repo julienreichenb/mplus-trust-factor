@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { Prisma, type PrismaClient } from "@mplus/database";
+import type { Prisma, PrismaClient } from "@mplus/database";
 import {
   PROVIDER_DATA_DENYLIST_TABLES,
   PROVIDER_DATA_EXPORT_TABLES,
