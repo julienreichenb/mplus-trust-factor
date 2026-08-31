@@ -754,7 +754,10 @@ export async function runBootstrap(options) {
   runPnpm(["run", "db:seed"]);
 
   log("bootstrap: preparing current scoring season Key distributions");
-  runPnpm(["--filter", "@mplus/worker", "run", "scoring:bootstrap-context"]);
+  runPnpm(
+    ["--filter", "@mplus/worker", "run", "scoring:bootstrap-context"],
+    { env: effectiveEnv },
+  );
 
   log("bootstrap: ready.");
   log("  pnpm dev     — local application (development database)");
