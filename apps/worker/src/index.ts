@@ -209,6 +209,9 @@ async function main(): Promise<void> {
       "./orchestration/active-mplus-season/scoring-season-data-sync.js"
     );
     await producers.registerScoringSeasonDataSyncSchedule();
+    if (env.RELEVANT_REFRESH_ENABLED) {
+      await producers.registerRelevantCharacterDiscoverySchedule();
+    }
     await runScheduledScoringSeasonDataSync({
       prisma: container.prisma,
       logger: container.logger,

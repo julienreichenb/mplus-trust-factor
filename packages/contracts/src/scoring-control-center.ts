@@ -35,6 +35,16 @@ export const RUNTIME_SETTING_KEYS = {
   wclBudgetReserveRatio: "wcl_budget_reserve_ratio",
   /** Platform-wide AUTO | PINNED scoring season selection. */
   scoringSeasonSelection: SCORING_SEASON_SELECTION_KEY,
+  /** When true, WCL admission uses configured global concurrency (>1). */
+  refreshConcurrencyEnabled: "refresh_concurrency_enabled",
+  /** Pre-reset drain window override (seconds). */
+  wclPreResetDrainSeconds: "wcl_pre_reset_drain_seconds",
+  /** Daily relevant-character discovery master switch. */
+  relevantRefreshEnabled: "relevant_refresh_enabled",
+  /** Max enqueues per discovery/drain-feed tick. */
+  relevantCandidateTarget: "relevant_candidate_target",
+  /** Addon-db percentile cutoff (bps) for relevant candidates. */
+  relevantCandidatePercentileBps: "relevant_candidate_percentile_bps",
 } as const;
 
 export const CONCURRENCY_MIN = 1;

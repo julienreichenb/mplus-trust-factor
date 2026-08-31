@@ -74,6 +74,9 @@ export {
   sliceRecord,
 } from "./addon-db/decode-record.js";
 export { ingestMythicPlusAddonFiles, ingestEuMythicPlusAddonFiles } from "./addon-db/ingest.js";
+export { selectRelevantCandidatesFromAddonSnapshot } from "./addon-db/relevant-candidates.js";
+export type { RelevantAddonCandidate } from "./addon-db/relevant-candidates.js";
+export { loadLookupBuffer, parseNamedCharacterOffsets } from "./addon-db/parse-characters.js";
 export {
   downloadReleaseZip,
   parseGithubAssetDigest,

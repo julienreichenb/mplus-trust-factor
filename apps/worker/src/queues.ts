@@ -20,7 +20,9 @@ import {
   type FinalizeEvidenceBatchJobV2,
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
+  relevantCharacterDiscoveryJobSchema,
   type KeyDistributionRefreshJob,
+  type RelevantCharacterDiscoveryJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
@@ -31,6 +33,7 @@ import {
   analyzeRunDedupeKey,
   bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
+  relevantCharacterDiscoveryDedupeKey,
   finalizeEvidenceBatchV2DedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
@@ -116,6 +119,7 @@ export interface QueueProducers {
     requestedAt?: string;
   }): Promise<EnqueueResult>;
   registerScoringSeasonDataSyncSchedule(): Promise<void>;
+  registerRelevantCharacterDiscoverySchedule(): Promise<void>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -160,6 +164,9 @@ export function createQueueProducers(
       connection,
     }),
     [QUEUE_NAMES.scoringSeasonDataSync]: new Queue(QUEUE_NAMES.scoringSeasonDataSync, {
+      connection,
+    }),
+    [QUEUE_NAMES.relevantCharacterDiscovery]: new Queue(QUEUE_NAMES.relevantCharacterDiscovery, {
       connection,
     }),
   } as const;
@@ -467,6 +474,33 @@ export function createQueueProducers(
           name: QUEUE_NAMES.scoringSeasonDataSync,
           data: {
             trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          },
+        },
+      );
+    },
+
+    async registerRelevantCharacterDiscoverySchedule() {
+      await queues[QUEUE_NAMES.relevantCharacterDiscovery].upsertJobScheduler(
+        "daily-relevant-character-discovery-eu",
+        { every: 24 * 60 * 60 * 1000 },
+        {
+          name: QUEUE_NAMES.relevantCharacterDiscovery,
+          data: {
+            mode: "daily_discovery",
+            regionCode: "EU",
+            requestedAt: new Date().toISOString(),
+          },
+        },
+      );
+      await queues[QUEUE_NAMES.relevantCharacterDiscovery].upsertJobScheduler(
+        "relevant-drain-feed",
+        { every: 5 * 60 * 1000 },
+        {
+          name: QUEUE_NAMES.relevantCharacterDiscovery,
+          data: {
+            mode: "drain_feed",
+            regionCode: "EU",
             requestedAt: new Date().toISOString(),
           },
         },

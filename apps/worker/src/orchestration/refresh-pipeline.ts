@@ -102,6 +102,7 @@ import {
 import { isRefreshCancellationRequested, pickEarliestActiveRefreshJob, REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON } from "./refresh-job-control.js";
 import {
   createPipelineAdmissionGate,
+  createPipelineAdmissionGateWithRuntime,
   runPipelineAdmission,
   settlePipelineAdmission,
   sumMeasuredWclPoints,
@@ -936,7 +937,7 @@ export async function runRefreshPipeline(
   }
 
   if (container.env.REFRESH_ADMISSION_MODE !== "off") {
-    const { gate, repository } = createPipelineAdmissionGate({
+    const { gate, repository } = await createPipelineAdmissionGateWithRuntime({
       env: container.env,
       redis: admissionRedis,
       prisma: container.prisma,

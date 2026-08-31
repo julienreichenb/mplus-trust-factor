@@ -25,6 +25,7 @@ export type RefreshAdmissionEnv = {
   REFRESH_ETA_ENABLED: boolean;
   REFRESH_PRIORITY_IN_BULLMQ: boolean;
   REFRESH_CONCURRENCY_ENABLED: boolean;
+  WCL_PRE_RESET_DRAIN_SECONDS: number;
 };
 
 export interface RefreshAdmissionConfig {
@@ -46,6 +47,8 @@ export interface RefreshAdmissionConfig {
   priorityInBullmq: boolean;
   /** Master switch for applying global/local concurrency caps. Default false. */
   concurrencyEnabled: boolean;
+  /** Seconds before WCL window reset when background work may consume spare budget. */
+  wclPreResetDrainSeconds: number;
 }
 
 export const REFRESH_ADMISSION_POLICY_VERSION = "2026-07-31";
@@ -94,6 +97,27 @@ export function buildRefreshAdmissionConfig(env: RefreshAdmissionEnv): RefreshAd
     etaEnabled: env.REFRESH_ETA_ENABLED,
     priorityInBullmq: env.REFRESH_PRIORITY_IN_BULLMQ,
     concurrencyEnabled: env.REFRESH_CONCURRENCY_ENABLED,
+    wclPreResetDrainSeconds: Math.max(0, Math.floor(env.WCL_PRE_RESET_DRAIN_SECONDS)),
+  };
+}
+
+/**
+ * Merge env-built admission config with optional runtime overrides (admin RuntimeSetting).
+ * Runtime `refresh_concurrency_enabled=true` raises admitted caps without redeploying env.
+ */
+export function mergeRefreshAdmissionRuntimeOverrides(
+  config: RefreshAdmissionConfig,
+  overrides?: { concurrencyEnabled?: boolean; wclPreResetDrainSeconds?: number } | null,
+): RefreshAdmissionConfig {
+  if (!overrides) return config;
+  return {
+    ...config,
+    concurrencyEnabled:
+      overrides.concurrencyEnabled != null ? overrides.concurrencyEnabled : config.concurrencyEnabled,
+    wclPreResetDrainSeconds:
+      overrides.wclPreResetDrainSeconds != null
+        ? Math.max(0, Math.floor(overrides.wclPreResetDrainSeconds))
+        : config.wclPreResetDrainSeconds,
   };
 }
 
@@ -192,4 +216,63 @@ export function isWclSnapshotFresh(input: {
   const nowMs = input.nowMs ?? Date.now();
   const maxAgeMs = Math.max(0, Math.floor(input.maxAgeSeconds)) * 1000;
   return nowMs - fetchedMs <= maxAgeMs;
+}
+
+/** Seconds until WCL rate-limit window reset from snapshot.resetAt. Null when unknown. */
+export function computePointsResetInSeconds(
+  resetAt: Date | string | number | null | undefined,
+  nowMs?: number,
+): number | null {
+  if (resetAt == null) return null;
+  const resetMs =
+    typeof resetAt === "number"
+      ? resetAt
+      : typeof resetAt === "string"
+        ? Date.parse(resetAt)
+        : resetAt.getTime();
+  if (!Number.isFinite(resetMs)) return null;
+  const now = nowMs ?? Date.now();
+  return Math.max(0, Math.floor((resetMs - now) / 1000));
+}
+
+/** True when remaining window time is within the pre-reset drain threshold. */
+export function isWclPreResetDrainActive(
+  pointsResetInSeconds: number | null,
+  drainWindowSeconds: number,
+): boolean {
+  if (pointsResetInSeconds == null) return false;
+  const window = Math.max(0, Math.floor(drainWindowSeconds));
+  if (window <= 0) return false;
+  return pointsResetInSeconds <= window;
+}
+
+export function resolveAdmissionReservePolicy(input: {
+  config: RefreshAdmissionConfig;
+  resetAt: Date | string | number | null | undefined;
+  nowMs?: number;
+}): {
+  safetyReserveFraction: number;
+  minEmergencyReservePoints: number;
+  drainActive: boolean;
+  pointsResetInSeconds: number | null;
+} {
+  const pointsResetInSeconds = computePointsResetInSeconds(input.resetAt, input.nowMs);
+  const drainActive = isWclPreResetDrainActive(
+    pointsResetInSeconds,
+    input.config.wclPreResetDrainSeconds,
+  );
+  if (drainActive) {
+    return {
+      safetyReserveFraction: 0,
+      minEmergencyReservePoints: 0,
+      drainActive: true,
+      pointsResetInSeconds,
+    };
+  }
+  return {
+    safetyReserveFraction: input.config.safetyReserveFraction,
+    minEmergencyReservePoints: input.config.minEmergencyReservePoints,
+    drainActive: false,
+    pointsResetInSeconds,
+  };
 }

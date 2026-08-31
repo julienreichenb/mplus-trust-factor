@@ -14,6 +14,8 @@ import {
   effectiveAdmissionGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
   isRefreshAdmissionShadowEnabled,
+  mergeRefreshAdmissionRuntimeOverrides,
+  resolveAdmissionReservePolicy,
   type RefreshAdmissionConfig,
   type RefreshAdmissionEnv,
 } from "@mplus/config";
@@ -95,13 +97,15 @@ function predictionFromLuaDenial(
 export function createRefreshAdmissionGate(options: {
   env: RefreshAdmissionEnv & { APP_ENV?: string };
   config?: RefreshAdmissionConfig;
+  runtimeOverrides?: { concurrencyEnabled?: boolean; wclPreResetDrainSeconds?: number } | null;
   redis?: AdmissionRedis | null;
   appEnv?: string;
   repository?: RefreshAdmissionRepository | null;
   logger?: Logger | null;
   onShadowPrediction?: RefreshAdmissionObserver;
 }): RefreshAdmissionGate {
-  const config = options.config ?? buildRefreshAdmissionConfig(options.env);
+  const baseConfig = options.config ?? buildRefreshAdmissionConfig(options.env);
+  const config = mergeRefreshAdmissionRuntimeOverrides(baseConfig, options.runtimeOverrides);
   const appEnv = options.appEnv ?? options.env.APP_ENV ?? "development";
   const redis = options.redis ?? null;
   const repository = options.repository ?? null;
@@ -298,6 +302,12 @@ export function createRefreshAdmissionGate(options: {
           : "";
 
       let luaResult;
+      const nowMs = input.nowMs ?? Date.now();
+      const reservePolicy = resolveAdmissionReservePolicy({
+        config,
+        resetAt: input.snapshot?.resetAt ?? null,
+        nowMs,
+      });
       try {
         luaResult = await evalReserveAdmission({
           redis,
@@ -307,7 +317,8 @@ export function createRefreshAdmissionGate(options: {
           estimatedPoints: estimated,
           emergency: Boolean(input.emergencyOverride),
           expectedWindowId,
-          nowMs: input.nowMs,
+          nowMs,
+          reservePolicy,
         });
       } catch (err) {
         logger?.warn(
@@ -367,7 +378,6 @@ export function createRefreshAdmissionGate(options: {
         };
       }
 
-      const nowMs = input.nowMs ?? Date.now();
       const leaseExpiresAt = new Date(nowMs + config.leaseTtlMs);
       const windowId =
         expectedWindowId ||
