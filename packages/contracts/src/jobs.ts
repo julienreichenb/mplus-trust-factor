@@ -53,6 +53,10 @@ export const QUEUE_NAMES = {
   scoringSeasonDataSync: "scoring-season-data-sync",
   /** Daily relevant-character discovery + pre-reset drain feeder. */
   relevantCharacterDiscovery: "relevant-character-discovery",
+  /** Collector: nightly portable provider-data corpus export. */
+  providerDataExport: "provider-data-export",
+  /** Consumer: nightly portable provider-data corpus import. */
+  providerDataImport: "provider-data-import",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -445,6 +449,20 @@ export const relevantCharacterDiscoveryJobSchema = z.object({
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
 export type RelevantCharacterDiscoveryJob = z.infer<typeof relevantCharacterDiscoveryJobSchema>;
+
+export const providerDataExportJobSchema = z.object({
+  trigger: z.enum(["schedule", "cli"]).default("schedule"),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type ProviderDataExportJob = z.infer<typeof providerDataExportJobSchema>;
+
+export const providerDataImportJobSchema = z.object({
+  trigger: z.enum(["schedule", "cli"]).default("schedule"),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type ProviderDataImportJob = z.infer<typeof providerDataImportJobSchema>;
 
 export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;

@@ -3040,3 +3040,21 @@ model AbilityCatalogReleaseReplay {
   @@index([status, createdAt(sort: Desc)])
   @@map("ability_catalog_release_replays")
 }
+
+/**
+ * Record of a portable provider-data corpus import (collector → consumer).
+ * contentHash is the deterministic SHA-256 of the canonical JSON corpus (pre-gzip).
+ */
+model ProviderDataImport {
+  id                 String   @id @default(uuid()) @db.Uuid
+  contentHash        String   @unique @map("content_hash")
+  schemaVersion      Int      @map("schema_version")
+  sourceEnvironment  String   @map("source_environment")
+  generatedAt        DateTime @map("generated_at") @db.Timestamptz(3)
+  importedAt         DateTime @default(now()) @map("imported_at") @db.Timestamptz(3)
+  manifest           Json     @default("{}")
+  counts             Json     @default("{}")
+
+  @@index([importedAt(sort: Desc)])
+  @@map("provider_data_imports")
+}

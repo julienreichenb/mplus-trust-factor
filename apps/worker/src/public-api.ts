@@ -23,6 +23,7 @@ export { closeWorkers, createWorkers } from "./processors.js";
 export { createQueueProducers, type EnqueueResult, type QueueProducers } from "./queues.js";
 export {
   shouldRegisterAutomaticBackgroundSchedulers,
+  shouldRegisterExpensiveProviderPopulationSchedulers,
   SCORING_SEASON_DATA_SYNC_CRON_PATTERN,
   SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
 } from "./scheduling/automatic-schedulers.js";

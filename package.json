@@ -78,6 +78,8 @@
     "wcl:probe:survival:v1.1:audit": "node tools/scripts/wcl-probe-survival-v1_1-audit.mjs",
     "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
     "season:sync-authority": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run season:sync-authority --",
+    "provider-data:export": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run provider-data:export --",
+    "provider-data:import": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run provider-data:import --",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",

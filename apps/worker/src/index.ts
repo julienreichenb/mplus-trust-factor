@@ -213,12 +213,17 @@ async function main(): Promise<void> {
     );
     const seasonSyncSchedule = await producers.registerScoringSeasonDataSyncSchedule();
     const relevantSchedule = await producers.registerRelevantCharacterDiscoverySchedule();
+    const exportSchedule = await producers.registerProviderDataExportSchedule();
+    const importSchedule = await producers.registerProviderDataImportSchedule();
     container.logger.info(
       {
         event: "automatic_scheduler_registration",
         appEnv: env.APP_ENV,
+        providerDataRole: env.PROVIDER_DATA_ROLE,
         scoringSeasonDataSync: seasonSyncSchedule.registered,
         relevantCharacterDiscovery: relevantSchedule.registered,
+        providerDataExport: exportSchedule.registered,
+        providerDataImport: importSchedule.registered,
       },
       "automatic background scheduler registration complete",
     );

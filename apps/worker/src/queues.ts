@@ -22,6 +22,8 @@ import {
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
   relevantCharacterDiscoveryJobSchema,
+  providerDataExportJobSchema,
+  providerDataImportJobSchema,
   type KeyDistributionRefreshJob,
   type RelevantCharacterDiscoveryJob,
   type GenerateAddonExportJob,
@@ -43,9 +45,16 @@ import {
 import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import {
+  PROVIDER_DATA_EXPORT_SCHEDULER_ID,
+  PROVIDER_DATA_IMPORT_SCHEDULER_ID,
   SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+  providerDataExportRepeatOpts,
+  providerDataImportRepeatOpts,
   scoringSeasonDataSyncRepeatOpts,
   shouldRegisterAutomaticBackgroundSchedulers,
+  shouldRegisterExpensiveProviderPopulationSchedulers,
+  shouldRegisterProviderDataExportSchedule,
+  shouldRegisterProviderDataImportSchedule,
 } from "./scheduling/automatic-schedulers.js";
 
 export interface EnqueueResult {
@@ -134,10 +143,13 @@ export interface QueueProducers {
    */
   registerScoringSeasonDataSyncSchedule(): Promise<{ registered: boolean }>;
   /**
-   * Registers relevant discovery + drain feed schedulers when APP_ENV is staging/production.
-   * Returns whether schedulers were registered.
+   * Registers relevant discovery + drain feed when deployed AND PROVIDER_DATA_ROLE=collector.
    */
   registerRelevantCharacterDiscoverySchedule(): Promise<{ registered: boolean }>;
+  /** Collector nightly portable corpus export. */
+  registerProviderDataExportSchedule(): Promise<{ registered: boolean }>;
+  /** Consumer nightly portable corpus import. */
+  registerProviderDataImportSchedule(): Promise<{ registered: boolean }>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -187,6 +199,8 @@ export function createQueueProducers(
     [QUEUE_NAMES.relevantCharacterDiscovery]: new Queue(QUEUE_NAMES.relevantCharacterDiscovery, {
       connection,
     }),
+    [QUEUE_NAMES.providerDataExport]: new Queue(QUEUE_NAMES.providerDataExport, { connection }),
+    [QUEUE_NAMES.providerDataImport]: new Queue(QUEUE_NAMES.providerDataImport, { connection }),
   } as const;
 
   async function enqueue(
@@ -553,15 +567,21 @@ export function createQueueProducers(
         }
       };
 
-      if (!shouldRegisterAutomaticBackgroundSchedulers(container.env.APP_ENV)) {
+      if (
+        !shouldRegisterExpensiveProviderPopulationSchedulers(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
         await removeRegionSchedulers();
         container.logger.info(
           {
             event: "relevant_discovery_schedule_skipped",
             appEnv: container.env.APP_ENV,
-            reason: "automatic_schedulers_disabled_for_app_env",
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+            reason: "expensive_provider_population_disabled",
           },
-          "relevant character discovery schedule not registered for this APP_ENV",
+          "relevant character discovery schedule not registered for this APP_ENV/role",
         );
         return { registered: false };
       }
@@ -605,6 +625,72 @@ export function createQueueProducers(
           },
         );
       }
+      return { registered: true };
+    },
+
+    async registerProviderDataExportSchedule() {
+      const queue = queues[QUEUE_NAMES.providerDataExport];
+      if (
+        !shouldRegisterProviderDataExportSchedule(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
+        await queue.removeJobScheduler(PROVIDER_DATA_EXPORT_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "provider_data_export_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+          },
+          "provider-data export schedule not registered for this APP_ENV/role",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        PROVIDER_DATA_EXPORT_SCHEDULER_ID,
+        providerDataExportRepeatOpts(),
+        {
+          name: QUEUE_NAMES.providerDataExport,
+          data: providerDataExportJobSchema.parse({
+            trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          }),
+        },
+      );
+      return { registered: true };
+    },
+
+    async registerProviderDataImportSchedule() {
+      const queue = queues[QUEUE_NAMES.providerDataImport];
+      if (
+        !shouldRegisterProviderDataImportSchedule(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
+        await queue.removeJobScheduler(PROVIDER_DATA_IMPORT_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "provider_data_import_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+          },
+          "provider-data import schedule not registered for this APP_ENV/role",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        PROVIDER_DATA_IMPORT_SCHEDULER_ID,
+        providerDataImportRepeatOpts(),
+        {
+          name: QUEUE_NAMES.providerDataImport,
+          data: providerDataImportJobSchema.parse({
+            trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          }),
+        },
+      );
       return { registered: true };
     },
 

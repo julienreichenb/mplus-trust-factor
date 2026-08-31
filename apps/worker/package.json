@@ -27,6 +27,8 @@
     "boost:probe": "tsx src/boost-assessment/probe.cli.ts",
     "boost:population-audit": "tsx src/boost-assessment/population-audit.cli.ts",
     "wcl:hydrate:rankings": "tsx src/wcl-fight-rankings/hydrate-rankings.cli.ts",
+    "provider-data:export": "tsx src/provider-data/export.cli.ts",
+    "provider-data:import": "tsx src/provider-data/import.cli.ts",
     "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
   "dependencies": {

@@ -9,6 +9,17 @@ export const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
+    /**
+     * Single-provider collector vs consumer role for portable corpus sharing.
+     * Only the collector may automatically run expensive WCL population jobs.
+     * Not editable from admin UI (infra misconfiguration would duplicate WCL spend).
+     */
+    PROVIDER_DATA_ROLE: z.enum(["collector", "consumer"]).default("collector"),
+    /**
+     * Directory for portable provider-data bundles (manifest + latest.json.gz).
+     * Deploy default: /opt/mplus/shared/provider-data
+     */
+    PROVIDER_DATA_DIR: z.string().min(1).default("/opt/mplus/shared/provider-data"),
     APP_VERSION: z.string().default("0.1.0"),
     API_HOST: z.string().default("0.0.0.0"),
     API_PORT: z.coerce.number().int().positive().default(3000),
