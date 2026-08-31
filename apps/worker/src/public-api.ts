@@ -15,6 +15,7 @@ export {
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
+  relevantCharacterDiscoveryDedupeKey,
   syncRealmCatalogDedupeKey,
 } from "./dedupe.js";
 

@@ -178,10 +178,35 @@ describe.skipIf(!dbAvailable)("admin score context bound vs latest", { timeout: 
     expect(publishedState.statusCode).toBe(200);
     const body = publishedState.json();
     const p90 = body.keyRows.find((row: { percentileBps: number }) => row.percentileBps === 9000);
-    expect(p90.thresholds.EU).toBe(18);
+    // Provider facts are auto-effective: Key table shows latest valid thresholds without republish.
+    expect(p90.thresholds.EU).toBe(19);
     expect(body.regions.EU.hasNewerDistribution).toBe(true);
     expect(body.policy.regionalSnapshots.EU.id).toBe(frozenEu);
     expect(body.regions.EU.latestDistribution.id).toBe(latestEu);
+
+    // Corrupt Raider.IO-shaped refresh must not displace the effective latest (LKG).
+    const corrupt = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/seasons/${seasons.EU}/score-context/distributions`,
+      headers,
+      payload: {
+        source: "RAIDER_IO_ADDON",
+        sourceVersion: "corrupt-sat",
+        collectedAt: "2026-08-15T00:00:00.000Z",
+        points: points(61),
+      },
+    });
+    expect(corrupt.statusCode).toBeGreaterThanOrEqual(400);
+    const afterCorrupt = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${seasons.EU}/score-context`,
+      headers,
+    });
+    expect(
+      afterCorrupt.json().keyRows.find((row: { percentileBps: number }) => row.percentileBps === 9000)
+        .thresholds.EU,
+    ).toBe(19);
+    expect(afterCorrupt.json().regions.EU.latestDistribution.id).toBe(latestEu);
 
     const draft2 = await app.inject({
       method: "POST",

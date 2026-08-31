@@ -753,6 +753,9 @@ export async function runBootstrap(options) {
   log("bootstrap: seeding idempotent fixture data (pnpm db:seed)");
   runPnpm(["run", "db:seed"]);
 
+  log("bootstrap: preparing current scoring season Key distributions");
+  runPnpm(["--filter", "@mplus/worker", "run", "scoring:bootstrap-context"]);
+
   log("bootstrap: ready.");
   log("  pnpm dev     — local application (development database)");
   log("  pnpm test    — isolated disposable mplus_itest_* database (never mutates mplus_trust)");

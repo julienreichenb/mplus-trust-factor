@@ -208,15 +208,30 @@ async function main(): Promise<void> {
     const { runScheduledScoringSeasonDataSync } = await import(
       "./orchestration/active-mplus-season/scoring-season-data-sync.js"
     );
-    await producers.registerScoringSeasonDataSyncSchedule();
-    await producers.registerRelevantCharacterDiscoverySchedule();
-    await runScheduledScoringSeasonDataSync({
-      prisma: container.prisma,
-      logger: container.logger,
-      warcraftlogs: container.providers.warcraftlogs,
-      blizzard: container.providers.blizzard,
-      providerMode: env.PROVIDER_MODE,
-    });
+    const { shouldRegisterAutomaticBackgroundSchedulers } = await import(
+      "./scheduling/automatic-schedulers.js"
+    );
+    const seasonSyncSchedule = await producers.registerScoringSeasonDataSyncSchedule();
+    const relevantSchedule = await producers.registerRelevantCharacterDiscoverySchedule();
+    container.logger.info(
+      {
+        event: "automatic_scheduler_registration",
+        appEnv: env.APP_ENV,
+        scoringSeasonDataSync: seasonSyncSchedule.registered,
+        relevantCharacterDiscovery: relevantSchedule.registered,
+      },
+      "automatic background scheduler registration complete",
+    );
+    // Startup sync is automatic provider refresh — only on deployed envs.
+    if (shouldRegisterAutomaticBackgroundSchedulers(env.APP_ENV)) {
+      await runScheduledScoringSeasonDataSync({
+        prisma: container.prisma,
+        logger: container.logger,
+        warcraftlogs: container.providers.warcraftlogs,
+        blizzard: container.providers.blizzard,
+        providerMode: env.PROVIDER_MODE,
+      });
+    }
   } catch (error) {
     container.logger.warn(
       { err: error, event: "season_data_sync_failed" },

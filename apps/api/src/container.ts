@@ -11,6 +11,7 @@ import {
   generateAddonExportJobSchema,
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
+  relevantCharacterDiscoveryJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeEvidenceSlotJobV2,
@@ -34,6 +35,7 @@ import {
   negativeCache,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
+  relevantCharacterDiscoveryDedupeKey,
   runAnalyzeRun,
   runBulkCharacterProcessing,
   runDiscoverOwnedCharacters,
@@ -340,7 +342,27 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       };
     },
 
-    async registerScoringSeasonDataSyncSchedule(): Promise<void> {},
+    async enqueueRelevantCharacterDiscovery(input): Promise<EnqueueResult> {
+      const payload = relevantCharacterDiscoveryJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = relevantCharacterDiscoveryDedupeKey(payload);
+      return {
+        jobId: dedupeKey,
+        dedupeKey,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async registerScoringSeasonDataSyncSchedule() {
+      return { registered: false };
+    },
+
+    async registerRelevantCharacterDiscoverySchedule() {
+      return { registered: false };
+    },
 
     async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
       const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({

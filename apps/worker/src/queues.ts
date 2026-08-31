@@ -42,6 +42,11 @@ import {
 } from "./dedupe.js";
 import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
+import {
+  SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+  scoringSeasonDataSyncRepeatOpts,
+  shouldRegisterAutomaticBackgroundSchedulers,
+} from "./scheduling/automatic-schedulers.js";
 
 export interface EnqueueResult {
   jobId: string;
@@ -119,8 +124,20 @@ export interface QueueProducers {
     blizzardSeasonId?: number;
     requestedAt?: string;
   }): Promise<EnqueueResult>;
-  registerScoringSeasonDataSyncSchedule(): Promise<void>;
-  registerRelevantCharacterDiscoverySchedule(): Promise<void>;
+  /** Manual / admin enqueue — available in every APP_ENV (not gated). */
+  enqueueRelevantCharacterDiscovery(
+    input: Omit<RelevantCharacterDiscoveryJob, "requestedAt"> & { requestedAt?: string },
+  ): Promise<EnqueueResult>;
+  /**
+   * Registers recurring scoring-season sync when APP_ENV is staging/production.
+   * Returns whether a scheduler was registered.
+   */
+  registerScoringSeasonDataSyncSchedule(): Promise<{ registered: boolean }>;
+  /**
+   * Registers relevant discovery + drain feed schedulers when APP_ENV is staging/production.
+   * Returns whether schedulers were registered.
+   */
+  registerRelevantCharacterDiscoverySchedule(): Promise<{ registered: boolean }>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -467,10 +484,42 @@ export function createQueueProducers(
       };
     },
 
+    async enqueueRelevantCharacterDiscovery(input) {
+      const payload = relevantCharacterDiscoveryJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = relevantCharacterDiscoveryDedupeKey(payload);
+      const job = await queues[QUEUE_NAMES.relevantCharacterDiscovery].add(
+        QUEUE_NAMES.relevantCharacterDiscovery,
+        payload,
+        { jobId: `${dedupeKey}:${payload.requestedAt}` },
+      );
+      return {
+        jobId: job.id ?? dedupeKey,
+        dedupeKey,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
     async registerScoringSeasonDataSyncSchedule() {
-      await queues[QUEUE_NAMES.scoringSeasonDataSync].upsertJobScheduler(
-        "daily-scoring-season-data-sync",
-        { every: 24 * 60 * 60 * 1000 },
+      const queue = queues[QUEUE_NAMES.scoringSeasonDataSync];
+      if (!shouldRegisterAutomaticBackgroundSchedulers(container.env.APP_ENV)) {
+        await queue.removeJobScheduler(SCORING_SEASON_DATA_SYNC_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "scoring_season_data_sync_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            reason: "automatic_schedulers_disabled_for_app_env",
+          },
+          "scoring season data sync schedule not registered for this APP_ENV",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+        scoringSeasonDataSyncRepeatOpts(),
         {
           name: QUEUE_NAMES.scoringSeasonDataSync,
           data: {
@@ -479,9 +528,11 @@ export function createQueueProducers(
           },
         },
       );
+      return { registered: true };
     },
 
     async registerRelevantCharacterDiscoverySchedule() {
+      const queue = queues[QUEUE_NAMES.relevantCharacterDiscovery];
       const addonRegionSet = new Set<string>(KEY_CONTEXT_REGION_CODES);
       const regions = await container.prisma.region.findMany({
         where: { enabled: true },
@@ -489,15 +540,40 @@ export function createQueueProducers(
         orderBy: { code: "asc" },
       });
       const targets = regions.filter((r) => addonRegionSet.has(r.code));
+
+      const removeRegionSchedulers = async () => {
+        await queue.removeJobScheduler("daily-relevant-character-discovery-eu").catch(() => undefined);
+        await queue.removeJobScheduler("relevant-drain-feed").catch(() => undefined);
+        for (const code of KEY_CONTEXT_REGION_CODES) {
+          const regionKey = code.toLowerCase();
+          await queue
+            .removeJobScheduler(`daily-relevant-character-discovery-${regionKey}`)
+            .catch(() => undefined);
+          await queue.removeJobScheduler(`relevant-drain-feed-${regionKey}`).catch(() => undefined);
+        }
+      };
+
+      if (!shouldRegisterAutomaticBackgroundSchedulers(container.env.APP_ENV)) {
+        await removeRegionSchedulers();
+        container.logger.info(
+          {
+            event: "relevant_discovery_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            reason: "automatic_schedulers_disabled_for_app_env",
+          },
+          "relevant character discovery schedule not registered for this APP_ENV",
+        );
+        return { registered: false };
+      }
+
       if (targets.length === 0) {
         container.logger.warn(
           { event: "relevant_discovery_schedule_skipped", reason: "no_enabled_addon_regions" },
           "relevant character discovery schedule skipped — no enabled addon regions",
         );
-        return;
+        return { registered: false };
       }
 
-      const queue = queues[QUEUE_NAMES.relevantCharacterDiscovery];
       // Retire legacy EU-only scheduler ids from earlier patch iterations.
       await queue.removeJobScheduler("daily-relevant-character-discovery-eu").catch(() => undefined);
       await queue.removeJobScheduler("relevant-drain-feed").catch(() => undefined);
@@ -529,6 +605,7 @@ export function createQueueProducers(
           },
         );
       }
+      return { registered: true };
     },
 
     getRefreshCharacterQueue() {

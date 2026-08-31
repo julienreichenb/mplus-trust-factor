@@ -742,8 +742,17 @@ describe("runBootstrap orchestration", () => {
       ["--filter", "./packages/**", "--if-present", "run", "build"],
       ["run", "db:migrate"],
       ["run", "db:seed"],
+      ["--filter", "@mplus/worker", "run", "scoring:bootstrap-context"],
     ]);
     expect(calls.some((args) => args.includes("dev") && !args.includes("dev:infra"))).toBe(false);
+    expect(
+      calls.some(
+        (args) =>
+          args.includes("relevant") ||
+          args.includes("drain") ||
+          args.includes("discover"),
+      ),
+    ).toBe(false);
   });
 
   it("documents .env.example when guidance is requested", () => {

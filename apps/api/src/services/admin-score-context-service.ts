@@ -64,7 +64,8 @@ function mapRepoError(error: unknown): never {
     code === "INVALID_TIER_FACTORS" ||
     code === "INVALID_PERCENTILE_ANCHORS" ||
     code === "INVALID_SPEC_ASSIGNMENTS" ||
-    code === "INVALID_MEDIAN_KEY_DISTRIBUTION"
+    code === "INVALID_MEDIAN_KEY_DISTRIBUTION" ||
+    code === "KEY_FIELD_SATURATION"
   ) {
     throw HttpError.badRequest(code, "Invalid score context configuration", issues);
   }
@@ -278,8 +279,8 @@ export class AdminScoreContextService {
       const factor =
         policyDoc?.percentileAnchors.find((a) => a.percentileBps === percentileBps)?.factor ?? 1;
       const threshold = (code: KeyContextRegionCode) =>
-        boundByRegion[code]?.points.find((p) => p.percentileBps === percentileBps)?.medianKeyThreshold ??
-        null;
+        regions[code]?.latestDistribution?.points.find((p) => p.percentileBps === percentileBps)
+          ?.medianKeyThreshold ?? null;
       return {
         percentileBps,
         percentileLabel: formatPercentileBpsLabel(percentileBps),
@@ -340,7 +341,9 @@ export class AdminScoreContextService {
         regions[season.region?.code?.toUpperCase() ?? "EU"]?.latestDistribution ??
         KEY_CONTEXT_REGION_CODES.map((code) => regions[code]?.latestDistribution).find(Boolean) ??
         null,
-      distributionMissing: KEY_CONTEXT_REGION_CODES.every((code) => !boundByRegion[code]),
+      distributionMissing: KEY_CONTEXT_REGION_CODES.every(
+        (code) => !regions[code]?.latestDistribution,
+      ),
       keyDistributionRefresh: regions.EU?.refreshStatus,
       canonicalSpecializations: this.canonicalSpecializations(),
     };

@@ -159,6 +159,29 @@ export class SeasonScoreContextRepository {
     return mapDistribution(binding?.distributionSnapshot ?? null);
   }
 
+  /**
+   * Latest valid median-key distribution for a regional season.
+   * Skips rows that fail structural / packed-field validation (last-known-good).
+   */
+  async findLatestValidRegionalDistribution(
+    seasonId: string,
+  ): Promise<ReturnType<typeof mapDistribution>> {
+    const rows = await this.prisma.seasonMedianKeyDistributionSnapshot.findMany({
+      where: { seasonId },
+      orderBy: { collectedAt: "desc" },
+    });
+    for (const row of rows) {
+      const mapped = mapDistribution(row);
+      if (!mapped) continue;
+      if (row.source === RAIDER_IO_ADDON_DISTRIBUTION_SOURCE) {
+        const packed = validatePackedDungeonKeyDistribution(mapped.points);
+        if (!packed.ok) continue;
+      }
+      return mapped;
+    }
+    return null;
+  }
+
   async importDistribution(input: {
     seasonId: string;
     source: string;

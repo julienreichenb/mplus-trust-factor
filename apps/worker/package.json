@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
     "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts",
+    "scoring:bootstrap-context": "tsx src/orchestration/active-mplus-season/bootstrap-scoring-context.cli.ts",
     "scoring:canary": "tsx src/orchestration/scoring/public-cli.ts canary",
     "scoring:replay": "tsx src/orchestration/scoring/public-cli.ts replay",
     "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
