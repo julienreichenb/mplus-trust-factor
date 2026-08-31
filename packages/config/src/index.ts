@@ -137,8 +137,11 @@ export const envSchema = z
     REFRESH_CONCURRENCY_ENABLED: booleanFromString.default(false),
     /** Seconds before WCL hourly reset when background refresh may consume spare budget. */
     WCL_PRE_RESET_DRAIN_SECONDS: z.coerce.number().int().nonnegative().default(300),
-    /** Enable daily relevant-character discovery scheduler. */
-    RELEVANT_REFRESH_ENABLED: booleanFromString.default(false),
+    /**
+     * Infrastructure kill-switch for relevant-character discovery (forces off regardless of RuntimeSetting).
+     * Normal enable/disable is admin RuntimeSetting `relevant_refresh_enabled` — no redeploy required.
+     */
+    RELEVANT_REFRESH_KILL_SWITCH: booleanFromString.default(false),
     /** Max refresh jobs enqueued per discovery/drain-feed tick. */
     RELEVANT_CANDIDATE_TARGET: z.coerce.number().int().positive().default(500),
     /** Raider.IO addon-db percentile (bps) for relevant candidate cutoff. Default top 10%. */

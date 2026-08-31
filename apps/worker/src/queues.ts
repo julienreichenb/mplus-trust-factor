@@ -1,6 +1,7 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import {
   QUEUE_NAMES,
+  KEY_CONTEXT_REGION_CODES,
   analyzeEvidenceSlotJobV2Schema,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
@@ -481,30 +482,53 @@ export function createQueueProducers(
     },
 
     async registerRelevantCharacterDiscoverySchedule() {
-      await queues[QUEUE_NAMES.relevantCharacterDiscovery].upsertJobScheduler(
-        "daily-relevant-character-discovery-eu",
-        { every: 24 * 60 * 60 * 1000 },
-        {
-          name: QUEUE_NAMES.relevantCharacterDiscovery,
-          data: {
-            mode: "daily_discovery",
-            regionCode: "EU",
-            requestedAt: new Date().toISOString(),
+      const addonRegionSet = new Set<string>(KEY_CONTEXT_REGION_CODES);
+      const regions = await container.prisma.region.findMany({
+        where: { enabled: true },
+        select: { code: true },
+        orderBy: { code: "asc" },
+      });
+      const targets = regions.filter((r) => addonRegionSet.has(r.code));
+      if (targets.length === 0) {
+        container.logger.warn(
+          { event: "relevant_discovery_schedule_skipped", reason: "no_enabled_addon_regions" },
+          "relevant character discovery schedule skipped — no enabled addon regions",
+        );
+        return;
+      }
+
+      const queue = queues[QUEUE_NAMES.relevantCharacterDiscovery];
+      // Retire legacy EU-only scheduler ids from earlier patch iterations.
+      await queue.removeJobScheduler("daily-relevant-character-discovery-eu").catch(() => undefined);
+      await queue.removeJobScheduler("relevant-drain-feed").catch(() => undefined);
+
+      for (const { code } of targets) {
+        const regionKey = code.toLowerCase();
+        await queue.upsertJobScheduler(
+          `daily-relevant-character-discovery-${regionKey}`,
+          { every: 24 * 60 * 60 * 1000 },
+          {
+            name: QUEUE_NAMES.relevantCharacterDiscovery,
+            data: {
+              mode: "daily_discovery",
+              regionCode: code,
+              requestedAt: new Date().toISOString(),
+            },
           },
-        },
-      );
-      await queues[QUEUE_NAMES.relevantCharacterDiscovery].upsertJobScheduler(
-        "relevant-drain-feed",
-        { every: 5 * 60 * 1000 },
-        {
-          name: QUEUE_NAMES.relevantCharacterDiscovery,
-          data: {
-            mode: "drain_feed",
-            regionCode: "EU",
-            requestedAt: new Date().toISOString(),
+        );
+        await queue.upsertJobScheduler(
+          `relevant-drain-feed-${regionKey}`,
+          { every: 5 * 60 * 1000 },
+          {
+            name: QUEUE_NAMES.relevantCharacterDiscovery,
+            data: {
+              mode: "drain_feed",
+              regionCode: code,
+              requestedAt: new Date().toISOString(),
+            },
           },
-        },
-      );
+        );
+      }
     },
 
     getRefreshCharacterQueue() {

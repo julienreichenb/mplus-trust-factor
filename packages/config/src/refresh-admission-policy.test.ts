@@ -12,6 +12,7 @@ import {
   isRefreshAdmissionShadowEnabled,
   isRefreshWorkerConcurrencyWiringEnabled,
   isWclSnapshotFresh,
+  mergeRefreshAdmissionRuntimeOverrides,
 } from "./refresh-admission-policy.js";
 import { loadEnv, resetEnvCache } from "./index.js";
 
@@ -77,6 +78,41 @@ describe("refresh admission policy", () => {
     const config = buildRefreshAdmissionConfig(env);
     expect(effectiveAdmissionGlobalConcurrency(config)).toBe(2);
     expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(true);
+  });
+
+  it("runtime merge uses concurrency_operation as WCL global cap when concurrency enabled", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      REFRESH_ADMISSION_MODE: "enforce",
+      REFRESH_CONCURRENCY_ENABLED: "false",
+      REFRESH_GLOBAL_CONCURRENCY: "2",
+    });
+    const config = buildRefreshAdmissionConfig(env);
+    const merged = mergeRefreshAdmissionRuntimeOverrides(config, {
+      concurrencyEnabled: true,
+      globalConcurrency: 4,
+    });
+    expect(merged.concurrencyEnabled).toBe(true);
+    expect(merged.globalConcurrency).toBe(4);
+    expect(effectiveAdmissionGlobalConcurrency(merged)).toBe(4);
+  });
+
+  it("runtime merge ignores globalConcurrency override when concurrency disabled", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      REFRESH_ADMISSION_MODE: "enforce",
+      REFRESH_CONCURRENCY_ENABLED: "true",
+      REFRESH_GLOBAL_CONCURRENCY: "2",
+    });
+    const config = buildRefreshAdmissionConfig(env);
+    const merged = mergeRefreshAdmissionRuntimeOverrides(config, {
+      concurrencyEnabled: false,
+      globalConcurrency: 4,
+    });
+    expect(effectiveAdmissionGlobalConcurrency(merged)).toBe(1);
+    expect(merged.globalConcurrency).toBe(2);
   });
 
   it("clamps concurrency knobs to hard maxima", () => {

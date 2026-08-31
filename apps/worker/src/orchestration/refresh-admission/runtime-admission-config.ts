@@ -6,6 +6,8 @@ import { RUNTIME_SETTING_KEYS } from "@mplus/contracts";
 
 export type RefreshAdmissionRuntimeOverrides = {
   concurrencyEnabled?: boolean;
+  /** WCL admission global slots — admin `concurrency_operation` when concurrency is enabled. */
+  globalConcurrency?: number;
   wclPreResetDrainSeconds?: number;
 };
 
@@ -33,6 +35,7 @@ export async function loadRefreshAdmissionRuntimeOverrides(
       key: {
         in: [
           RUNTIME_SETTING_KEYS.refreshConcurrencyEnabled,
+          RUNTIME_SETTING_KEYS.concurrencyOperation,
           RUNTIME_SETTING_KEYS.wclPreResetDrainSeconds,
         ],
       },
@@ -40,11 +43,15 @@ export async function loadRefreshAdmissionRuntimeOverrides(
   });
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
   const concurrencyEnabled = readBoolean(byKey.get(RUNTIME_SETTING_KEYS.refreshConcurrencyEnabled));
+  const globalConcurrency = readPositiveInt(byKey.get(RUNTIME_SETTING_KEYS.concurrencyOperation));
   const wclPreResetDrainSeconds = readPositiveInt(
     byKey.get(RUNTIME_SETTING_KEYS.wclPreResetDrainSeconds),
   );
   return {
     ...(concurrencyEnabled != null ? { concurrencyEnabled } : {}),
+    ...(globalConcurrency != null && globalConcurrency >= 1
+      ? { globalConcurrency }
+      : {}),
     ...(wclPreResetDrainSeconds != null ? { wclPreResetDrainSeconds } : {}),
   };
 }
