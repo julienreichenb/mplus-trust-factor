@@ -20,6 +20,11 @@ async function readPrefix(filePath: string, bytes = 32_768): Promise<string> {
   }
 }
 
+/** Read the first bytes of an addon Lua file without loading the full corpus. */
+export async function readAddonFilePrefix(filePath: string, bytes = 32_768): Promise<string> {
+  return readPrefix(filePath, bytes);
+}
+
 export async function parseNamedCharacterOffsets(
   charactersLuaPath: string,
   recordSizeInBytes: number = MYTHICPLUS_RECORD_SIZE_BYTES,

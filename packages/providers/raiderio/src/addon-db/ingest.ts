@@ -11,12 +11,12 @@ import {
   pointsFromHistogram,
   validatePackedDungeonKeyDistribution,
 } from "@mplus/scoring";
-import { accumulateEligibleMedianHistogram, assertLookupCoversNamedOffsets } from "./histogram.js";
+import { accumulateEligibleMedianHistogramFromCharactersFile } from "./histogram.js";
 import { assertRequestedAddonRegion, mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
+import { loadLookupBufferFromFile } from "./lua-strings.js";
 import {
-  loadLookupBuffer,
-  parseNamedCharacterOffsets,
   parseTocInterface,
+  readAddonFilePrefix,
   validatePackedProviderHeader,
 } from "./parse-characters.js";
 import { parseDbDungeonsLua, parseProviderHeader } from "./parse-lua-meta.js";
@@ -58,20 +58,18 @@ export async function ingestMythicPlusAddonFiles(input: {
   collectedAt?: Date;
 }): Promise<AddonDistributionResult> {
   const region = normalizeRegionCode(input.regionCode);
-  const lookupText = (await readFile(input.lookupLuaPath)).toString("latin1");
-  const lookupHeader = parseProviderHeader(lookupText.slice(0, 32_768));
+  const lookupHeader = parseProviderHeader(await readAddonFilePrefix(input.lookupLuaPath));
   validatePackedProviderHeader(lookupHeader);
   const layout = layoutFromProviderHeader({
     ...lookupHeader,
     dungeonCount: input.expectedDungeons.length,
   });
-  const lookup = loadLookupBuffer(lookupText);
-  const { header, named } = await parseNamedCharacterOffsets(input.charactersLuaPath, lookupHeader.recordSizeInBytes);
-  assertRequestedAddonRegion(header.region, region);
+  const lookup = await loadLookupBufferFromFile(input.lookupLuaPath);
+  const charactersHeader = parseProviderHeader(await readAddonFilePrefix(input.charactersLuaPath));
+  assertRequestedAddonRegion(charactersHeader.region, region);
   assertRequestedAddonRegion(lookupHeader.region, region);
-  assertLookupCoversNamedOffsets(lookup, named, lookupHeader.recordSizeInBytes);
   const dungeonsLua = await readFile(input.dungeonsLuaPath, "utf8");
-  const rioDungeons = parseDbDungeonsLua(dungeonsLua, header.currentSeasonId);
+  const rioDungeons = parseDbDungeonsLua(dungeonsLua, charactersHeader.currentSeasonId);
   mapRioDungeonsToSeasonPool(rioDungeons, input.expectedDungeons);
   if (input.tocText) {
     const iface = parseTocInterface(input.tocText);
@@ -79,11 +77,13 @@ export async function ingestMythicPlusAddonFiles(input: {
       throw new AddonDbFormatError("TOC", `Unexpected retail Interface ${iface}`);
     }
   }
-  const { indexedCharacters, eligibleCharacters, histogram } = accumulateEligibleMedianHistogram(
-    lookup,
-    named.map((n) => ({ byteOffset: n.byteOffset })),
-    layout,
-  );
+  const { indexedCharacters, eligibleCharacters, histogram } =
+    await accumulateEligibleMedianHistogramFromCharactersFile(
+      input.charactersLuaPath,
+      lookup,
+      layout,
+      lookupHeader.recordSizeInBytes,
+    );
   if (eligibleCharacters <= 0) {
     throw new AddonDbFormatError("EMPTY_POPULATION", "No eligible 8/8 characters in addon snapshot");
   }

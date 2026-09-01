@@ -76,6 +76,7 @@ export {
 export { ingestMythicPlusAddonFiles, ingestEuMythicPlusAddonFiles } from "./addon-db/ingest.js";
 export { selectRelevantCandidatesFromAddonSnapshot } from "./addon-db/relevant-candidates.js";
 export type { RelevantAddonCandidate } from "./addon-db/relevant-candidates.js";
+export { loadLookupBufferFromFile } from "./addon-db/lua-strings.js";
 export { loadLookupBuffer, parseNamedCharacterOffsets, validatePackedProviderHeader } from "./addon-db/parse-characters.js";
 export { parseProviderHeader } from "./addon-db/parse-lua-meta.js";
 export {
