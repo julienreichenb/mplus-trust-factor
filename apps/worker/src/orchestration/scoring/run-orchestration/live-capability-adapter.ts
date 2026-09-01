@@ -63,11 +63,6 @@ export interface LiveCapabilityPermissionInput {
   wclEnabled: boolean;
   allowLiveProviderCalls: boolean;
   liveProviderPermissionGranted: boolean;
-  /**
-   * Retained for caller compatibility. Product evidence acquisition must work
-   * while publication is enabled; canary safety enforces publication-off before
-   * this adapter is reached.
-   */
   scoringPublicationEnabled: boolean;
   /** Credentials may exist but must never imply permission. */
   hasWclCredentials: boolean;
@@ -78,6 +73,7 @@ export type LiveCapabilityPermissionDenial =
   | "WCL_DISABLED"
   | "ALLOW_LIVE_PROVIDER_CALLS_FALSE"
   | "ORCHESTRATION_LIVE_PERMISSION_FORBIDDEN"
+  | "PUBLICATION_ENABLED"
   | "WCL_CREDENTIALS_MISSING";
 
 /**
@@ -119,12 +115,27 @@ export function evaluateLiveCapabilityPermission(
   if (!input.liveProviderPermissionGranted) {
     reasons.push("ORCHESTRATION_LIVE_PERMISSION_FORBIDDEN");
   }
-  // Do not gate production evidence acquisition on publication state. The
-  // canary/operator path independently requires publication to be disabled.
+  if (input.scoringPublicationEnabled) reasons.push("PUBLICATION_ENABLED");
   if (!input.hasWclCredentials) reasons.push("WCL_CREDENTIALS_MISSING");
   // Credentials alone never grant: even with credentials, other gates must pass.
   if (reasons.length > 0) return { allowed: false, reasons };
   return { allowed: true };
+}
+
+/**
+ * Product refresh must be able to acquire the evidence it needs before deciding
+ * whether the resulting score may be published. Publication state is therefore
+ * not a provider-permission gate on this path. Canary/operator flows keep using
+ * evaluateLiveCapabilityPermission directly and remain fail-closed when
+ * publication is enabled.
+ */
+export function evaluateProductLiveCapabilityPermission(
+  input: LiveCapabilityPermissionInput,
+): { allowed: true } | { allowed: false; reasons: LiveCapabilityPermissionDenial[] } {
+  return evaluateLiveCapabilityPermission({
+    ...input,
+    scoringPublicationEnabled: false,
+  });
 }
 
 /** Conservative documented estimate when measured points are unavailable. */
@@ -280,7 +291,7 @@ export function createLiveCapabilityAcquireHook(
   participants: OrchestrationParticipant[];
 }) => Promise<LiveCapabilityAcquireResult> {
   return async (input) => {
-    const gate = evaluateLiveCapabilityPermission(deps.permission);
+    const gate = evaluateProductLiveCapabilityPermission(deps.permission);
     if (!gate.allowed) {
       throw Object.assign(
         new Error(`live_capability_acquire_refused:${gate.reasons.join(",")}`),
