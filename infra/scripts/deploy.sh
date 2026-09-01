@@ -192,6 +192,9 @@ fi
 log "rolling out worker then api/web"
 compose_app up -d --no-deps worker
 wait_healthy worker || {
+  log "worker health failed — dumping worker container status and recent logs"
+  compose_app ps worker 2>&1 || true
+  compose_app logs --tail=200 worker 2>&1 || true
   log "worker health failed — rolling back ${MPLUS_ENV} only"
   rollback_apps "${PREVIOUS_TAG}"
   die "worker unhealthy after deploy"

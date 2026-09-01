@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { decodeMythicPlusRecord, sliceRecord } from "./decode-record.js";
@@ -364,6 +364,57 @@ describe("lookup lua round-trip", () => {
     const buf = loadLookupBuffer(lua);
     expect(buf.length).toBe(30);
     expect([...decodeMythicPlusRecord(buf).dungeonLevels]).toEqual([8, 8, 8, 8, 8, 8, 8, 8]);
+  });
+
+  it("streams lookup payloads from disk with the same bytes as in-memory decode", async () => {
+    const { loadLookupBufferFromFile } = await import("./lua-strings.js");
+    const rec = encodeCurrentMythicPlusRecord({ dungeonLevels: [10, 11, 12, 13, 14, 15, 16, 17] });
+    const dir = await mkdtemp(path.join(tmpdir(), "rio-lookup-stream-"));
+    const lookupPath = path.join(dir, "lookup.lua");
+    await writeFile(lookupPath, buildLookupLua([rec], CURRENT_MYTHICPLUS_LAYOUT));
+    const fromFile = await loadLookupBufferFromFile(lookupPath);
+    const fromText = loadLookupBuffer((await readFile(lookupPath)).toString("latin1"));
+    expect(Buffer.from(fromFile)).toEqual(Buffer.from(fromText));
+  });
+});
+
+describe("streaming histogram ingest", () => {
+  it("matches named-offset histogram results for the same fixture", async () => {
+    const { accumulateEligibleMedianHistogramFromCharactersFile } = await import("./histogram.js");
+    const { parseNamedCharacterOffsets } = await import("./parse-characters.js");
+    const dir = await mkdtemp(path.join(tmpdir(), "rio-hist-stream-"));
+    const records = [
+      encodeCurrentMythicPlusRecord({ dungeonLevels: [10, 10, 10, 10, 11, 11, 11, 11] }),
+      encodeCurrentMythicPlusRecord({ dungeonLevels: [12, 12, 12, 12, 13, 13, 13, 13] }),
+      encodeCurrentMythicPlusRecord({ dungeonLevels: [1, 2, 3, 4, 5, 6, 7, 0] }),
+    ];
+    const lookupPath = path.join(dir, "lookup.lua");
+    const charsPath = path.join(dir, "chars.lua");
+    await writeFile(lookupPath, buildLookupLua(records, CURRENT_MYTHICPLUS_LAYOUT));
+    await writeFile(
+      charsPath,
+      buildCharactersLua({
+        names: ["A", "B", "Incomplete"],
+        recordSizeInBytes: CURRENT_SIZE,
+        encodingOrder: CURRENT_MYTHICPLUS_LAYOUT.encodingOrder,
+      }),
+    );
+    const lookup = loadLookupBuffer((await readFile(lookupPath)).toString("latin1"));
+    const { named } = await parseNamedCharacterOffsets(charsPath, CURRENT_SIZE);
+    const namedResult = accumulateEligibleMedianHistogram(
+      lookup,
+      named.map((row) => ({ byteOffset: row.byteOffset })),
+      CURRENT_MYTHICPLUS_LAYOUT,
+    );
+    const streamedResult = await accumulateEligibleMedianHistogramFromCharactersFile(
+      charsPath,
+      lookup,
+      CURRENT_MYTHICPLUS_LAYOUT,
+      CURRENT_SIZE,
+    );
+    expect(streamedResult.indexedCharacters).toBe(namedResult.indexedCharacters);
+    expect(streamedResult.eligibleCharacters).toBe(namedResult.eligibleCharacters);
+    expect([...streamedResult.histogram.entries()]).toEqual([...namedResult.histogram.entries()]);
   });
 });
 

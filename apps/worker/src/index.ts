@@ -204,13 +204,12 @@ async function main(): Promise<void> {
   const producers = createQueueProducers(connection, container);
   const workers = createWorkers(connection, container);
 
+  let registerAutomaticSchedulers = false;
   try {
-    const { runScheduledScoringSeasonDataSync } = await import(
-      "./orchestration/active-mplus-season/scoring-season-data-sync.js"
-    );
     const { shouldRegisterAutomaticBackgroundSchedulers } = await import(
       "./scheduling/automatic-schedulers.js"
     );
+    registerAutomaticSchedulers = shouldRegisterAutomaticBackgroundSchedulers(env.APP_ENV);
     const seasonSyncSchedule = await producers.registerScoringSeasonDataSyncSchedule();
     const relevantSchedule = await producers.registerRelevantCharacterDiscoverySchedule();
     const exportSchedule = await producers.registerProviderDataExportSchedule();
@@ -227,20 +226,10 @@ async function main(): Promise<void> {
       },
       "automatic background scheduler registration complete",
     );
-    // Startup sync is automatic provider refresh — only on deployed envs.
-    if (shouldRegisterAutomaticBackgroundSchedulers(env.APP_ENV)) {
-      await runScheduledScoringSeasonDataSync({
-        prisma: container.prisma,
-        logger: container.logger,
-        warcraftlogs: container.providers.warcraftlogs,
-        blizzard: container.providers.blizzard,
-        providerMode: env.PROVIDER_MODE,
-      });
-    }
   } catch (error) {
-    container.logger.warn(
-      { err: error, event: "season_data_sync_failed" },
-      "season base-data bootstrap failed — continuing worker startup",
+    container.logger.error(
+      { err: error, event: "automatic_scheduler_registration_failed" },
+      "automatic background scheduler registration failed — continuing worker startup",
     );
   }
 
@@ -282,6 +271,38 @@ async function main(): Promise<void> {
       }
     });
     container.logger.info({ port: env.WORKER_HEALTH_PORT }, "worker health server listening");
+  }
+
+  if (registerAutomaticSchedulers) {
+    void (async () => {
+      try {
+        const { runScheduledScoringSeasonDataSync } = await import(
+          "./orchestration/active-mplus-season/scoring-season-data-sync.js"
+        );
+        const result = await runScheduledScoringSeasonDataSync({
+          prisma: container.prisma,
+          logger: container.logger,
+          warcraftlogs: container.providers.warcraftlogs,
+          blizzard: container.providers.blizzard,
+          providerMode: env.PROVIDER_MODE,
+        });
+        container.logger.info(
+          {
+            event: "season_data_sync_complete",
+            blizzardSeasonId: result.blizzardSeasonId,
+            skipped: result.skipped,
+            reason: result.reason,
+            downloads: result.downloads,
+          },
+          "startup scoring season data sync finished",
+        );
+      } catch (error) {
+        container.logger.error(
+          { err: error, event: "season_data_sync_failed" },
+          "startup scoring season data sync failed — worker remains available",
+        );
+      }
+    })();
   }
 
   container.logger.info(

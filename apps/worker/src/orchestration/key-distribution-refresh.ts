@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
 import { SeasonScoreContextRepository, type PrismaClient } from "@mplus/database";
 import {
@@ -241,6 +242,9 @@ export function createSharedAddonIngestSession(input: {
         assetSha256: acquired.sha256,
         githubPublishedAt: acquired.selected.publishedAt,
       });
+      await rm(files.lookupPath, { force: true }).catch(() => undefined);
+      await rm(files.charactersPath, { force: true }).catch(() => undefined);
+      await rm(files.dungeonsPath, { force: true }).catch(() => undefined);
       const collectedAt = new Date();
       const repo = new SeasonScoreContextRepository(prisma);
       const before = await prisma.seasonMedianKeyDistributionSnapshot.findUnique({
