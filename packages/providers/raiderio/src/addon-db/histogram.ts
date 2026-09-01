@@ -3,34 +3,38 @@ import {
   isCompleteEightDungeonLevels,
 } from "@mplus/scoring";
 import { decodeMythicPlusRecord, sliceRecord } from "./decode-record.js";
-import { AddonDbFormatError, MYTHICPLUS_RECORD_SIZE_BYTES } from "./types.js";
-
-/** Live Raider.IO lookup blobs prefix one byte before the first packed record row. */
-export function lookupRecordDataOffset(lookup: Uint8Array): number {
-  return lookup.length % MYTHICPLUS_RECORD_SIZE_BYTES === 0 ? 0 : 1;
-}
-
-export function oneBasedRecordSliceOffset(storedOffset: number, lookupDataOffset: number): number {
-  if (!Number.isInteger(storedOffset) || storedOffset < 0) {
-    throw new AddonDbFormatError("OFFSET", `Invalid record offset ${storedOffset}`);
-  }
-  if (lookupDataOffset !== 0 && lookupDataOffset !== 1) {
-    throw new AddonDbFormatError("OFFSET", `Invalid lookup data offset ${lookupDataOffset}`);
-  }
-  return storedOffset + lookupDataOffset + 1;
-}
+import {
+  packedMythicPlusRecordSizeBytes,
+  PACKED_DUNGEON_KEY_SATURATION_MIN,
+  type MythicPlusPackedLayout,
+} from "./packed-layout.js";
+import { AddonDbFormatError } from "./types.js";
 
 export function assertLookupCoversNamedOffsets(
   lookup: Uint8Array,
   namedOffsets: readonly { byteOffset: number }[],
+  recordSizeBytes: number,
 ): void {
-  const lookupDataOffset = lookupRecordDataOffset(lookup);
+  if (lookup.length % recordSizeBytes !== 0) {
+    throw new AddonDbFormatError(
+      "LOOKUP_LENGTH",
+      `Lookup length ${lookup.length} is not divisible by recordSizeInBytes ${recordSizeBytes}`,
+    );
+  }
   for (const row of namedOffsets) {
-    const oneBased = oneBasedRecordSliceOffset(row.byteOffset, lookupDataOffset);
-    if (oneBased - 1 + MYTHICPLUS_RECORD_SIZE_BYTES > lookup.length) {
+    if (!Number.isInteger(row.byteOffset) || row.byteOffset < 0) {
+      throw new AddonDbFormatError("OFFSET", `Invalid record offset ${row.byteOffset}`);
+    }
+    if (row.byteOffset % recordSizeBytes !== 0) {
+      throw new AddonDbFormatError(
+        "OFFSET",
+        `Record offset ${row.byteOffset} is not aligned to ${recordSizeBytes}`,
+      );
+    }
+    if (row.byteOffset + recordSizeBytes > lookup.length) {
       throw new AddonDbFormatError(
         "LOOKUP_BOUNDS",
-        `Record offset ${row.byteOffset} requires ${oneBased - 1 + MYTHICPLUS_RECORD_SIZE_BYTES} bytes, lookup has ${lookup.length}`,
+        `Record offset ${row.byteOffset} requires ${row.byteOffset + recordSizeBytes} bytes, lookup has ${lookup.length}`,
       );
     }
   }
@@ -39,15 +43,21 @@ export function assertLookupCoversNamedOffsets(
 export function accumulateEligibleMedianHistogram(
   lookup: Uint8Array,
   namedOffsets: readonly { byteOffset: number }[],
+  layout: MythicPlusPackedLayout,
 ): { indexedCharacters: number; eligibleCharacters: number; histogram: Map<number, number> } {
-  const lookupDataOffset = lookupRecordDataOffset(lookup);
-  assertLookupCoversNamedOffsets(lookup, namedOffsets);
+  const recordSizeBytes = packedMythicPlusRecordSizeBytes(layout);
+  assertLookupCoversNamedOffsets(lookup, namedOffsets, recordSizeBytes);
   const histogram = new Map<number, number>();
   let eligibleCharacters = 0;
   for (const row of namedOffsets) {
-    const oneBased = oneBasedRecordSliceOffset(row.byteOffset, lookupDataOffset);
-    const rec = decodeMythicPlusRecord(sliceRecord(lookup, oneBased));
+    const rec = decodeMythicPlusRecord(sliceRecord(lookup, row.byteOffset + 1, recordSizeBytes), layout);
     if (!isCompleteEightDungeonLevels(rec.dungeonLevels)) continue;
+    if (rec.dungeonLevels.some((level) => level >= PACKED_DUNGEON_KEY_SATURATION_MIN)) {
+      throw new AddonDbFormatError(
+        "KEY_FIELD_SATURATION",
+        `Decoded dungeon key ${Math.max(...rec.dungeonLevels)} sits in the ${PACKED_DUNGEON_KEY_SATURATION_MIN}–63 tail of the 6-bit packed field`,
+      );
+    }
     const median = characterMedianOfEightLevels(rec.dungeonLevels);
     histogram.set(median, (histogram.get(median) ?? 0) + 1);
     eligibleCharacters += 1;

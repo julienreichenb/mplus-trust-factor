@@ -9,6 +9,17 @@ export const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
+    /**
+     * Single-provider collector vs consumer role for portable corpus sharing.
+     * Only the collector may automatically run expensive WCL population jobs.
+     * Not editable from admin UI (infra misconfiguration would duplicate WCL spend).
+     */
+    PROVIDER_DATA_ROLE: z.enum(["collector", "consumer"]).default("consumer"),
+    /**
+     * Directory for portable provider-data bundles (manifest + latest.json.gz).
+     * Deploy default: /opt/mplus/shared/provider-data
+     */
+    PROVIDER_DATA_DIR: z.string().min(1).default("/opt/mplus/shared/provider-data"),
     APP_VERSION: z.string().default("0.1.0"),
     API_HOST: z.string().default("0.0.0.0"),
     API_PORT: z.coerce.number().int().positive().default(3000),
@@ -135,6 +146,17 @@ export const envSchema = z
      * Default false — Stage 3 enforce admits at serial capacity 1 without this flag.
      */
     REFRESH_CONCURRENCY_ENABLED: booleanFromString.default(false),
+    /** Seconds before WCL hourly reset when background refresh may consume spare budget. */
+    WCL_PRE_RESET_DRAIN_SECONDS: z.coerce.number().int().nonnegative().default(300),
+    /**
+     * Infrastructure kill-switch for relevant-character discovery (forces off regardless of RuntimeSetting).
+     * Normal enable/disable is admin RuntimeSetting `relevant_refresh_enabled` — no redeploy required.
+     */
+    RELEVANT_REFRESH_KILL_SWITCH: booleanFromString.default(false),
+    /** Max refresh jobs enqueued per discovery/drain-feed tick. */
+    RELEVANT_CANDIDATE_TARGET: z.coerce.number().int().positive().default(500),
+    /** Raider.IO addon-db percentile (bps) for relevant candidate cutoff. Default top 10%. */
+    RELEVANT_CANDIDATE_PERCENTILE_BPS: z.coerce.number().int().min(1).max(10_000).default(9000),
     REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
     REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
     /** Indicative share of the configured tracked denominator — not a global WoW percentile. */
@@ -472,6 +494,7 @@ export {
 
 export {
   buildRefreshAdmissionConfig,
+  mergeRefreshAdmissionRuntimeOverrides,
   clampWorkerConcurrency,
   clampGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
@@ -481,6 +504,9 @@ export {
   computeEmergencyReservePoints,
   computeNormalAvailablePoints,
   computeEmergencyAvailablePoints,
+  computePointsResetInSeconds,
+  isWclPreResetDrainActive,
+  resolveAdmissionReservePolicy,
   deriveWclWindowId,
   isWclSnapshotFresh,
   REFRESH_ADMISSION_POLICY_VERSION,

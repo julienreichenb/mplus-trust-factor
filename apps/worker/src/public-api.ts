@@ -15,11 +15,19 @@ export {
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
+  relevantCharacterDiscoveryDedupeKey,
   syncRealmCatalogDedupeKey,
 } from "./dedupe.js";
 
 export { closeWorkers, createWorkers } from "./processors.js";
 export { createQueueProducers, type EnqueueResult, type QueueProducers } from "./queues.js";
+export {
+  shouldRegisterAutomaticBackgroundSchedulers,
+  shouldRegisterExpensiveProviderPopulationSchedulers,
+  SCORING_SEASON_DATA_SYNC_CRON_PATTERN,
+  SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+} from "./scheduling/automatic-schedulers.js";
+export { loadRelevantRefreshSettings } from "./orchestration/relevant-refresh-settings.js";
 export {
   runCalibrationRunJob,
   type CalibrationRunProcessorDeps,

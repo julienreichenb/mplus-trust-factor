@@ -35,6 +35,16 @@ export const RUNTIME_SETTING_KEYS = {
   wclBudgetReserveRatio: "wcl_budget_reserve_ratio",
   /** Platform-wide AUTO | PINNED scoring season selection. */
   scoringSeasonSelection: SCORING_SEASON_SELECTION_KEY,
+  /** When true, WCL admission uses configured global concurrency (>1). */
+  refreshConcurrencyEnabled: "refresh_concurrency_enabled",
+  /** Pre-reset drain window override (seconds). */
+  wclPreResetDrainSeconds: "wcl_pre_reset_drain_seconds",
+  /** Daily relevant-character discovery master switch. */
+  relevantRefreshEnabled: "relevant_refresh_enabled",
+  /** Max enqueues per discovery/drain-feed tick. */
+  relevantCandidateTarget: "relevant_candidate_target",
+  /** Addon-db percentile cutoff (bps) for relevant candidates. */
+  relevantCandidatePercentileBps: "relevant_candidate_percentile_bps",
 } as const;
 
 export const CONCURRENCY_MIN = 1;
@@ -44,6 +54,15 @@ export const DEFAULT_CONCURRENCY_OPERATION = 2;
 export const DEFAULT_WCL_GLOBAL_HTTP_CONCURRENCY = 3;
 export const DEFAULT_WCL_PER_CHARACTER_RUN_CONCURRENCY = 2;
 export const DEFAULT_WCL_BUDGET_RESERVE_RATIO = 0.2;
+
+/** Upper bound for admin-editable relevant discovery candidate targets. */
+export const RELEVANT_CANDIDATE_TARGET_MIN = 1;
+export const RELEVANT_CANDIDATE_TARGET_MAX = 10_000;
+export const RELEVANT_CANDIDATE_PERCENTILE_BPS_MIN = 1;
+export const RELEVANT_CANDIDATE_PERCENTILE_BPS_MAX = 10_000;
+/** Drain window must fit within a WCL hourly reset. */
+export const WCL_PRE_RESET_DRAIN_SECONDS_MIN = 0;
+export const WCL_PRE_RESET_DRAIN_SECONDS_MAX = 3600;
 
 export const concurrencyValueSchema = z
   .number()
@@ -351,4 +370,78 @@ export interface ScoringFrozenBundleDTO {
   byteLength: number;
   createdAt: string;
   deduplicated: boolean;
+}
+
+/** Effective relevant-character refresh operational settings for admin Misc. */
+export interface AdminRelevantRefreshSettingsDTO {
+  relevantRefreshEnabled: boolean;
+  refreshConcurrencyEnabled: boolean;
+  concurrencyOperation: number;
+  concurrencyHardMax: number;
+  relevantCandidateTarget: number;
+  relevantCandidatePercentileBps: number;
+  /** Human-readable companion for UI: (10000 - bps) / 100. */
+  relevantPopulationTopPercent: number;
+  wclPreResetDrainSeconds: number;
+  killSwitchActive: boolean;
+  appEnv: string;
+  /** False on local development even when relevantRefreshEnabled is true. */
+  automaticSchedulingActive: boolean;
+  settingsVersion: number;
+  updatedAt: string | null;
+}
+
+export const updateRelevantRefreshSettingsBodySchema = z
+  .object({
+    relevantRefreshEnabled: z.boolean().optional(),
+    refreshConcurrencyEnabled: z.boolean().optional(),
+    concurrencyOperation: concurrencyValueSchema.optional(),
+    relevantCandidateTarget: z
+      .number()
+      .int()
+      .min(RELEVANT_CANDIDATE_TARGET_MIN)
+      .max(RELEVANT_CANDIDATE_TARGET_MAX)
+      .optional(),
+    relevantCandidatePercentileBps: z
+      .number()
+      .int()
+      .min(RELEVANT_CANDIDATE_PERCENTILE_BPS_MIN)
+      .max(RELEVANT_CANDIDATE_PERCENTILE_BPS_MAX)
+      .optional(),
+    wclPreResetDrainSeconds: z
+      .number()
+      .int()
+      .min(WCL_PRE_RESET_DRAIN_SECONDS_MIN)
+      .max(WCL_PRE_RESET_DRAIN_SECONDS_MAX)
+      .optional(),
+    expectedVersion: z.number().int().positive(),
+  })
+  .refine(
+    (v) =>
+      v.relevantRefreshEnabled != null ||
+      v.refreshConcurrencyEnabled != null ||
+      v.concurrencyOperation != null ||
+      v.relevantCandidateTarget != null ||
+      v.relevantCandidatePercentileBps != null ||
+      v.wclPreResetDrainSeconds != null,
+    { message: "At least one relevant-refresh setting is required" },
+  );
+export type UpdateRelevantRefreshSettingsBody = z.infer<
+  typeof updateRelevantRefreshSettingsBodySchema
+>;
+
+export const runRelevantDiscoveryBodySchema = z.object({
+  regionCode: z.enum(["EU", "US", "KR", "TW"]).default("EU"),
+  mode: z.enum(["daily_discovery", "drain_feed"]).default("daily_discovery"),
+});
+export type RunRelevantDiscoveryBody = z.infer<typeof runRelevantDiscoveryBodySchema>;
+
+export interface AdminRelevantDiscoveryEnqueueDTO {
+  jobId: string;
+  dedupeKey: string;
+  reused: boolean;
+  enqueued: boolean;
+  mode: "daily_discovery" | "drain_feed";
+  regionCode: string;
+  trigger: "admin";
 }

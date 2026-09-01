@@ -3,26 +3,33 @@ import { open } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { parseAdjacentLuaStringPayload } from "./lua-strings.js";
 import { parseProviderHeader } from "./parse-lua-meta.js";
-import { AddonDbFormatError, MYTHICPLUS_ENCODING_ORDER, MYTHICPLUS_RECORD_SIZE_BYTES } from "./types.js";
+import {
+  assertPackedLayoutMatchesRecordSize,
+  layoutFromProviderHeader,
+} from "./packed-layout.js";
+import { AddonDbFormatError, MYTHICPLUS_RECORD_SIZE_BYTES } from "./types.js";
 
 async function readPrefix(filePath: string, bytes = 32_768): Promise<string> {
   const fh = await open(filePath, "r");
   try {
     const buf = Buffer.alloc(bytes);
     const { bytesRead } = await fh.read(buf, 0, bytes, 0);
-    return buf.subarray(0, bytesRead).toString("utf8");
+    return buf.subarray(0, bytesRead).toString("latin1");
   } finally {
     await fh.close();
   }
 }
 
-export async function parseNamedCharacterOffsets(charactersLuaPath: string): Promise<{
+export async function parseNamedCharacterOffsets(
+  charactersLuaPath: string,
+  recordSizeInBytes: number = MYTHICPLUS_RECORD_SIZE_BYTES,
+): Promise<{
   header: ReturnType<typeof parseProviderHeader>;
   named: Array<{ realm: string; name: string; byteOffset: number }>;
 }> {
   const prefix = await readPrefix(charactersLuaPath);
   const header = parseProviderHeader(prefix);
-  validateHeader(header);
+  const recordSize = recordSizeInBytes > 0 ? recordSizeInBytes : MYTHICPLUS_RECORD_SIZE_BYTES;
   const stream = createReadStream(charactersLuaPath, { encoding: "utf8" });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const named: Array<{ realm: string; name: string; byteOffset: number }> = [];
@@ -40,7 +47,7 @@ export async function parseNamedCharacterOffsets(charactersLuaPath: string): Pro
       named.push({
         realm,
         name: names[i] ?? "",
-        byteOffset: offset + i * MYTHICPLUS_RECORD_SIZE_BYTES,
+        byteOffset: offset + i * recordSize,
       });
     }
   }
@@ -60,21 +67,22 @@ export function loadLookupBuffer(lookupLuaText: string): Uint8Array {
   return parseAdjacentLuaStringPayload(lookupLuaText, quote);
 }
 
+export function validatePackedProviderHeader(header: ReturnType<typeof parseProviderHeader>): void {
+  if (header.recordSizeInBytes <= 0) {
+    throw new AddonDbFormatError("RECORD_SIZE", "recordSizeInBytes is missing from the addon provider header");
+  }
+  if (header.encodingOrder.length === 0) {
+    throw new AddonDbFormatError("ENCODING_ORDER", "encodingOrder is missing from the addon provider header");
+  }
+  assertPackedLayoutMatchesRecordSize(layoutFromProviderHeader(header), header.recordSizeInBytes);
+}
+
+/** @deprecated Prefer validatePackedProviderHeader; kept for callers that still pass a characters-file header. */
 export function validateHeader(header: ReturnType<typeof parseProviderHeader>): void {
-  if (header.recordSizeInBytes !== MYTHICPLUS_RECORD_SIZE_BYTES) {
-    throw new AddonDbFormatError(
-      "RECORD_SIZE",
-      `Unexpected recordSizeInBytes ${header.recordSizeInBytes}`,
-    );
+  if (header.encodingOrder.length === 0 || header.recordSizeInBytes <= 0) {
+    return;
   }
-  if (header.encodingOrder.length !== MYTHICPLUS_ENCODING_ORDER.length) {
-    throw new AddonDbFormatError("ENCODING_ORDER", "encodingOrder length drifted");
-  }
-  for (let i = 0; i < MYTHICPLUS_ENCODING_ORDER.length; i++) {
-    if (header.encodingOrder[i] !== MYTHICPLUS_ENCODING_ORDER[i]) {
-      throw new AddonDbFormatError("ENCODING_ORDER", "encodingOrder drifted from known Mythic+ packing");
-    }
-  }
+  validatePackedProviderHeader(header);
 }
 
 export function parseTocInterface(toc: string): number | null {

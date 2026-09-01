@@ -88,10 +88,11 @@ export function parseProviderHeader(luaPrefix: string): AddonProviderHeader {
   const currentSeasonId = Number(match1(luaPrefix, /(?:ns\.)?currentSeasonId\s*=\s*(-?\d+)/));
   const numCharacters = Number(match1(luaPrefix, /(?:ns\.)?numCharacters\s*=\s*(\d+)/));
   const recordSizeRaw = matchOpt(luaPrefix, /(?:ns\.)?recordSizeInBytes\s*=\s*(\d+)/);
-  const recordSizeInBytes = recordSizeRaw ? Number(recordSizeRaw) : 30;
-  const encodingRaw =
-    matchOpt(luaPrefix, /(?:ns\.)?encodingOrder\s*=\s*\{([^}]+)\}/) ?? "1, 2, 5, 6, 9, 10, 11, 12, 14, 15";
-  const encodingOrder = encodingRaw.split(",").map((p) => Number(p.trim())).filter((n) => Number.isFinite(n));
+  const recordSizeInBytes = recordSizeRaw ? Number(recordSizeRaw) : 0;
+  const encodingRaw = matchOpt(luaPrefix, /(?:ns\.)?encodingOrder\s*=\s*\{([^}]+)\}/);
+  const encodingOrder = encodingRaw
+    ? encodingRaw.split(",").map((p) => Number(p.trim())).filter((n) => Number.isFinite(n))
+    : [];
   const milestoneRaw =
     matchOpt(luaPrefix, /(?:ns\.)?keystoneMilestoneLevels\s*=\s*\{([^}]+)\}/) ?? "15, 12, 10, 7, 4, 2";
   const keystoneMilestoneLevels = milestoneRaw

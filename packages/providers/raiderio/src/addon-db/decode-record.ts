@@ -1,74 +1,102 @@
 import { readBits } from "./packed-bits.js";
 import {
-  AddonDbFormatError,
-  MAX_KEY_LEVEL,
-  MYTHICPLUS_DUNGEON_SLOTS,
-  MYTHICPLUS_MILESTONES,
-  MYTHICPLUS_RECORD_SIZE_BYTES,
-  type PackedMythicPlusRecord,
-} from "./types.js";
+  assertPackedLayoutMatchesRecordSize,
+  ENCODER_MYTHICPLUS_FIELDS,
+  LEGACY_MYTHICPLUS_LAYOUT,
+  mythicPlusFieldBitWidth,
+  packedMythicPlusRecordSizeBytes,
+  PACKED_DUNGEON_CHEST_FIELD_BITS,
+  PACKED_DUNGEON_KEY_FIELD_BITS,
+  PACKED_DUNGEON_KEY_FIELD_MAX,
+  type MythicPlusPackedLayout,
+} from "./packed-layout.js";
+import { AddonDbFormatError, MYTHICPLUS_RECORD_SIZE_BYTES, type PackedMythicPlusRecord } from "./types.js";
 
-export function decodeMythicPlusRecord(record: Uint8Array): PackedMythicPlusRecord {
-  if (record.length !== MYTHICPLUS_RECORD_SIZE_BYTES) {
-    throw new AddonDbFormatError(
-      "RECORD_SIZE",
-      `Expected ${MYTHICPLUS_RECORD_SIZE_BYTES}-byte record, got ${record.length}`,
-    );
+export function decodeMythicPlusRecord(
+  record: Uint8Array,
+  layout: MythicPlusPackedLayout = LEGACY_MYTHICPLUS_LAYOUT,
+): PackedMythicPlusRecord {
+  const recordSize = packedMythicPlusRecordSizeBytes(layout);
+  assertPackedLayoutMatchesRecordSize(layout, recordSize);
+  if (record.length !== recordSize) {
+    throw new AddonDbFormatError("RECORD_SIZE", `Expected ${recordSize}-byte record, got ${record.length}`);
   }
   let bitOffset = 0;
-  const currentScore = readField(record, bitOffset, 13);
-  bitOffset = currentScore.bitOffset;
-  bitOffset = readField(record, bitOffset, 7).bitOffset;
-  bitOffset = readField(record, bitOffset, 13).bitOffset;
-  bitOffset = readField(record, bitOffset, 7).bitOffset;
-  for (let i = 0; i < MYTHICPLUS_MILESTONES.length; i++) {
-    bitOffset = readField(record, bitOffset, 8).bitOffset;
-  }
-  const dungeonLevels: number[] = [];
-  const dungeonChests: number[] = [];
-  for (let i = 0; i < MYTHICPLUS_DUNGEON_SLOTS; i++) {
-    const level = readField(record, bitOffset, 6);
-    bitOffset = level.bitOffset;
-    const chests = readField(record, bitOffset, 2);
-    bitOffset = chests.bitOffset;
-    if (level.value > MAX_KEY_LEVEL) {
-      throw new AddonDbFormatError("KEY_LEVEL_RANGE", `Key level ${level.value} exceeds ${MAX_KEY_LEVEL}`);
+  let currentScore = 0;
+  let dungeonLevels: number[] = [];
+  let dungeonChests: number[] = [];
+  let warbandDungeonLevels: number[] = [];
+  for (const field of layout.encodingOrder) {
+    if (field === ENCODER_MYTHICPLUS_FIELDS.CURRENT_SCORE) {
+      const score = readBits(record, bitOffset, 13);
+      currentScore = score.value;
+      bitOffset = score.bitOffset;
+      continue;
     }
-    dungeonLevels.push(level.value);
-    dungeonChests.push(chests.value);
+    if (field === ENCODER_MYTHICPLUS_FIELDS.DUNGEON_LEVELS) {
+      const decoded = readDungeonSlots(record, bitOffset, layout.dungeonCount);
+      dungeonLevels = decoded.levels;
+      dungeonChests = decoded.chests;
+      bitOffset = decoded.bitOffset;
+      continue;
+    }
+    if (field === ENCODER_MYTHICPLUS_FIELDS.WARBAND_DUNGEON_LEVELS) {
+      const decoded = readDungeonSlots(record, bitOffset, layout.dungeonCount);
+      warbandDungeonLevels = decoded.levels;
+      bitOffset = decoded.bitOffset;
+      continue;
+    }
+    bitOffset += mythicPlusFieldBitWidth(field, layout);
   }
-  bitOffset = readField(record, bitOffset, 4).bitOffset;
-  bitOffset = readField(record, bitOffset, 13).bitOffset;
-  const warbandDungeonLevels: number[] = [];
-  for (let i = 0; i < MYTHICPLUS_DUNGEON_SLOTS; i++) {
-    const level = readField(record, bitOffset, 6);
-    bitOffset = level.bitOffset;
-    bitOffset = readField(record, bitOffset, 2).bitOffset;
-    warbandDungeonLevels.push(level.value);
-  }
-  bitOffset = readField(record, bitOffset, 7).bitOffset;
-  if (Math.ceil(bitOffset / 8) > MYTHICPLUS_RECORD_SIZE_BYTES) {
+  if (Math.ceil(bitOffset / 8) > recordSize) {
     throw new AddonDbFormatError("BIT_OVERRUN", "Packed record bit decode exceeded record size");
   }
+  if (dungeonLevels.length !== layout.dungeonCount) {
+    throw new AddonDbFormatError("ENCODING_ORDER", "encodingOrder did not include dungeon levels (field 10)");
+  }
   return {
-    currentScore: currentScore.value,
+    currentScore,
     dungeonLevels,
     dungeonChests,
     warbandDungeonLevels,
   };
 }
 
-function readField(buf: Uint8Array, bitOffset: number, length: number) {
-  return readBits(buf, bitOffset, length);
-}
-
-export function sliceRecord(lookup: Uint8Array, oneBasedByteOffset: number): Uint8Array {
+export function sliceRecord(
+  lookup: Uint8Array,
+  oneBasedByteOffset: number,
+  recordSizeBytes: number = MYTHICPLUS_RECORD_SIZE_BYTES,
+): Uint8Array {
   const start = oneBasedByteOffset - 1;
-  if (start < 0 || start + MYTHICPLUS_RECORD_SIZE_BYTES > lookup.length) {
+  if (start < 0 || start + recordSizeBytes > lookup.length) {
     throw new AddonDbFormatError(
       "LOOKUP_BOUNDS",
       `Record offset ${oneBasedByteOffset} is outside lookup (${lookup.length} bytes)`,
     );
   }
-  return lookup.subarray(start, start + MYTHICPLUS_RECORD_SIZE_BYTES);
+  return lookup.subarray(start, start + recordSizeBytes);
+}
+
+function readDungeonSlots(
+  record: Uint8Array,
+  bitOffset: number,
+  dungeonCount: number,
+): { levels: number[]; chests: number[]; bitOffset: number } {
+  const levels: number[] = [];
+  const chests: number[] = [];
+  let offset = bitOffset;
+  for (let i = 0; i < dungeonCount; i++) {
+    const level = readBits(record, offset, PACKED_DUNGEON_KEY_FIELD_BITS);
+    const chest = readBits(record, level.bitOffset, PACKED_DUNGEON_CHEST_FIELD_BITS);
+    if (level.value > PACKED_DUNGEON_KEY_FIELD_MAX) {
+      throw new AddonDbFormatError(
+        "KEY_LEVEL_RANGE",
+        `Key level ${level.value} exceeds ${PACKED_DUNGEON_KEY_FIELD_MAX}`,
+      );
+    }
+    levels.push(level.value);
+    chests.push(chest.value);
+    offset = chest.bitOffset;
+  }
+  return { levels, chests, bitOffset: offset };
 }

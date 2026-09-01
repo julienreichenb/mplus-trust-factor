@@ -207,8 +207,11 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       row.thresholds.EU,
     ])).toEqual(
       expect.arrayContaining([
-        ["P75", null],
-        ["P90", null],
+        ["P60", null],
+        ["P75", 15],
+        ["P90", 18],
+        ["P99", 22],
+        ["P99.9", 24],
       ]),
     );
 

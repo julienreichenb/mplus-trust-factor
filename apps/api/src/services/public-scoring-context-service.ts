@@ -52,10 +52,22 @@ export class PublicScoringContextService {
     > = { EU: null, US: null, KR: null, TW: null };
 
     for (const code of KEY_CONTEXT_REGION_CODES) {
-      const dist = await repo.findFrozenRegionalSnapshot({
-        revisionId: published.id,
-        regionCode: code,
-      });
+      let regionalSeasonId: string | null = null;
+      if (season.blizzardSeasonId != null) {
+        const regional = await this.prisma.season.findFirst({
+          where: {
+            blizzardSeasonId: season.blizzardSeasonId,
+            region: { code: { equals: code, mode: "insensitive" } },
+          },
+          select: { id: true },
+        });
+        regionalSeasonId = regional?.id ?? null;
+      } else if (code === "EU") {
+        // Non-Blizzard-backed seasons: treat the effective season row as EU-only.
+        regionalSeasonId = season.id;
+      }
+      if (!regionalSeasonId) continue;
+      const dist = await repo.findLatestValidRegionalDistribution(regionalSeasonId);
       if (!dist) continue;
       regionalSnapshots[code] = {
         collectedAt: dist.collectedAt,

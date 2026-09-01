@@ -12,11 +12,15 @@ import {
   generateAddonExportJobSchema,
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
+  relevantCharacterDiscoveryJobSchema,
+  providerDataExportJobSchema,
+  providerDataImportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
 } from "@mplus/contracts";
 import { toJsonSafeSanitized } from "@mplus/observability";
 import type { WorkerContainer } from "./container.js";
+import { createQueueProducers } from "./queues.js";
 import {
   bulkCharacterProcessingDedupeKey,
   finalizeEvidenceBatchV2DedupeKey,
@@ -31,7 +35,10 @@ import { runScoringEvidenceExportJob } from "./orchestration/scoring-evidence-ex
 import { runScoringShadowCanaryJob } from "./orchestration/scoring/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runKeyDistributionRefresh } from "./orchestration/key-distribution-refresh.js";
+import { runRelevantCharacterDiscovery } from "./orchestration/relevant-character-discovery.js";
 import { runScheduledScoringSeasonDataSync } from "./orchestration/active-mplus-season/scoring-season-data-sync.js";
+import { exportProviderDataBundle } from "./provider-data/export-bundle.js";
+import { importProviderDataBundle } from "./provider-data/import-bundle.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
@@ -416,6 +423,42 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
+  const relevantDiscoveryProducers = createQueueProducers(connection, container);
+  const relevantDiscovery = new Worker(
+    QUEUE_NAMES.relevantCharacterDiscovery,
+    async (job) => {
+      const payload = relevantCharacterDiscoveryJobSchema.parse(job.data);
+      const result = await runRelevantCharacterDiscovery(container, payload, relevantDiscoveryProducers);
+      return result.counters;
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  const providerDataExport = new Worker(
+    QUEUE_NAMES.providerDataExport,
+    async (job) => {
+      providerDataExportJobSchema.parse(job.data);
+      return exportProviderDataBundle({
+        prisma: container.prisma,
+        outputDir: container.env.PROVIDER_DATA_DIR,
+        sourceEnvironment: container.env.APP_ENV,
+      });
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  const providerDataImport = new Worker(
+    QUEUE_NAMES.providerDataImport,
+    async (job) => {
+      providerDataImportJobSchema.parse(job.data);
+      return importProviderDataBundle({
+        prisma: container.prisma,
+        dir: container.env.PROVIDER_DATA_DIR,
+      });
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
   for (const worker of [
     refresh,
     refreshCalibration,
@@ -431,6 +474,9 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     evidenceFinalize,
     keyDistribution,
     scoringSeasonDataSync,
+    relevantDiscovery,
+    providerDataExport,
+    providerDataImport,
   ]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
@@ -455,6 +501,12 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     return originalEvidenceSlotClose(force);
   };
 
+  const originalRelevantClose = relevantDiscovery.close.bind(relevantDiscovery);
+  relevantDiscovery.close = async (force?: boolean) => {
+    await relevantDiscoveryProducers.close();
+    return originalRelevantClose(force);
+  };
+
   return [
     refresh,
     refreshCalibration,
@@ -470,6 +522,9 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     evidenceFinalize,
     keyDistribution,
     scoringSeasonDataSync,
+    relevantDiscovery,
+    providerDataExport,
+    providerDataImport,
   ];
 }
 

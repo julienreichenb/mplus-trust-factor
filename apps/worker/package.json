@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
     "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts",
+    "scoring:bootstrap-context": "tsx src/orchestration/active-mplus-season/bootstrap-scoring-context.cli.ts",
     "scoring:canary": "tsx src/orchestration/scoring/public-cli.ts canary",
     "scoring:replay": "tsx src/orchestration/scoring/public-cli.ts replay",
     "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
@@ -26,6 +27,8 @@
     "boost:probe": "tsx src/boost-assessment/probe.cli.ts",
     "boost:population-audit": "tsx src/boost-assessment/population-audit.cli.ts",
     "wcl:hydrate:rankings": "tsx src/wcl-fight-rankings/hydrate-rankings.cli.ts",
+    "provider-data:export": "tsx src/provider-data/export.cli.ts",
+    "provider-data:import": "tsx src/provider-data/import.cli.ts",
     "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
   "dependencies": {

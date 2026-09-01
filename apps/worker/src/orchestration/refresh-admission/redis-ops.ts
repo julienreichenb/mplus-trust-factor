@@ -201,12 +201,21 @@ export async function evalReserveAdmission(input: {
   expectedWindowId: string;
   nowMs?: number;
   allowSchedulingStates?: string;
+  /** When set, overrides config reserve knobs (e.g. pre-reset drain). */
+  reservePolicy?: {
+    safetyReserveFraction: number;
+    minEmergencyReservePoints: number;
+  };
 }): Promise<ReserveLuaResult> {
   const nowMs = input.nowMs ?? Date.now();
   const keys = refreshAdmissionKeys(input.appEnv);
   const windowId = input.expectedWindowId || "none";
   const globalLimit = effectiveAdmissionGlobalConcurrency(input.config);
   const leaseExpiry = nowMs + input.config.leaseTtlMs;
+  const reserveFraction =
+    input.reservePolicy?.safetyReserveFraction ?? input.config.safetyReserveFraction;
+  const minReserve =
+    input.reservePolicy?.minEmergencyReservePoints ?? input.config.minEmergencyReservePoints;
   const raw = await input.redis.eval(
     REFRESH_ADMISSION_RESERVE_LUA,
     9,
@@ -228,8 +237,8 @@ export async function evalReserveAdmission(input: {
     String(nowMs),
     String(input.config.wclSnapshotMaxAgeSeconds * 1000),
     input.allowSchedulingStates ?? "RUNNING",
-    String(input.config.safetyReserveFraction),
-    String(input.config.minEmergencyReservePoints),
+    String(reserveFraction),
+    String(minReserve),
   );
   const tuple = parseLuaTuple(raw);
   const ok = Number(tuple[0]) === 1;

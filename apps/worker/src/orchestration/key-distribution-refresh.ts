@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
 import { SeasonScoreContextRepository, type PrismaClient } from "@mplus/database";
 import {
+  validateMedianKeyDistributionPoints,
+  validatePackedDungeonKeyDistribution,
+} from "@mplus/scoring";
+import {
   AddonDbFormatError,
   downloadReleaseZip,
   extractRequiredAddonFiles,
@@ -27,6 +31,19 @@ const DUNGEON_IDENTITY_CODES = new Set([
   "SEASON_DUNGEON_COUNT",
 ]);
 
+function isReusableDistributionSnapshot(row: {
+  source: string;
+  points: unknown;
+}): boolean {
+  const validated = validateMedianKeyDistributionPoints(row.points);
+  if (!validated.ok) return false;
+  if (row.source === RAIDER_IO_ADDON_DISTRIBUTION_SOURCE) {
+    const packed = validatePackedDungeonKeyDistribution(validated.value.points);
+    if (!packed.ok) return false;
+  }
+  return true;
+}
+
 export async function hasSuccessfulIngestForArtifact(
   prisma: PrismaClient,
   input: { seasonId: string; releaseTag: string; assetSha256: string },
@@ -40,7 +57,7 @@ export async function hasSuccessfulIngestForArtifact(
       sourceVersion: input.releaseTag,
     },
     orderBy: { collectedAt: "desc" },
-    select: { id: true, provenance: true },
+    select: { id: true, provenance: true, source: true, points: true },
   });
   for (const row of rows) {
     const provenance =
@@ -49,6 +66,7 @@ export async function hasSuccessfulIngestForArtifact(
         : {};
     const stored = typeof provenance.assetSha256 === "string" ? provenance.assetSha256.trim().toLowerCase() : "";
     if (stored && stored === sha) {
+      if (!isReusableDistributionSnapshot(row)) continue;
       return { snapshotId: row.id };
     }
   }
@@ -68,7 +86,7 @@ export async function hasSuccessfulIngestForRelease(
       sourceVersion: releaseTag,
     },
     orderBy: { collectedAt: "desc" },
-    select: { id: true, provenance: true },
+    select: { id: true, provenance: true, source: true, points: true },
   });
   const withSha = rows.find((row) => {
     const provenance =
@@ -77,7 +95,8 @@ export async function hasSuccessfulIngestForRelease(
         : {};
     return typeof provenance.assetSha256 === "string" && provenance.assetSha256.trim() !== "";
   });
-  return withSha ? { snapshotId: withSha.id } : null;
+  if (!withSha || !isReusableDistributionSnapshot(withSha)) return null;
+  return { snapshotId: withSha.id };
 }
 
 function isDungeonIdentityError(error: unknown): boolean {

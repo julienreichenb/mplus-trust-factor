@@ -12,7 +12,7 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 |------|------|---------|
 | Product | [`product/`](product/) | Scope, v6 scoring, ranking/confidence/U |
 | Architecture | [`architecture/`](architecture/) | System, refresh, parallel admission, WCL, publication, IAM, addon, frontend, [character search](architecture/character-search-and-realm-catalog.md), [Scoring](../scoring/SCORING_ARCHITECTURE.md) |
-| Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle |
+| Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), [provider-data sharing](operations/provider-data-sharing.md), CI/CD, model lifecycle |
 | Agents | [`agents/`](agents/) | Workflow, definition of done, ownership |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
 | Scoring | [`scoring/`](scoring/) | Architecture, WCL acquisition, dimensions, operations ([canonical set](scoring/README.md)) |

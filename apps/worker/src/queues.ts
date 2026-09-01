@@ -1,6 +1,7 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import {
   QUEUE_NAMES,
+  KEY_CONTEXT_REGION_CODES,
   analyzeEvidenceSlotJobV2Schema,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
@@ -20,7 +21,11 @@ import {
   type FinalizeEvidenceBatchJobV2,
   keyDistributionRefreshJobSchema,
   scoringSeasonDataSyncJobSchema,
+  relevantCharacterDiscoveryJobSchema,
+  providerDataExportJobSchema,
+  providerDataImportJobSchema,
   type KeyDistributionRefreshJob,
+  type RelevantCharacterDiscoveryJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
@@ -31,6 +36,7 @@ import {
   analyzeRunDedupeKey,
   bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
+  relevantCharacterDiscoveryDedupeKey,
   finalizeEvidenceBatchV2DedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
@@ -38,6 +44,18 @@ import {
 } from "./dedupe.js";
 import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
+import {
+  PROVIDER_DATA_EXPORT_SCHEDULER_ID,
+  PROVIDER_DATA_IMPORT_SCHEDULER_ID,
+  SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+  providerDataExportRepeatOpts,
+  providerDataImportRepeatOpts,
+  scoringSeasonDataSyncRepeatOpts,
+  shouldRegisterAutomaticBackgroundSchedulers,
+  shouldRegisterExpensiveProviderPopulationSchedulers,
+  shouldRegisterProviderDataExportSchedule,
+  shouldRegisterProviderDataImportSchedule,
+} from "./scheduling/automatic-schedulers.js";
 
 export interface EnqueueResult {
   jobId: string;
@@ -115,7 +133,23 @@ export interface QueueProducers {
     blizzardSeasonId?: number;
     requestedAt?: string;
   }): Promise<EnqueueResult>;
-  registerScoringSeasonDataSyncSchedule(): Promise<void>;
+  /** Manual / admin enqueue — available in every APP_ENV (not gated). */
+  enqueueRelevantCharacterDiscovery(
+    input: Omit<RelevantCharacterDiscoveryJob, "requestedAt"> & { requestedAt?: string },
+  ): Promise<EnqueueResult>;
+  /**
+   * Registers recurring scoring-season sync when APP_ENV is staging/production.
+   * Returns whether a scheduler was registered.
+   */
+  registerScoringSeasonDataSyncSchedule(): Promise<{ registered: boolean }>;
+  /**
+   * Registers relevant discovery + drain feed when deployed AND PROVIDER_DATA_ROLE=collector.
+   */
+  registerRelevantCharacterDiscoverySchedule(): Promise<{ registered: boolean }>;
+  /** Collector nightly portable corpus export. */
+  registerProviderDataExportSchedule(): Promise<{ registered: boolean }>;
+  /** Consumer nightly portable corpus import. */
+  registerProviderDataImportSchedule(): Promise<{ registered: boolean }>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -162,6 +196,11 @@ export function createQueueProducers(
     [QUEUE_NAMES.scoringSeasonDataSync]: new Queue(QUEUE_NAMES.scoringSeasonDataSync, {
       connection,
     }),
+    [QUEUE_NAMES.relevantCharacterDiscovery]: new Queue(QUEUE_NAMES.relevantCharacterDiscovery, {
+      connection,
+    }),
+    [QUEUE_NAMES.providerDataExport]: new Queue(QUEUE_NAMES.providerDataExport, { connection }),
+    [QUEUE_NAMES.providerDataImport]: new Queue(QUEUE_NAMES.providerDataImport, { connection }),
   } as const;
 
   async function enqueue(
@@ -459,10 +498,41 @@ export function createQueueProducers(
       };
     },
 
+    async enqueueRelevantCharacterDiscovery(input) {
+      const payload = relevantCharacterDiscoveryJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = relevantCharacterDiscoveryDedupeKey(payload);
+      const job = await queues[QUEUE_NAMES.relevantCharacterDiscovery].add(
+        QUEUE_NAMES.relevantCharacterDiscovery,
+        payload,
+      );
+      return {
+        jobId: job.id ?? dedupeKey,
+        dedupeKey,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
     async registerScoringSeasonDataSyncSchedule() {
-      await queues[QUEUE_NAMES.scoringSeasonDataSync].upsertJobScheduler(
-        "daily-scoring-season-data-sync",
-        { every: 24 * 60 * 60 * 1000 },
+      const queue = queues[QUEUE_NAMES.scoringSeasonDataSync];
+      if (!shouldRegisterAutomaticBackgroundSchedulers(container.env.APP_ENV)) {
+        await queue.removeJobScheduler(SCORING_SEASON_DATA_SYNC_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "scoring_season_data_sync_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            reason: "automatic_schedulers_disabled_for_app_env",
+          },
+          "scoring season data sync schedule not registered for this APP_ENV",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+        scoringSeasonDataSyncRepeatOpts(),
         {
           name: QUEUE_NAMES.scoringSeasonDataSync,
           data: {
@@ -471,6 +541,156 @@ export function createQueueProducers(
           },
         },
       );
+      return { registered: true };
+    },
+
+    async registerRelevantCharacterDiscoverySchedule() {
+      const queue = queues[QUEUE_NAMES.relevantCharacterDiscovery];
+      const addonRegionSet = new Set<string>(KEY_CONTEXT_REGION_CODES);
+      const regions = await container.prisma.region.findMany({
+        where: { enabled: true },
+        select: { code: true },
+        orderBy: { code: "asc" },
+      });
+      const targets = regions.filter((r) => addonRegionSet.has(r.code));
+
+      const removeRegionSchedulers = async () => {
+        await queue.removeJobScheduler("daily-relevant-character-discovery-eu").catch(() => undefined);
+        await queue.removeJobScheduler("relevant-drain-feed").catch(() => undefined);
+        for (const code of KEY_CONTEXT_REGION_CODES) {
+          const regionKey = code.toLowerCase();
+          await queue
+            .removeJobScheduler(`daily-relevant-character-discovery-${regionKey}`)
+            .catch(() => undefined);
+          await queue.removeJobScheduler(`relevant-drain-feed-${regionKey}`).catch(() => undefined);
+        }
+      };
+
+      if (
+        !shouldRegisterExpensiveProviderPopulationSchedulers(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
+        await removeRegionSchedulers();
+        container.logger.info(
+          {
+            event: "relevant_discovery_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+            reason: "expensive_provider_population_disabled",
+          },
+          "relevant character discovery schedule not registered for this APP_ENV/role",
+        );
+        return { registered: false };
+      }
+
+      // Always clear region schedulers first so disabled regions and empty target
+      // sets cannot leave stale discovery/drain jobs registered in Redis.
+      await removeRegionSchedulers();
+
+      if (targets.length === 0) {
+        container.logger.warn(
+          { event: "relevant_discovery_schedule_skipped", reason: "no_enabled_addon_regions" },
+          "relevant character discovery schedule skipped — no enabled addon regions",
+        );
+        return { registered: false };
+      }
+
+      for (const { code } of targets) {
+        const regionKey = code.toLowerCase();
+        await queue.upsertJobScheduler(
+          `daily-relevant-character-discovery-${regionKey}`,
+          { every: 24 * 60 * 60 * 1000 },
+          {
+            name: QUEUE_NAMES.relevantCharacterDiscovery,
+            data: {
+              mode: "daily_discovery",
+              regionCode: code,
+              requestedAt: new Date().toISOString(),
+            },
+          },
+        );
+        await queue.upsertJobScheduler(
+          `relevant-drain-feed-${regionKey}`,
+          { every: 5 * 60 * 1000 },
+          {
+            name: QUEUE_NAMES.relevantCharacterDiscovery,
+            data: {
+              mode: "drain_feed",
+              regionCode: code,
+              requestedAt: new Date().toISOString(),
+            },
+          },
+        );
+      }
+      return { registered: true };
+    },
+
+    async registerProviderDataExportSchedule() {
+      const queue = queues[QUEUE_NAMES.providerDataExport];
+      if (
+        !shouldRegisterProviderDataExportSchedule(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
+        await queue.removeJobScheduler(PROVIDER_DATA_EXPORT_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "provider_data_export_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+          },
+          "provider-data export schedule not registered for this APP_ENV/role",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        PROVIDER_DATA_EXPORT_SCHEDULER_ID,
+        providerDataExportRepeatOpts(),
+        {
+          name: QUEUE_NAMES.providerDataExport,
+          data: providerDataExportJobSchema.parse({
+            trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          }),
+        },
+      );
+      return { registered: true };
+    },
+
+    async registerProviderDataImportSchedule() {
+      const queue = queues[QUEUE_NAMES.providerDataImport];
+      if (
+        !shouldRegisterProviderDataImportSchedule(
+          container.env.APP_ENV,
+          container.env.PROVIDER_DATA_ROLE,
+        )
+      ) {
+        await queue.removeJobScheduler(PROVIDER_DATA_IMPORT_SCHEDULER_ID).catch(() => undefined);
+        container.logger.info(
+          {
+            event: "provider_data_import_schedule_skipped",
+            appEnv: container.env.APP_ENV,
+            providerDataRole: container.env.PROVIDER_DATA_ROLE,
+          },
+          "provider-data import schedule not registered for this APP_ENV/role",
+        );
+        return { registered: false };
+      }
+      await queue.upsertJobScheduler(
+        PROVIDER_DATA_IMPORT_SCHEDULER_ID,
+        providerDataImportRepeatOpts(),
+        {
+          name: QUEUE_NAMES.providerDataImport,
+          data: providerDataImportJobSchema.parse({
+            trigger: "schedule",
+            requestedAt: new Date().toISOString(),
+          }),
+        },
+      );
+      return { registered: true };
     },
 
     getRefreshCharacterQueue() {

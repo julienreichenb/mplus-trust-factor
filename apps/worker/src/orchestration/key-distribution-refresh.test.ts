@@ -4,7 +4,7 @@ import { RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
 import { checkDatabaseHealth, createPrismaClient, SeasonScoreContextRepository } from "@mplus/database";
 import { assertTestDatabaseAllowed } from "@mplus/test-utils";
 import { AddonDbFormatError } from "@mplus/provider-raiderio";
-import { withSharedAddonIngestSession } from "./key-distribution-refresh.js";
+import { hasSuccessfulIngestForArtifact, withSharedAddonIngestSession } from "./key-distribution-refresh.js";
 import { defaultNeutralTierFactors } from "@mplus/scoring";
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
@@ -27,7 +27,136 @@ function points(p90: number) {
   ];
 }
 
+function saturatedPackedTailPoints() {
+  return [
+    { percentileBps: 6000, medianKeyThreshold: 57 },
+    { percentileBps: 7500, medianKeyThreshold: 58 },
+    { percentileBps: 9000, medianKeyThreshold: 61 },
+    { percentileBps: 9900, medianKeyThreshold: 62 },
+    { percentileBps: 9990, medianKeyThreshold: 63 },
+  ];
+}
+
 describe.skipIf(!dbAvailable)("shared Raider.IO acquisition", { timeout: 30_000 }, () => {
+  it("artifact reuse rejects legacy corrupt saturated snapshots and accepts valid ones", async () => {
+    const region = await prisma.region.findUniqueOrThrow({ where: { code: "EU" } });
+    const season = await prisma.season.create({
+      data: {
+        id: randomUUID(),
+        slug: `reuse-valid-${randomUUID().slice(0, 8)}`,
+        name: "Reuse valid",
+        regionId: region.id,
+        blizzardSeasonId: 88723,
+        isCurrent: true,
+      },
+    });
+    const releaseTag = "v202608140600";
+    const assetSha256 = "abc";
+    await prisma.seasonMedianKeyDistributionSnapshot.create({
+      data: {
+        id: randomUUID(),
+        seasonId: season.id,
+        source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+        sourceVersion: releaseTag,
+        collectedAt: new Date("2026-08-15T00:00:00.000Z"),
+        contentHash: `corrupt-${season.id}`,
+        points: saturatedPackedTailPoints(),
+        provenance: { releaseTag, assetSha256 },
+      },
+    });
+    expect(
+      await hasSuccessfulIngestForArtifact(prisma, { seasonId: season.id, releaseTag, assetSha256 }),
+    ).toBeNull();
+
+    const repo = new SeasonScoreContextRepository(prisma);
+    const valid = await repo.importDistribution({
+      seasonId: season.id,
+      source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+      provenance: { releaseTag, assetSha256 },
+      sourceVersion: releaseTag,
+      collectedAt: new Date("2026-08-16T00:00:00.000Z"),
+      points: points(15),
+      contentHash: `valid-${season.id}`,
+    });
+    expect(
+      await hasSuccessfulIngestForArtifact(prisma, { seasonId: season.id, releaseTag, assetSha256 }),
+    ).toEqual({ snapshotId: valid.id });
+  });
+
+  it("does not skip ingest when only matching artifact snapshot is legacy corrupt", async () => {
+    const region = await prisma.region.findUniqueOrThrow({ where: { code: "EU" } });
+    const season = await prisma.season.create({
+      data: {
+        id: randomUUID(),
+        slug: `legacy-corrupt-${randomUUID().slice(0, 8)}`,
+        name: "Legacy corrupt",
+        regionId: region.id,
+        blizzardSeasonId: 88724,
+        isCurrent: true,
+      },
+    });
+    const releaseTag = "v202608140600";
+    const assetSha256 = "abc";
+    await prisma.seasonMedianKeyDistributionSnapshot.create({
+      data: {
+        id: randomUUID(),
+        seasonId: season.id,
+        source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+        sourceVersion: releaseTag,
+        collectedAt: new Date("2026-08-15T00:00:00.000Z"),
+        contentHash: `legacy-corrupt-${season.id}`,
+        points: saturatedPackedTailPoints(),
+        provenance: { releaseTag, assetSha256 },
+      },
+    });
+    const ingest = vi.fn(async (input: { regionCode: string; assetSha256: string; releaseTag: string }) => ({
+      source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+      region: input.regionCode,
+      points: points(16),
+      population: { indexedCharacters: 10, eligibleCharacters: 8, inclusionPolicy: "ALL_8" },
+      sourceMetadata: { releaseTag: input.releaseTag, assetSha256: input.assetSha256 },
+      contentHash: `reingest-${season.id}`,
+    }));
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    await withSharedAddonIngestSession(
+      {
+        prisma,
+        logger: logger as never,
+        hooks: {
+          selectLatestMainlineAddonRelease: async () =>
+            ({
+              tag: releaseTag,
+              assetName: "RaiderIO-v202608140600.zip",
+              assetUrl: "https://example.test/addon.zip",
+              githubAssetId: 1,
+              assetSha256,
+            }) as never,
+          downloadReleaseZip: async () => ({ zipPath: "z.zip", sha256: assetSha256 }),
+          extractRequiredAddonFiles: async () => ({
+            lookupPath: "l.lua",
+            charactersPath: "c.lua",
+            dungeonsPath: "d.lua",
+            tocText: "",
+          }),
+          ingestMythicPlusAddonFiles: ingest as never,
+        },
+      },
+      async (session) => {
+        const result = await session.refreshRegion({ seasonId: season.id, regionCode: "EU" });
+        expect(result.skipped).toBe(false);
+        expect(result.reused).toBe(false);
+        expect(result.snapshotId).toBeTruthy();
+      },
+    );
+    expect(ingest).toHaveBeenCalledTimes(1);
+    const latest = await prisma.seasonMedianKeyDistributionSnapshot.findFirst({
+      where: { seasonId: season.id },
+      orderBy: { collectedAt: "desc" },
+    });
+    expect(latest?.contentHash).toBe(`reingest-${season.id}`);
+    expect(latest?.points).toEqual(points(16));
+  });
+
   it("I/J/K: same release is idempotent; newer release snapshots without mutating published bindings; zip once", async () => {
     const region = await prisma.region.findUniqueOrThrow({ where: { code: "EU" } });
     const us = await prisma.region.upsert({

@@ -505,12 +505,11 @@ async function scoreCharacterImpl(
       regionalDistributionMissing = true;
       regionalDistribution = null;
     } else {
-      const frozen = await contextRepo.findFrozenRegionalSnapshot({
-        revisionId: seasonContextRevision.id,
-        regionCode,
-      });
-      regionalDistribution = frozen;
-      regionalDistributionMissing = frozen == null;
+      // Provider facts: use latest valid regional snapshot (auto-effective after nightly
+      // refresh). Policy revision still supplies percentile factors / meta / specs.
+      const latest = await contextRepo.findLatestValidRegionalDistribution(input.seasonId);
+      regionalDistribution = latest;
+      regionalDistributionMissing = latest == null;
     }
   }
 

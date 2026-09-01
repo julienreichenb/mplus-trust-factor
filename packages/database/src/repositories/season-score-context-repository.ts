@@ -1,11 +1,13 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   KEY_CONTEXT_REGION_CODES,
+  RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
   type SeasonScoreContextRevisionDoc,
 } from "@mplus/contracts";
 import {
   defaultNeutralTierFactors,
   validateMedianKeyDistributionPoints,
+  validatePackedDungeonKeyDistribution,
   validatePercentileAnchors,
   validateSpecAssignments,
   validateTierFactors,
@@ -157,6 +159,29 @@ export class SeasonScoreContextRepository {
     return mapDistribution(binding?.distributionSnapshot ?? null);
   }
 
+  /**
+   * Latest valid median-key distribution for a regional season.
+   * Skips rows that fail structural / packed-field validation (last-known-good).
+   */
+  async findLatestValidRegionalDistribution(
+    seasonId: string,
+  ): Promise<ReturnType<typeof mapDistribution>> {
+    const rows = await this.prisma.seasonMedianKeyDistributionSnapshot.findMany({
+      where: { seasonId },
+      orderBy: { collectedAt: "desc" },
+    });
+    for (const row of rows) {
+      const mapped = mapDistribution(row);
+      if (!mapped) continue;
+      if (row.source === RAIDER_IO_ADDON_DISTRIBUTION_SOURCE) {
+        const packed = validatePackedDungeonKeyDistribution(mapped.points);
+        if (!packed.ok) continue;
+      }
+      return mapped;
+    }
+    return null;
+  }
+
   async importDistribution(input: {
     seasonId: string;
     source: string;
@@ -173,6 +198,15 @@ export class SeasonScoreContextRepository {
         code: "INVALID_MEDIAN_KEY_DISTRIBUTION",
         issues: validated.issues,
       });
+    }
+    if (input.source === RAIDER_IO_ADDON_DISTRIBUTION_SOURCE) {
+      const packed = validatePackedDungeonKeyDistribution(validated.value.points);
+      if (!packed.ok) {
+        throw Object.assign(new Error("INVALID_MEDIAN_KEY_DISTRIBUTION"), {
+          code: "KEY_FIELD_SATURATION",
+          issues: packed.issues,
+        });
+      }
     }
     return this.prisma.seasonMedianKeyDistributionSnapshot.upsert({
       where: {

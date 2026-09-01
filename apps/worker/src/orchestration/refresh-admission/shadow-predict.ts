@@ -7,8 +7,10 @@ import {
   computeEmergencyReservePoints,
   computeNormalAvailablePoints,
   deriveWclWindowId,
+  effectiveAdmissionGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
   isWclSnapshotFresh,
+  resolveAdmissionReservePolicy,
   type RefreshAdmissionConfig,
 } from "@mplus/config";
 import type {
@@ -66,7 +68,7 @@ export function predictRefreshAdmission(
     emergencyReservePoints: 0,
     normalAvailablePoints: 0,
     emergencyAvailablePoints: 0,
-    globalSlotsRemaining: Math.max(0, config.globalConcurrency - input.activeGlobalSlots),
+    globalSlotsRemaining: Math.max(0, effectiveAdmissionGlobalConcurrency(config) - input.activeGlobalSlots),
   };
 
   if (config.mode === "off") {
@@ -104,9 +106,10 @@ export function predictRefreshAdmission(
   }
 
   const estimated = Math.max(0, Math.floor(input.estimatedWclPoints));
+  const effectiveGlobalLimit = effectiveAdmissionGlobalConcurrency(config);
   const globalSlotsRemaining = Math.max(
     0,
-    config.globalConcurrency - Math.max(0, Math.floor(input.activeGlobalSlots)),
+    effectiveGlobalLimit - Math.max(0, Math.floor(input.activeGlobalSlots)),
   );
 
   const ownership = classifyAdmissionOwnership({
@@ -255,10 +258,15 @@ export function predictRefreshAdmission(
     });
   }
 
+  const reservePolicy = resolveAdmissionReservePolicy({
+    config,
+    resetAt: snapshot.resetAt,
+    nowMs,
+  });
   const emergencyReservePoints = computeEmergencyReservePoints(
     snapshot.pointsLimit,
-    config.safetyReserveFraction,
-    config.minEmergencyReservePoints,
+    reservePolicy.safetyReserveFraction,
+    reservePolicy.minEmergencyReservePoints,
   );
   const normalAvailablePoints = computeNormalAvailablePoints({
     pointsRemaining: snapshot.pointsRemaining,
@@ -302,10 +310,8 @@ export function predictRefreshAdmission(
     metadata: {
       ownership: ownership.kind,
       repairReservation: ownership.kind === "slot_without_reservation",
-      note:
-        ownership.kind === "slot_without_reservation"
-          ? "Global slot held without WCL reservation; capacity checks applied before admit"
-          : undefined,
+      drainActive: reservePolicy.drainActive,
+      pointsResetInSeconds: reservePolicy.pointsResetInSeconds,
     },
   });
 }

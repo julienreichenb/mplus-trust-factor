@@ -30,6 +30,8 @@ import {
 const LOCAL_DB =
   "DATABASE_URL=postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public\nREDIS_URL=redis://localhost:6379\n";
 
+const LOCAL_DB_WITH_AUTH = `${LOCAL_DB}ADMIN_API_KEY=test-admin-bootstrap-fixture\nSESSION_SECRET=test-session-bootstrap-fixture\n`;
+
 function failThrow(msg: string): never {
   throw new Error(msg);
 }
@@ -707,15 +709,15 @@ describe("runBootstrap orchestration", () => {
   });
 
   it("runs setup steps in order and does not start pnpm dev", async () => {
-    const calls: string[][] = [];
-    const fs = bootstrapFs(LOCAL_DB);
+    const calls: { args: string[]; opts?: { env?: Record<string, string> } }[] = [];
+    const fs = bootstrapFs(LOCAL_DB_WITH_AUTH);
     const previous = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
       await runBootstrap({
         root: "/repo",
-        runPnpm: (args: string[]) => {
-          calls.push(args);
+        runPnpm: (args: string[], opts?: { env?: Record<string, string> }) => {
+          calls.push({ args, opts });
         },
         waitForTcp: vi.fn(async () => undefined),
         ...fs,
@@ -735,15 +737,35 @@ describe("runBootstrap orchestration", () => {
     }
     expect(parseEnvFile(fs.files.get(envPath("/repo"))!).PROVIDER_MODE).toBe("live");
     expect(parseEnvFile(fs.files.get(webEnvPath("/repo"))!).VITE_API_MODE).toBe("live");
-    expect(calls).toEqual([
+    expect(calls.map((call) => call.args)).toEqual([
       ["install"],
       ["run", "dev:infra"],
       ["run", "db:generate"],
       ["--filter", "./packages/**", "--if-present", "run", "build"],
       ["run", "db:migrate"],
       ["run", "db:seed"],
+      ["--filter", "@mplus/worker", "run", "scoring:bootstrap-context"],
     ]);
-    expect(calls.some((args) => args.includes("dev") && !args.includes("dev:infra"))).toBe(false);
+    expect(calls.some((call) => call.args.includes("dev") && !call.args.includes("dev:infra"))).toBe(
+      false,
+    );
+    expect(
+      calls.some(
+        (call) =>
+          call.args.includes("relevant") ||
+          call.args.includes("drain") ||
+          call.args.includes("discover"),
+      ),
+    ).toBe(false);
+
+    const scoringBootstrap = calls.find((call) =>
+      call.args.includes("scoring:bootstrap-context"),
+    );
+    expect(scoringBootstrap).toBeDefined();
+    expect(scoringBootstrap?.opts?.env?.DATABASE_URL).toContain("localhost:5433");
+    expect(scoringBootstrap?.opts?.env?.REDIS_URL).toBe("redis://localhost:6379");
+    expect(scoringBootstrap?.opts?.env?.ADMIN_API_KEY).toBe("test-admin-bootstrap-fixture");
+    expect(scoringBootstrap?.opts?.env?.SESSION_SECRET).toBe("test-session-bootstrap-fixture");
   });
 
   it("documents .env.example when guidance is requested", () => {

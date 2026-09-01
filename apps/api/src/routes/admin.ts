@@ -5,6 +5,7 @@ import type { BulkCharacterProcessingInput, ScoreModelConfig } from "@mplus/cont
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
 import { AdminUsersService } from "../services/admin-users-service.js";
 import { AdminMiscService } from "../services/admin-misc-service.js";
+import { AdminRelevantRefreshService } from "../services/admin-relevant-refresh-service.js";
 import { BulkCharacterProcessingService } from "../services/bulk-character-processing-service.js";
 import { adminRealmSyncResponseSchema, adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 import { createPermissionPreHandler } from "../iam/session.js";
@@ -90,6 +91,7 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
   const usersService = new AdminUsersService(container.worker.prisma, container.env.SESSION_SECRET);
   const bulkService = new BulkCharacterProcessingService(container);
   const miscService = new AdminMiscService(container);
+  const relevantRefreshService = new AdminRelevantRefreshService(container);
   const env = container.env;
 
   return async (app) => {
@@ -1065,6 +1067,89 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
           return miscService.synchronizeSeasonData({
             regionCode: body.region ?? "EU",
           });
+        },
+      );
+
+      protectedApp.get(
+        "/api/v1/admin/misc/relevant-refresh",
+        {
+          schema: { tags: ["admin"] },
+        },
+        async () => relevantRefreshService.getSettings(),
+      );
+
+      protectedApp.put(
+        "/api/v1/admin/misc/relevant-refresh",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              required: ["expectedVersion"],
+              properties: {
+                relevantRefreshEnabled: { type: "boolean" },
+                refreshConcurrencyEnabled: { type: "boolean" },
+                concurrencyOperation: { type: "integer", minimum: 1, maximum: 8 },
+                relevantCandidateTarget: { type: "integer", minimum: 1, maximum: 10000 },
+                relevantCandidatePercentileBps: { type: "integer", minimum: 1, maximum: 10000 },
+                wclPreResetDrainSeconds: { type: "integer", minimum: 0, maximum: 3600 },
+                expectedVersion: { type: "integer", minimum: 1 },
+              },
+            },
+          },
+        },
+        async (request) => {
+          const body = request.body as {
+            relevantRefreshEnabled?: boolean;
+            refreshConcurrencyEnabled?: boolean;
+            concurrencyOperation?: number;
+            relevantCandidateTarget?: number;
+            relevantCandidatePercentileBps?: number;
+            wclPreResetDrainSeconds?: number;
+            expectedVersion: number;
+          };
+          return relevantRefreshService.updateSettings(body, {
+            userId: request.auth?.user.id ?? null,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            ip: request.ip,
+            userAgent: request.headers["user-agent"] ?? null,
+          });
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/misc/relevant-refresh/run",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                regionCode: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+                mode: { type: "string", enum: ["daily_discovery", "drain_feed"] },
+              },
+            },
+          },
+        },
+        async (request) => {
+          const body = (request.body ?? {}) as {
+            regionCode?: "EU" | "US" | "KR" | "TW";
+            mode?: "daily_discovery" | "drain_feed";
+          };
+          return relevantRefreshService.runDiscovery(
+            {
+              regionCode: body.regionCode ?? "EU",
+              mode: body.mode ?? "daily_discovery",
+            },
+            {
+              userId: request.auth?.user.id ?? null,
+              actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+              ip: request.ip,
+              userAgent: request.headers["user-agent"] ?? null,
+            },
+          );
         },
       );
     });

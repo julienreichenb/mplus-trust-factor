@@ -5,8 +5,13 @@ import { resolveScoringCatalogDiscoverer } from "./effective-scoring-season.js";
 import { synchronizeScoringSeasonData } from "./synchronize-scoring-season-data.js";
 import { withSharedAddonIngestSession } from "../key-distribution-refresh.js";
 
+/** @deprecated Prefer cron registration via `SCORING_SEASON_DATA_SYNC_CRON_PATTERN`. */
 export const SCORING_SEASON_DATA_SYNC_CADENCE_MS = 24 * 60 * 60 * 1000;
-export const SCORING_SEASON_DATA_SYNC_SCHEDULER_ID = "daily-scoring-season-data-sync";
+export {
+  SCORING_SEASON_DATA_SYNC_SCHEDULER_ID,
+  SCORING_SEASON_DATA_SYNC_CRON_PATTERN,
+  SCORING_SEASON_DATA_SYNC_CRON_TZ,
+} from "../../scheduling/automatic-schedulers.js";
 
 export async function runScheduledScoringSeasonDataSync(input: {
   prisma: PrismaClient;

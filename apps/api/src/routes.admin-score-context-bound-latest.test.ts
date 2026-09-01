@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { SeasonScoreContextRepository, type PrismaClient } from "@mplus/database";
-import { KEY_CONTEXT_REGION_CODES } from "@mplus/contracts";
+import { KEY_CONTEXT_REGION_CODES, RAIDER_IO_ADDON_DISTRIBUTION_SOURCE } from "@mplus/contracts";
 import type { QueueProducers } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
@@ -55,6 +55,16 @@ function points(p90: number, p99 = p90 + 4) {
     { percentileBps: 9000, medianKeyThreshold: p90 },
     { percentileBps: 9900, medianKeyThreshold: p99 },
     { percentileBps: 9990, medianKeyThreshold: p99 + 1 },
+  ];
+}
+
+function saturatedPackedTailPoints() {
+  return [
+    { percentileBps: 6000, medianKeyThreshold: 57 },
+    { percentileBps: 7500, medianKeyThreshold: 58 },
+    { percentileBps: 9000, medianKeyThreshold: 61 },
+    { percentileBps: 9900, medianKeyThreshold: 62 },
+    { percentileBps: 9990, medianKeyThreshold: 63 },
   ];
 }
 
@@ -178,10 +188,35 @@ describe.skipIf(!dbAvailable)("admin score context bound vs latest", { timeout: 
     expect(publishedState.statusCode).toBe(200);
     const body = publishedState.json();
     const p90 = body.keyRows.find((row: { percentileBps: number }) => row.percentileBps === 9000);
-    expect(p90.thresholds.EU).toBe(18);
+    // Provider facts are auto-effective: Key table shows latest valid thresholds without republish.
+    expect(p90.thresholds.EU).toBe(19);
     expect(body.regions.EU.hasNewerDistribution).toBe(true);
     expect(body.policy.regionalSnapshots.EU.id).toBe(frozenEu);
     expect(body.regions.EU.latestDistribution.id).toBe(latestEu);
+
+    // Corrupt Raider.IO-shaped refresh must not displace the effective latest (LKG).
+    const corrupt = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/seasons/${seasons.EU}/score-context/distributions`,
+      headers,
+      payload: {
+        source: "RAIDER_IO_ADDON",
+        sourceVersion: "corrupt-sat",
+        collectedAt: "2026-08-15T00:00:00.000Z",
+        points: points(61),
+      },
+    });
+    expect(corrupt.statusCode).toBeGreaterThanOrEqual(400);
+    const afterCorrupt = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${seasons.EU}/score-context`,
+      headers,
+    });
+    expect(
+      afterCorrupt.json().keyRows.find((row: { percentileBps: number }) => row.percentileBps === 9000)
+        .thresholds.EU,
+    ).toBe(19);
+    expect(afterCorrupt.json().regions.EU.latestDistribution.id).toBe(latestEu);
 
     const draft2 = await app.inject({
       method: "POST",
@@ -382,5 +417,59 @@ describe.skipIf(!dbAvailable)("admin score context bound vs latest", { timeout: 
     expect(p90.thresholds.TW).toBeNull();
     expect(state.json().policy.missingRegionCoverage).toContain("TW");
     expect(state.json().published).toBeNull();
+  });
+
+  it("skips legacy corrupt Raider.IO snapshots and shows latest valid distribution", async () => {
+    const blizzard = 88725;
+    const repo = new SeasonScoreContextRepository(prisma);
+    const region = await prisma.region.findUniqueOrThrow({ where: { code: "EU" } });
+    const season = await prisma.season.create({
+      data: {
+        id: randomUUID(),
+        slug: uniqueName("legacy-corrupt-eu"),
+        name: "Legacy corrupt EU",
+        regionId: region.id,
+        blizzardSeasonId: blizzard,
+      },
+    });
+    const valid = await repo.importDistribution({
+      seasonId: season.id,
+      source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+      provenance: { releaseTag: "v202608010600", assetSha256: "valid" },
+      sourceVersion: "v202608010600",
+      collectedAt: new Date("2026-08-01T00:00:00.000Z"),
+      points: points(15),
+      contentHash: `valid-legacy-${season.id}`,
+    });
+    await prisma.seasonMedianKeyDistributionSnapshot.create({
+      data: {
+        id: randomUUID(),
+        seasonId: season.id,
+        source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+        sourceVersion: "v202608150600",
+        collectedAt: new Date("2026-08-15T00:00:00.000Z"),
+        contentHash: `corrupt-legacy-${season.id}`,
+        points: saturatedPackedTailPoints(),
+        provenance: { releaseTag: "v202608150600", assetSha256: "corrupt" },
+      },
+    });
+
+    const state = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${season.id}/score-context`,
+      headers,
+    });
+    expect(state.statusCode).toBe(200);
+    const body = state.json();
+    expect(body.regions.EU.latestDistribution.id).toBe(valid.id);
+    expect(
+      body.keyRows.find((row: { percentileBps: number }) => row.percentileBps === 9000).thresholds.EU,
+    ).toBe(15);
+    for (const row of body.keyRows as Array<{ thresholds: { EU: number | null } }>) {
+      const threshold = row.thresholds.EU;
+      if (threshold != null) {
+        expect(threshold).toBeLessThan(57);
+      }
+    }
   });
 });

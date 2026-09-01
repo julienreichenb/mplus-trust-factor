@@ -74,6 +74,7 @@ export {
   toScoreContextProjection,
   DEFAULT_CONTEXT_GRADE_THRESHOLDS,
   validateMedianKeyDistributionPoints,
+  validatePackedDungeonKeyDistribution,
   validatePercentileAnchors,
   validateTierFactors,
   validateSpecAssignments,
