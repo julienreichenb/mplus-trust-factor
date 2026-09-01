@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { evaluateLiveCapabilityPermission } from "./live-capability-adapter.js";
+import {
+  evaluateLiveCapabilityPermission,
+  evaluateProductLiveCapabilityPermission,
+} from "./live-capability-adapter.js";
 
 function allowedInput(overrides: Partial<Parameters<typeof evaluateLiveCapabilityPermission>[0]> = {}) {
   return {
@@ -13,14 +16,23 @@ function allowedInput(overrides: Partial<Parameters<typeof evaluateLiveCapabilit
   } as Parameters<typeof evaluateLiveCapabilityPermission>[0];
 }
 
-describe("evaluateLiveCapabilityPermission", () => {
-  it("allows product acquisition while scoring publication is enabled", () => {
-    expect(evaluateLiveCapabilityPermission(allowedInput())).toEqual({ allowed: true });
+describe("live capability permission gates", () => {
+  it("keeps the generic/canary gate fail-closed when publication is enabled", () => {
+    expect(evaluateLiveCapabilityPermission(allowedInput())).toEqual({
+      allowed: false,
+      reasons: ["PUBLICATION_ENABLED"],
+    });
   });
 
-  it("still fails closed on live-provider safety gates", () => {
+  it("allows the product refresh acquisition path while publication is enabled", () => {
+    expect(evaluateProductLiveCapabilityPermission(allowedInput())).toEqual({
+      allowed: true,
+    });
+  });
+
+  it("product acquisition still fails closed on live-provider safety gates", () => {
     expect(
-      evaluateLiveCapabilityPermission(
+      evaluateProductLiveCapabilityPermission(
         allowedInput({
           allowLiveProviderCalls: false,
           liveProviderPermissionGranted: false,
