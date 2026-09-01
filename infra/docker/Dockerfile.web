@@ -24,8 +24,8 @@ COPY tsconfig.base.json tsconfig.json ./
 
 RUN pnpm install --frozen-lockfile
 
-# Web needs contracts (+ abilities) built for typecheck/imports during vite build
-RUN pnpm --filter @mplus/contracts --filter @mplus/abilities --filter @mplus/domain run build
+# Web needs abilities and its transitive workspace deps (incl. provider-blizzard, contracts, domain)
+RUN pnpm --filter @mplus/abilities... run build
 
 ARG VITE_API_MODE=live
 ARG VITE_API_BASE_URL=
