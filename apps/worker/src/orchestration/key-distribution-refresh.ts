@@ -230,65 +230,68 @@ export function createSharedAddonIngestSession(input: {
       }
       const expected = await loadExpectedSeasonDungeons(prisma, regionInput.seasonId);
       const files = await extractFiles(acquired.zipPath, input.workingDir, region);
-      const result = await ingestFiles({
-        regionCode: region,
-        lookupLuaPath: files.lookupPath,
-        charactersLuaPath: files.charactersPath,
-        dungeonsLuaPath: files.dungeonsPath,
-        tocText: files.tocText,
-        expectedDungeons: expected,
-        releaseTag: acquired.selected.tag,
-        assetName: acquired.selected.assetName,
-        assetSha256: acquired.sha256,
-        githubPublishedAt: acquired.selected.publishedAt,
-      });
-      await rm(files.lookupPath, { force: true }).catch(() => undefined);
-      await rm(files.charactersPath, { force: true }).catch(() => undefined);
-      await rm(files.dungeonsPath, { force: true }).catch(() => undefined);
-      const collectedAt = new Date();
-      const repo = new SeasonScoreContextRepository(prisma);
-      const before = await prisma.seasonMedianKeyDistributionSnapshot.findUnique({
-        where: {
-          seasonId_contentHash: { seasonId: regionInput.seasonId, contentHash: result.contentHash },
-        },
-        select: { id: true },
-      });
-      const snapshot = await repo.importDistribution({
-        seasonId: regionInput.seasonId,
-        source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
-        provenance: result.sourceMetadata,
-        sourceVersion: String(result.sourceMetadata.releaseTag ?? acquired.selected.tag),
-        collectedAt,
-        points: result.points,
-        contentHash: result.contentHash,
-      });
-      await prisma.scoreContextKeyDistributionRefresh.update({
-        where: { id: refreshId },
-        data: {
-          status: "SUCCEEDED",
-          finishedAt: new Date(),
-          snapshotId: snapshot.id,
-          errorMessage: null,
-        },
-      });
-      await prisma.auditEvent.create({
-        data: {
-          id: randomUUID(),
-          actorType: "system",
-          action: "admin.score_context.key_distribution.refresh.succeeded",
-          resourceType: "season_median_key_distribution_snapshot",
-          resourceId: snapshot.id,
-          metadata: {
-            seasonId: regionInput.seasonId,
-            region,
-            releaseTag: acquired.selected.tag,
-            eligibleCharacters: result.population.eligibleCharacters,
-            snapshotId: snapshot.id,
-            reused: Boolean(before),
+      try {
+        const result = await ingestFiles({
+          regionCode: region,
+          lookupLuaPath: files.lookupPath,
+          charactersLuaPath: files.charactersPath,
+          dungeonsLuaPath: files.dungeonsPath,
+          tocText: files.tocText,
+          expectedDungeons: expected,
+          releaseTag: acquired.selected.tag,
+          assetName: acquired.selected.assetName,
+          assetSha256: acquired.sha256,
+          githubPublishedAt: acquired.selected.publishedAt,
+        });
+        const collectedAt = new Date();
+        const repo = new SeasonScoreContextRepository(prisma);
+        const before = await prisma.seasonMedianKeyDistributionSnapshot.findUnique({
+          where: {
+            seasonId_contentHash: { seasonId: regionInput.seasonId, contentHash: result.contentHash },
           },
-        },
-      });
-      return { snapshotId: snapshot.id, reused: Boolean(before), skipped: false, downloads };
+          select: { id: true },
+        });
+        const snapshot = await repo.importDistribution({
+          seasonId: regionInput.seasonId,
+          source: RAIDER_IO_ADDON_DISTRIBUTION_SOURCE,
+          provenance: result.sourceMetadata,
+          sourceVersion: String(result.sourceMetadata.releaseTag ?? acquired.selected.tag),
+          collectedAt,
+          points: result.points,
+          contentHash: result.contentHash,
+        });
+        await prisma.scoreContextKeyDistributionRefresh.update({
+          where: { id: refreshId },
+          data: {
+            status: "SUCCEEDED",
+            finishedAt: new Date(),
+            snapshotId: snapshot.id,
+            errorMessage: null,
+          },
+        });
+        await prisma.auditEvent.create({
+          data: {
+            id: randomUUID(),
+            actorType: "system",
+            action: "admin.score_context.key_distribution.refresh.succeeded",
+            resourceType: "season_median_key_distribution_snapshot",
+            resourceId: snapshot.id,
+            metadata: {
+              seasonId: regionInput.seasonId,
+              region,
+              releaseTag: acquired.selected.tag,
+              eligibleCharacters: result.population.eligibleCharacters,
+              snapshotId: snapshot.id,
+              reused: Boolean(before),
+            },
+          },
+        });
+        return { snapshotId: snapshot.id, reused: Boolean(before), skipped: false, downloads };
+      } finally {
+        await rm(files.lookupPath, { force: true }).catch(() => undefined);
+        await rm(files.charactersPath, { force: true }).catch(() => undefined);
+        await rm(files.dungeonsPath, { force: true }).catch(() => undefined);
+      }
     } catch (error) {
       const historical = Boolean(season && !season.isCurrent);
       if (historical && isDungeonIdentityError(error)) {

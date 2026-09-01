@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { decodeMythicPlusRecord, sliceRecord } from "./decode-record.js";
+import { encodeLuaByteString } from "./lua-strings.js";
 import {
   buildCharactersLua,
   buildDungeonsLua,
@@ -12,6 +13,7 @@ import {
 } from "./fixture.js";
 import { ingestMythicPlusAddonFiles } from "./ingest.js";
 import { AddonDbFormatError } from "./types.js";
+import { parseAdjacentLuaStringPayload } from "./lua-strings.js";
 import { loadLookupBuffer } from "./parse-characters.js";
 import { accumulateEligibleMedianHistogram } from "./histogram.js";
 import { mapRioDungeonsToSeasonPool } from "./map-dungeons.js";
@@ -375,6 +377,24 @@ describe("lookup lua round-trip", () => {
     const fromFile = await loadLookupBufferFromFile(lookupPath);
     const fromText = loadLookupBuffer((await readFile(lookupPath)).toString("latin1"));
     expect(Buffer.from(fromFile)).toEqual(Buffer.from(fromText));
+  });
+
+  it("streaming decode terminates string after short decimal escapes", async () => {
+    const { loadLookupBufferFromFile } = await import("./lua-strings.js");
+    const dir = await mkdtemp(path.join(tmpdir(), "rio-lookup-short-escape-"));
+    const lookupPath = path.join(dir, "lookup.lua");
+    await writeFile(lookupPath, 'provider.lookup[1] = "\\12"\n');
+    expect([...(await loadLookupBufferFromFile(lookupPath))]).toEqual([12]);
+  });
+
+  it("streaming decode matches in-memory decode when chunks split marker and escapes", async () => {
+    const { decodeLookupPayloadFromChunks } = await import("./lua-strings.js");
+    const payload = encodeLuaByteString(Uint8Array.from([12, 144, 40]));
+    const lua = `provider.lookup[1] = "${payload}"\n`;
+    const expected = parseAdjacentLuaStringPayload(lua, lua.indexOf('"'));
+    const splitAt = Math.max(1, Math.floor(lua.indexOf('"') / 2));
+    const chunks = [`${lua.slice(0, splitAt)}`, lua.slice(splitAt)];
+    expect(Buffer.from(decodeLookupPayloadFromChunks(chunks))).toEqual(Buffer.from(expected));
   });
 });
 

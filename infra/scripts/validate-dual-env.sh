@@ -56,11 +56,11 @@ for env in prod test; do
   if echo "${CFG}" | awk '/^  redis:/{p=1} /^  [a-z]/{if($1!="redis:")p=0} p && /published:/' | grep -q .; then
     die "${env}: redis publishes a host port"
   fi
-  if ! echo "${CFG}" | grep -q 'noeviction'; then
-    die "${env}: redis maxmemory-policy must be noeviction for BullMQ"
+  if ! echo "${CFG}" | awk '/^  redis:/{p=1} /^  [a-z]/{if($1!="redis:")p=0} p' | grep -q 'noeviction'; then
+    die "${env}: redis service must set maxmemory-policy noeviction for BullMQ"
   fi
-  if echo "${CFG}" | grep -q 'allkeys-lru'; then
-    die "${env}: redis must not use allkeys-lru (BullMQ requires noeviction)"
+  if echo "${CFG}" | awk '/^  redis:/{p=1} /^  [a-z]/{if($1!="redis:")p=0} p' | grep -q 'allkeys-lru'; then
+    die "${env}: redis service must not use allkeys-lru (BullMQ requires noeviction)"
   fi
 
   log "validate-env (${env})"

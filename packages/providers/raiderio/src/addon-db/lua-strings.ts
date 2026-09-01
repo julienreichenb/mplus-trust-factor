@@ -134,12 +134,22 @@ class StreamingLuaStringPayloadDecoder {
   private decimalDigits = "";
   private parts: Uint8Array[] = [];
 
+  private flushDecimalEscape(sink: ByteSink): void {
+    const value = Number(this.decimalDigits);
+    if (value > 255) {
+      throw new AddonDbFormatError("LUA_ESCAPE", `Lua decimal escape ${value} > 255`);
+    }
+    sink.pushByte(value);
+    this.decimalDigits = "";
+    this.escapePending = false;
+  }
+
   feed(text: string): void {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i]!;
       if (this.phase === "ws") {
         if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") continue;
-        if (ch !== '"') return;
+        if (ch !== '"') continue;
         this.phase = "string";
         this.stringSink = new ByteSink();
         this.escapePending = false;
@@ -154,30 +164,17 @@ class StreamingLuaStringPayloadDecoder {
         if (ch >= "0" && ch <= "9") {
           this.decimalDigits += ch;
           if (this.decimalDigits.length >= 3) {
-            const value = Number(this.decimalDigits);
-            if (value > 255) {
-              throw new AddonDbFormatError("LUA_ESCAPE", `Lua decimal escape ${value} > 255`);
-            }
-            sink.pushByte(value);
-            this.escapePending = false;
-            this.decimalDigits = "";
+            this.flushDecimalEscape(sink);
           }
           continue;
         }
         if (this.decimalDigits.length > 0) {
-          const value = Number(this.decimalDigits);
-          if (value > 255) {
-            throw new AddonDbFormatError("LUA_ESCAPE", `Lua decimal escape ${value} > 255`);
-          }
-          sink.pushByte(value);
-          this.decimalDigits = "";
-          this.escapePending = false;
+          this.flushDecimalEscape(sink);
+        } else {
           sink.pushByte(SIMPLE_ESCAPES[ch] ?? ch.charCodeAt(0));
+          this.escapePending = false;
           continue;
         }
-        sink.pushByte(SIMPLE_ESCAPES[ch] ?? ch.charCodeAt(0));
-        this.escapePending = false;
-        continue;
       }
 
       if (ch === "\\") {
@@ -210,6 +207,15 @@ class StreamingLuaStringPayloadDecoder {
   }
 }
 
+/** @internal Chunked decode helper for streaming parity tests. */
+export function decodeLookupPayloadFromChunks(chunks: readonly string[]): Uint8Array {
+  const decoder = new StreamingLuaStringPayloadDecoder();
+  for (const chunk of chunks) {
+    decoder.feed(chunk);
+  }
+  return decoder.finish();
+}
+
 /** Stream-decode provider.lookup[1] payloads without retaining the full Lua source text. */
 export async function loadLookupBufferFromFile(filePath: string): Promise<Uint8Array> {
   const { createReadStream } = await import("node:fs");
@@ -218,35 +224,49 @@ export async function loadLookupBufferFromFile(filePath: string): Promise<Uint8A
     let carry = "";
     let foundMarker = false;
     const decoder = new StreamingLuaStringPayloadDecoder();
+    let settled = false;
+
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      stream.destroy();
+      reject(error);
+    };
 
     stream.on("data", (chunk: string | Buffer) => {
-      const text = typeof chunk === "string" ? chunk : chunk.toString("latin1");
-      if (!foundMarker) {
-        carry += text;
-        const idx = carry.indexOf(LOOKUP_MARKER);
-        if (idx < 0) {
-          if (carry.length > LOOKUP_MARKER.length * 2) {
-            carry = carry.slice(-LOOKUP_MARKER.length);
+      try {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("latin1");
+        if (!foundMarker) {
+          carry += text;
+          const idx = carry.indexOf(LOOKUP_MARKER);
+          if (idx < 0) {
+            if (carry.length > LOOKUP_MARKER.length * 2) {
+              carry = carry.slice(-LOOKUP_MARKER.length);
+            }
+            return;
           }
+          foundMarker = true;
+          decoder.feed(carry.slice(idx + LOOKUP_MARKER.length));
+          carry = "";
           return;
         }
-        foundMarker = true;
-        decoder.feed(carry.slice(idx + LOOKUP_MARKER.length));
-        carry = "";
-        return;
+        decoder.feed(text);
+      } catch (error) {
+        fail(error);
       }
-      decoder.feed(text);
     });
 
-    stream.on("error", reject);
+    stream.on("error", fail);
     stream.on("end", () => {
+      if (settled) return;
       try {
         if (!foundMarker) {
           throw new AddonDbFormatError("LOOKUP_MARKER", "provider.lookup[1] assignment not found");
         }
+        settled = true;
         resolve(decoder.finish());
       } catch (error) {
-        reject(error);
+        fail(error);
       }
     });
   });
