@@ -117,8 +117,8 @@ export async function accumulateEligibleMedianHistogramFromCharactersFile(
     const namesPart = m[3] ?? "";
     const nameRe = /"((?:\\.|[^"\\])*)"/g;
     let nameIndex = 0;
-    let nm: RegExpExecArray | null;
-    while ((nm = nameRe.exec(namesPart))) {
+    let _nm: RegExpExecArray | null;
+    while ((_nm = nameRe.exec(namesPart))) {
       const byteOffset = baseOffset + nameIndex * recordSizeInBytes;
       validateNamedOffset(lookup, byteOffset, recordSizeBytes);
       indexedCharacters += 1;
