@@ -4,6 +4,7 @@
  */
 import type { Prisma, PrismaClient } from "@mplus/database";
 import { ensureDungeon, ensureRegionalBlizzardSeason } from "../../persistence/run-repository.js";
+import { canonicalDungeonKey } from "../run-fusion.js";
 import {
   mergeActiveMplusCatalogMetadata,
   type PersistedActiveMplusCatalogMetadata,
@@ -61,6 +62,43 @@ export interface SynchronizeActiveMplusSeasonResult {
   alreadyPresent: number;
   activated: boolean;
   previousCurrentSeasonIds: string[];
+}
+
+/**
+ * Normalize and validate the authoritative pool before any Season/SeasonDungeon
+ * write. Provider aliases that canonicalize to the same slug are duplicates too.
+ */
+export function validateCatalogDungeonPool(
+  catalog: MplusZoneCatalogEntry,
+): MplusZoneCatalogEntry {
+  const dungeonSlugs = catalog.dungeonSlugs.map((value) =>
+    canonicalDungeonKey(typeof value === "string" ? value.trim() : String(value).trim()),
+  );
+
+  if (dungeonSlugs.length === 0 || dungeonSlugs.some((slug) => slug.length === 0)) {
+    throw new ActiveMplusSeasonCatalogIncompleteError(
+      "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: empty dungeon pool",
+    );
+  }
+
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const slug of dungeonSlugs) {
+    if (seen.has(slug)) duplicates.add(slug);
+    seen.add(slug);
+  }
+  if (duplicates.size > 0) {
+    throw new ActiveMplusSeasonCatalogIncompleteError(
+      `ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: duplicate dungeon slugs: ${[
+        ...duplicates,
+      ].join(",")}`,
+    );
+  }
+
+  return {
+    ...catalog,
+    dungeonSlugs,
+  };
 }
 
 function resolveCatalogEntry(
@@ -130,18 +168,14 @@ export async function synchronizeActiveMplusSeasonCatalog(
   const now = input.now ?? new Date();
   const registry = input.registry ?? createDefaultMplusZoneCatalogRegistry();
   const activate = input.activate !== false;
-  const catalog = resolveCatalogEntry(
-    registry,
-    input.blizzardSeasonId,
-    input.wclZoneId,
-    input.catalog,
+  const catalog = validateCatalogDungeonPool(
+    resolveCatalogEntry(
+      registry,
+      input.blizzardSeasonId,
+      input.wclZoneId,
+      input.catalog,
+    ),
   );
-
-  if (catalog.dungeonSlugs.length === 0) {
-    throw new ActiveMplusSeasonCatalogIncompleteError(
-      "ACTIVE_MPLUS_SEASON_CATALOG_INCOMPLETE: empty dungeon pool",
-    );
-  }
 
   const season = await ensureRegionalBlizzardSeason(
     input.prisma,
