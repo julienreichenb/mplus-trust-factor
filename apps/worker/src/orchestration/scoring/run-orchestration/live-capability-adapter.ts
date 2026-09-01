@@ -63,6 +63,11 @@ export interface LiveCapabilityPermissionInput {
   wclEnabled: boolean;
   allowLiveProviderCalls: boolean;
   liveProviderPermissionGranted: boolean;
+  /**
+   * Retained for caller compatibility. Product evidence acquisition must work
+   * while publication is enabled; canary safety enforces publication-off before
+   * this adapter is reached.
+   */
   scoringPublicationEnabled: boolean;
   /** Credentials may exist but must never imply permission. */
   hasWclCredentials: boolean;
@@ -73,7 +78,6 @@ export type LiveCapabilityPermissionDenial =
   | "WCL_DISABLED"
   | "ALLOW_LIVE_PROVIDER_CALLS_FALSE"
   | "ORCHESTRATION_LIVE_PERMISSION_FORBIDDEN"
-  | "PUBLICATION_ENABLED"
   | "WCL_CREDENTIALS_MISSING";
 
 /**
@@ -115,7 +119,8 @@ export function evaluateLiveCapabilityPermission(
   if (!input.liveProviderPermissionGranted) {
     reasons.push("ORCHESTRATION_LIVE_PERMISSION_FORBIDDEN");
   }
-  if (input.scoringPublicationEnabled) reasons.push("PUBLICATION_ENABLED");
+  // Do not gate production evidence acquisition on publication state. The
+  // canary/operator path independently requires publication to be disabled.
   if (!input.hasWclCredentials) reasons.push("WCL_CREDENTIALS_MISSING");
   // Credentials alone never grant: even with credentials, other gates must pass.
   if (reasons.length > 0) return { allowed: false, reasons };
