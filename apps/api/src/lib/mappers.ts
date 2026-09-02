@@ -264,7 +264,6 @@ export function mapAdminScoreModel(model: ScoreModel): AdminScoreModelDTO {
     name: model.name,
     status: model.status,
     config: model.config,
-    createdByUserId: model.createdByUserId,
     createdAt: model.createdAt.toISOString(),
     activatedAt: model.activatedAt?.toISOString() ?? null,
   };
