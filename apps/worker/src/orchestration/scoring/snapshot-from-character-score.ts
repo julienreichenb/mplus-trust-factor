@@ -384,6 +384,12 @@ export function scoreCharacterResultToSnapshotDto(input: {
       effectiveWeights: partial.effectiveWeights,
       experience: input.result.experience,
       explainabilityFingerprint: explainability.fingerprint,
+      publicScoreExplainability: {
+        PERFORMANCE: perfExplain.explainability,
+        SURVIVAL: survExplain.explainability,
+        UTILITY: utilExplain.explainability,
+        EXPERIENCE: expExplain.explainability,
+      },
       abilityCatalogExecution: pinIdentityForExplanation(
         input.result.abilityCatalogExecutionPin ?? {
           kind: "STATIC",
