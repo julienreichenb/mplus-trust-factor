@@ -540,6 +540,7 @@ watch(
         :profile="profile"
         :refreshing="polling"
         :repairing="repairing"
+        :can-refresh="canForceRefresh"
         :admin-character-id="canOpenAdminCharacter ? profile.characterId : null"
         @refresh="refresh()"
         @repair-bootstrap="repairBootstrap"
@@ -585,7 +586,7 @@ watch(
             data-testid="refresh-timeout-banner"
           >
             Still waiting on providers. Retry refresh or come back shortly.
-            <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh()">Retry</button>
+            <button v-if="canForceRefresh" type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh()">Retry</button>
           </StatusBanner>
 
           <StatusBanner

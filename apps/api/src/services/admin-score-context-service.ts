@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { getRetailClassMatrix } from "@mplus/abilities";
 import {
   formatPercentileBpsLabel,
@@ -14,7 +13,6 @@ import {
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent, type AuditInput } from "../iam/audit.js";
-import { BulkCharacterProcessingService } from "./bulk-character-processing-service.js";
 
 export type ScoreContextAuditCtx = Pick<
   AuditInput,
@@ -511,106 +509,13 @@ export class AdminScoreContextService {
       },
     });
 
-    const recalc = await this.enqueueRecalc(published.blizzardSeasonId, ctx, createdByUserId, published);
+    // Publication only changes the configuration authority. Existing scores remain valid
+    // until their next legitimate refresh (age/rating/scheduled/admin trigger).
+    void createdByUserId;
     return {
       revision: toAdminRevisionView(published),
-      recalc,
+      recalc: null,
     };
-  }
-
-  async retryRecalculate(seasonId: string, ctx: ScoreContextAuditCtx, createdByUserId: string | null) {
-    const published = await this.repo().findPublishedForSeason(seasonId);
-    if (!published) {
-      throw HttpError.conflict("NO_PUBLISHED_CONTEXT_REVISION", "Publish a draft before recalculating");
-    }
-    const recalc = await this.enqueueRecalc(published.blizzardSeasonId, ctx, createdByUserId, published);
-    return { revision: toAdminRevisionView(published), recalc };
-  }
-
-  private async enqueueRecalc(
-    blizzardSeasonId: number,
-    ctx: ScoreContextAuditCtx,
-    createdByUserId: string | null,
-    published: SeasonScoreContextRevisionDoc,
-  ) {
-    const regionalSeasons = await this.repo().listRegionalSeasonsForBlizzardSeason(blizzardSeasonId);
-    const bulk = new BulkCharacterProcessingService(this.container);
-    let characterCount = 0;
-    let lastOperationId: string | null = null;
-    try {
-    for (const regional of regionalSeasons) {
-      const characterIds = await this.repo().listCharacterIdsWithScoresForSeason(regional.id);
-      characterCount += characterIds.length;
-      if (characterIds.length === 0) continue;
-      const operation = await bulk.enqueueRecalculateForSeasonScores({
-        seasonId: regional.id,
-        scoreModelId: null,
-        characterIds,
-        createdByUserId,
-        logicalKeyPrefix: `season-context:${blizzardSeasonId}:${regional.region?.code ?? regional.id}:v${published.version}:${randomUUID().slice(0, 8)}`,
-      });
-      lastOperationId = operation?.id ?? lastOperationId;
-    }
-    if (characterCount === 0) {
-      await this.audit(ctx, {
-        action: "admin.score_context.recalculate",
-        resourceType: "season_score_context_revision",
-        resourceId: published.id,
-        metadata: { blizzardSeasonId, version: published.version, characterCount: 0, status: "NO_SCORES" },
-      });
-      return {
-        status: "NO_SCORES" as const,
-        pinnedSeasonId: published.seasonId,
-        bulkOperationId: null,
-        characterCount: 0,
-        error: null,
-        retryAvailable: false,
-      };
-    }
-    await this.audit(ctx, {
-      action: "admin.score_context.recalculate",
-      resourceType: "bulk_operation",
-      resourceId: lastOperationId ?? published.id,
-      metadata: {
-        blizzardSeasonId,
-        contextRevisionId: published.id,
-        version: published.version,
-        bulkOperationId: lastOperationId,
-        characterCount,
-        status: "QUEUED",
-      },
-    });
-    return {
-      status: "QUEUED" as const,
-      pinnedSeasonId: published.seasonId,
-      bulkOperationId: lastOperationId,
-      characterCount,
-      error: null,
-      retryAvailable: false,
-    };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.audit(ctx, {
-        action: "admin.score_context.recalculate",
-        resourceType: "season_score_context_revision",
-        resourceId: published.id,
-        outcome: "FAILURE",
-        metadata: {
-          blizzardSeasonId,
-          version: published.version,
-          status: "ENQUEUE_FAILED",
-          error: message.slice(0, 300),
-        },
-      });
-      return {
-        status: "ENQUEUE_FAILED" as const,
-        pinnedSeasonId: published.seasonId,
-        bulkOperationId: null,
-        characterCount,
-        error: message,
-        retryAvailable: true,
-      };
-    }
   }
 
   async getKeyDistributionStatus(seasonId: string) {

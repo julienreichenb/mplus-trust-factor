@@ -960,6 +960,8 @@ export class CharacterService {
      * is not treated as permanently unranked.
      */
     operationalGrade?: string | null;
+    /** Authoritative product score time (published snapshot or newer operational score). */
+    productScoreCalculatedAt?: Date | string | null;
   }): Promise<{
     decision: ScoreRefreshDecision;
     activeJob: IngestionJob | null;
@@ -973,6 +975,7 @@ export class CharacterService {
       correlationId,
       readOnly = false,
       operationalGrade,
+      productScoreCalculatedAt,
     } = params;
     const [activeJobRaw, latestJobBefore] = await Promise.all([
       this.repositories.job.findActiveForCharacter(character.id),
@@ -1040,9 +1043,47 @@ export class CharacterService {
 
     const publishedGrade = snapshot?.grade ?? null;
     const effectiveGrade = operationalGrade ?? publishedGrade;
+    const effectiveScoreCalculatedAt = productScoreCalculatedAt ?? snapshot?.calculatedAt ?? null;
+    let mythicRatingDelta: number | null = null;
+    if (authority && effectiveScoreCalculatedAt) {
+      const scoreAt =
+        effectiveScoreCalculatedAt instanceof Date
+          ? effectiveScoreCalculatedAt
+          : new Date(effectiveScoreCalculatedAt);
+      if (!Number.isNaN(scoreAt.getTime())) {
+        const [currentSignals, baselineObservation] = await Promise.all([
+          loadCharacterRefreshEligibilitySignals(this.container.worker.prisma, {
+            characterId: character.id,
+            authority,
+          }),
+          this.container.worker.prisma.metricObservation.findFirst({
+            where: {
+              characterId: character.id,
+              seasonId: authority.seasonRowId,
+              metricDefinition: { key: "experience.mythic_rating" },
+              rawValue: { not: null },
+              observedAt: { lte: scoreAt },
+            },
+            orderBy: { observedAt: "desc" },
+            select: { rawValue: true },
+          }),
+        ]);
+        const currentRating = currentSignals.currentSeasonMythicScore;
+        const baselineRating =
+          baselineObservation?.rawValue != null ? Number(baselineObservation.rawValue) : null;
+        if (
+          typeof currentRating === "number" &&
+          Number.isFinite(currentRating) &&
+          baselineRating != null &&
+          Number.isFinite(baselineRating)
+        ) {
+          mythicRatingDelta = currentRating - baselineRating;
+        }
+      }
+    }
     const decisionBase = decideScoreRefresh({
       hasPublishedScore: Boolean(snapshot) || operationalGrade != null,
-      scoreCalculatedAt: snapshot?.calculatedAt ?? null,
+      scoreCalculatedAt: effectiveScoreCalculatedAt,
       gradeIsU: effectiveGrade === "U",
       scoreTtlSeconds: this.freshnessTtlSeconds,
       failureBackoffSeconds: this.failureBackoffSeconds,
@@ -1051,6 +1092,7 @@ export class CharacterService {
       latestJobFinishedAt: latestJobBefore?.completedAt ?? null,
       latestJobErrorCode: extractJobErrorCode(latestJobBefore?.error),
       contractReasons: seasonAuthorityUnavailable ? [] : contractReasons,
+      mythicRatingDelta,
       providerNewerThanScore: false,
     });
     let decision: ScoreRefreshDecision = decisionBase;
@@ -1121,16 +1163,6 @@ export class CharacterService {
             } else {
               throw error;
             }
-          }
-        }
-      } else if (decision.action === "RECALCULATE" && snapshot) {
-        try {
-          enqueueResult = await this.enqueueRecalculate(character, snapshot);
-        } catch (error) {
-          if (error instanceof SeasonAuthorityUnavailableError) {
-            decision = { ...decision, action: "NONE" };
-          } else {
-            throw error;
           }
         }
       }
@@ -1798,6 +1830,7 @@ export class CharacterService {
       snapshot,
       correlationId: opts.correlationId,
       operationalGrade: productScore.score?.grade ?? null,
+      productScoreCalculatedAt: productScore.score?.calculatedAt ?? null,
     });
 
     if (!snapshot && !productScore.score) {
@@ -1900,6 +1933,7 @@ export class CharacterService {
       snapshot,
       correlationId: opts.correlationId,
       operationalGrade: productScore.score?.grade ?? null,
+      productScoreCalculatedAt: productScore.score?.calculatedAt ?? null,
     });
 
     const jobRow = enqueueResult

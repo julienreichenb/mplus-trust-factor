@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   decideScoreRefresh,
+  isScoreWithinTtl,
   isWithinFailureBackoff,
   preferRecalculateOnly,
   toAccountTrustStatus,
+  DEFAULT_MYTHIC_RATING_STALE_DELTA,
   DEFAULT_SCORE_TTL_SECONDS,
 } from "./score-refresh-decision.js";
 
 const now = Date.parse("2026-07-30T12:00:00.000Z");
 const freshAt = new Date(now - 60_000);
+const exactTtlAt = new Date(now - DEFAULT_SCORE_TTL_SECONDS * 1000);
 const staleAt = new Date(now - (DEFAULT_SCORE_TTL_SECONDS + 1) * 1000);
 
 const base = {
@@ -18,11 +21,12 @@ const base = {
   latestJobStatus: "COMPLETED" as string | null,
   latestJobFinishedAt: freshAt,
   contractReasons: [] as string[],
+  mythicRatingDelta: 0,
   nowMs: now,
 };
 
 describe("decideScoreRefresh", () => {
-  it("ten fresh reads conceptually stay NONE (WITHIN_SCORE_TTL)", () => {
+  it("ten fresh reads stay NONE", () => {
     for (let i = 0; i < 10; i++) {
       const d = decideScoreRefresh({
         ...base,
@@ -36,7 +40,19 @@ describe("decideScoreRefresh", () => {
     }
   });
 
-  it("stale score enqueues exactly once semantically (SCORE_TTL_EXPIRED)", () => {
+  it("treats the exact seven-day boundary as stale", () => {
+    expect(isScoreWithinTtl(exactTtlAt, DEFAULT_SCORE_TTL_SECONDS, now)).toBe(false);
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: exactTtlAt,
+    });
+    expect(d.action).toBe("ENQUEUE");
+    expect(d.reason).toBe("SCORE_TTL_EXPIRED");
+    expect(d.profileRefreshStatus).toBe("STALE");
+  });
+
+  it("stale score enqueues a full refresh", () => {
     const d = decideScoreRefresh({
       ...base,
       hasPublishedScore: true,
@@ -46,6 +62,43 @@ describe("decideScoreRefresh", () => {
     expect(d.publicState).toBe("STALE_USABLE");
     expect(d.reason).toBe("SCORE_TTL_EXPIRED");
     expect(d.profileRefreshStatus).toBe("STALE");
+  });
+
+  it("marks a fresh score stale when Blizzard Mythic+ rating gained 50", () => {
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: freshAt,
+      mythicRatingDelta: DEFAULT_MYTHIC_RATING_STALE_DELTA,
+    });
+    expect(d.action).toBe("ENQUEUE");
+    expect(d.publicState).toBe("STALE_USABLE");
+    expect(d.reason).toBe("MYTHIC_RATING_INCREASED");
+    expect(d.profileRefreshStatus).toBe("STALE");
+  });
+
+  it("does not mark a fresh score stale at +49.999 rating", () => {
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: freshAt,
+      mythicRatingDelta: DEFAULT_MYTHIC_RATING_STALE_DELTA - 0.001,
+    });
+    expect(d.action).toBe("NONE");
+    expect(d.publicState).toBe("FRESH");
+  });
+
+  it("ignores rating decreases and unavailable rating comparisons", () => {
+    for (const mythicRatingDelta of [-200, null, undefined]) {
+      const d = decideScoreRefresh({
+        ...base,
+        hasPublishedScore: true,
+        scoreCalculatedAt: freshAt,
+        mythicRatingDelta,
+      });
+      expect(d.action).toBe("NONE");
+      expect(d.profileRefreshStatus).toBe("FRESH");
+    }
   });
 
   it("concurrent stale reads reuse an active logical job", () => {
@@ -60,20 +113,8 @@ describe("decideScoreRefresh", () => {
     expect(d.profileRefreshStatus).toBe("REFRESHING");
   });
 
-  it("reading after completion within TTL does not enqueue", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: freshAt,
-      latestJobStatus: "COMPLETED",
-      latestJobFinishedAt: freshAt,
-    });
-    expect(d.action).toBe("NONE");
-    expect(d.reason).toBe("WITHIN_SCORE_TTL");
-  });
-
-  it("failed refresh applies backoff and keeps last score", () => {
-    const d = decideScoreRefresh({
+  it("failed refresh applies backoff only when the score is legitimately stale", () => {
+    const stale = decideScoreRefresh({
       ...base,
       hasPublishedScore: true,
       scoreCalculatedAt: staleAt,
@@ -81,85 +122,80 @@ describe("decideScoreRefresh", () => {
       latestJobFinishedAt: new Date(now - 60_000),
       latestJobErrorCode: "REFRESH_FAILED",
     });
-    expect(d.action).toBe("BACKOFF");
-    expect(d.publicState).toBe("FAILED_FALLBACK");
-    expect(d.reason).toBe("RECENT_FAILURE");
-    expect(d.profileRefreshStatus).toBe("STALE");
-    expect(toAccountTrustStatus(d)).toBe("STALE");
+    expect(stale.action).toBe("BACKOFF");
+    expect(stale.publicState).toBe("FAILED_FALLBACK");
+    expect(stale.profileRefreshStatus).toBe("STALE");
+    expect(toAccountTrustStatus(stale)).toBe("STALE");
+
+    const fresh = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: freshAt,
+      latestJobStatus: "FAILED",
+      latestJobFinishedAt: new Date(now - 60_000),
+      latestJobErrorCode: "REFRESH_FAILED",
+    });
+    expect(fresh.action).toBe("NONE");
+    expect(fresh.profileRefreshStatus).toBe("FRESH");
   });
 
-  it("contract preflight mismatch is STALE_CONTRACT, not generic BACKOFF", () => {
+  it("contract preflight failure does not stale an otherwise fresh score", () => {
     const d = decideScoreRefresh({
       ...base,
       hasPublishedScore: true,
-      scoreCalculatedAt: staleAt,
+      scoreCalculatedAt: freshAt,
       latestJobStatus: "FAILED",
       latestJobFinishedAt: new Date(now - 60_000),
       latestJobErrorCode: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
     });
     expect(d.action).toBe("NONE");
-    expect(d.action).not.toBe("BACKOFF");
-    expect(d.reason).toBe("STALE_CONTRACT");
-    expect(d.publicState).toBe("STALE_USABLE");
-    expect(d.profileRefreshStatus).toBe("STALE");
-    expect(d.warningCodes).toContain("STALE_CONTRACT");
-    expect(d.warningCodes).not.toContain("REFRESH_FAILED");
-    expect(toAccountTrustStatus(d)).toBe("STALE");
+    expect(d.profileRefreshStatus).toBe("FRESH");
+    expect(d.warningCodes).not.toContain("STALE_CONTRACT");
+    expect(
+      isWithinFailureBackoff(
+        "FAILED",
+        new Date(now - 60_000),
+        3_600,
+        now,
+        "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+      ),
+    ).toBe(false);
   });
 
-  it("contract preflight missing hash is STALE_CONTRACT without provider backoff", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: staleAt,
-      latestJobStatus: "FAILED",
-      latestJobFinishedAt: new Date(now - 60_000),
-      latestJobErrorCode: "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH",
-    });
-    expect(d.action).toBe("NONE");
-    expect(d.reason).toBe("STALE_CONTRACT");
-    expect(isWithinFailureBackoff("FAILED", new Date(now - 60_000), 3_600, now, "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH")).toBe(
-      false,
-    );
-  });
-
-  it("stale score remains visible during refresh", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: staleAt,
-      activeJobStatus: "ACTIVE",
-    });
-    expect(d.publicState).toBe("REFRESHING");
-    expect(d.profileRefreshStatus).toBe("REFRESHING");
-    expect(d.detailedRefreshStatus).toBe("IN_PROGRESS");
-  });
-
-  it("model-only mismatch prefers RECALCULATE", () => {
+  it("model-only mismatch is diagnostic and does not recalculate a fresh score", () => {
     const d = decideScoreRefresh({
       ...base,
       hasPublishedScore: true,
       scoreCalculatedAt: freshAt,
       contractReasons: ["SCORING_MODEL_CHANGED"],
     });
-    expect(d.action).toBe("RECALCULATE");
-    expect(d.reason).toBe("MODEL_CONTRACT_CHANGED");
+    expect(d.action).toBe("NONE");
+    expect(d.profileRefreshStatus).toBe("FRESH");
+    expect(d.reason).toBe("WITHIN_SCORE_TTL");
+    // Compatibility helper remains available for explicit admin/bulk flows only.
     expect(preferRecalculateOnly(["SCORING_MODEL_CHANGED"])).toBe(true);
   });
 
-  it("adapter mismatch requires full ENQUEUE", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: freshAt,
-      contractReasons: ["WCL_ADAPTER_CHANGED"],
-    });
-    expect(d.action).toBe("ENQUEUE");
-    expect(d.reason).toBe("PROVIDER_EVIDENCE_INCOMPATIBLE");
+  it("adapter/catalog/season mismatches do not refresh an otherwise fresh score", () => {
+    for (const reason of [
+      "WCL_ADAPTER_CHANGED",
+      "ABILITY_CATALOG_CHANGED",
+      "ACTIVE_SEASON_CHANGED",
+      "CONTRACT_MISSING",
+    ]) {
+      const d = decideScoreRefresh({
+        ...base,
+        hasPublishedScore: true,
+        scoreCalculatedAt: freshAt,
+        contractReasons: [reason],
+      });
+      expect(d.action).toBe("NONE");
+      expect(d.profileRefreshStatus).toBe("FRESH");
+    }
     expect(preferRecalculateOnly(["WCL_ADAPTER_CHANGED"])).toBe(false);
   });
 
-  it("provider-newer-than-score is diagnostic only when otherwise fresh", () => {
+  it("provider-newer-than-score remains diagnostic only", () => {
     const d = decideScoreRefresh({
       ...base,
       hasPublishedScore: true,
@@ -172,7 +208,7 @@ describe("decideScoreRefresh", () => {
     expect(d.profileRefreshStatus).toBe("FRESH");
   });
 
-  it("no published score + eligibility failure is FAILED (not false QUEUED)", () => {
+  it("no published score + eligibility failure is FAILED", () => {
     const d = decideScoreRefresh({
       ...base,
       hasPublishedScore: false,
@@ -186,7 +222,6 @@ describe("decideScoreRefresh", () => {
     expect(d.reason).toBe("NOT_REFRESH_ELIGIBLE");
     expect(d.profileRefreshStatus).toBe("FAILED");
     expect(d.detailedRefreshStatus).toBe("FAILED");
-    expect(d.warningCodes).toContain("CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN");
   });
 
   it("no published score enqueues", () => {
@@ -210,38 +245,5 @@ describe("decideScoreRefresh", () => {
       activeJobStatus: "QUEUED",
     });
     expect(toAccountTrustStatus(d)).toBe("REFRESHING");
-  });
-
-  it("treats calculatedAt within TTL as fresh regardless of lastPublicRefreshAt age", () => {
-    // lastPublicRefreshAt is intentionally absent from the decision input — only calculatedAt matters.
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: freshAt,
-    });
-    expect(d.action).toBe("NONE");
-    expect(d.publicState).toBe("FRESH");
-  });
-
-  it("marks calculatedAt older than SCORE_TTL as SCORE_TTL_EXPIRED", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: staleAt,
-    });
-    expect(d.action).toBe("ENQUEUE");
-    expect(d.reason).toBe("SCORE_TTL_EXPIRED");
-  });
-
-  it("missing-contract snapshot follows documented full-refresh behaviour", () => {
-    const d = decideScoreRefresh({
-      ...base,
-      hasPublishedScore: true,
-      scoreCalculatedAt: freshAt,
-      contractReasons: ["CONTRACT_MISSING"],
-    });
-    expect(d.action).toBe("ENQUEUE");
-    expect(d.reason).toBe("PROVIDER_EVIDENCE_INCOMPATIBLE");
-    expect(preferRecalculateOnly(["CONTRACT_MISSING"])).toBe(false);
   });
 });

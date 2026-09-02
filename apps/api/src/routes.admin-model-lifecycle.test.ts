@@ -144,7 +144,7 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     expect(stillActive?.status).toBe("ACTIVE");
   });
 
-  it("archives previous ACTIVE, writes audit, and enqueues RECALCULATE_ONLY once", async () => {
+  it("archives previous ACTIVE and writes audit without implicit recalculation", async () => {
     const key = `life-act-${randomUUID().slice(0, 8)}`;
     const first = await createDraft(key);
     const activateFirst = await app.inject({
@@ -154,7 +154,7 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
       payload: { confirm: true },
     });
     expect(activateFirst.statusCode).toBe(200);
-    expect(activateFirst.json().bulkOperationId).toBeTruthy();
+    expect(activateFirst.json().bulkOperationId).toBeNull();
 
     const second = await createDraft(key);
     const activateSecond = await app.inject({
@@ -167,7 +167,7 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     const body = activateSecond.json();
     expect(body.status).toBe("ACTIVE");
     expect(body.previousActiveId).toBe(first.id);
-    expect(body.bulkOperationId).toBeTruthy();
+    expect(body.bulkOperationId).toBeNull();
     expect(body.bulkEnqueueError).toBeNull();
 
     const archived = await prisma.scoreModel.findUnique({ where: { id: first.id } });
@@ -186,8 +186,7 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     const bulkOps = await prisma.bulkOperation.findMany({
       where: { logicalKey: `model-activate:${second.id}` },
     });
-    expect(bulkOps).toHaveLength(1);
-    expect(bulkOps[0]?.mode).toBe("RECALCULATE_ONLY");
+    expect(bulkOps).toHaveLength(0);
   });
 
   it("two concurrent activations leave exactly one ACTIVE", async () => {

@@ -5,7 +5,8 @@ import { CharacterService } from "../services/character-service.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
 import { buildActiveRerollsView } from "../iam/active-rerolls-view.js";
-import { requireAuth, resolveRefreshPrivileges } from "../iam/session.js";
+import { createPermissionPreHandler, requireAuth, resolveRefreshPrivileges } from "../iam/session.js";
+import { PERMISSIONS } from "../iam/permissions.js";
 import {
   characterProfileResponseSchema,
   errorResponseSchema,
@@ -174,6 +175,10 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       "/api/v1/characters/:region/:realm/:name/refresh",
       {
         config: rateLimitConfig(container, 12),
+        preHandler: createPermissionPreHandler(container.env, PERMISSIONS.PROFILE_REFRESH_FORCE, {
+          allowEmergencyAdminKey: true,
+          auditAction: "profile.refresh.request",
+        }),
         schema: {
           tags: ["characters"],
           params: identityParamsSchema,
@@ -185,6 +190,7 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           },
           response: {
             200: refreshStatusResponseSchema,
+            401: errorResponseSchema,
             403: errorResponseSchema,
             404: errorResponseSchema,
             409: errorResponseSchema,
@@ -195,8 +201,6 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
         const identity = toIdentity(request.params as IdentityParams);
         const query = request.query as { force?: boolean };
         const wantForce = query.force === true;
-        // Resolve privileges after we know the character id (findOrCreate inside requestRefresh).
-        // Pre-check using identity-scoped lookup for ownership / admin.
         const preview = await service.getRefreshStatus(identity).catch(() => null);
         const privileges = await resolveRefreshPrivileges(
           request,
@@ -233,8 +237,6 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           });
         }
         return service.requestRefresh(identity, {
-          // Authorization boundary: force only when ?force=true AND permitted.
-          // Cooldown bypass alone must not imply provider forceRefresh.
           bypassCooldown,
           forceRefresh,
           correlationId: request.id,

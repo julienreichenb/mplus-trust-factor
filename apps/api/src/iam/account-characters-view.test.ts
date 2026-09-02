@@ -50,9 +50,7 @@ describe("buildAccountCharactersView read-only semantics", () => {
       season: {
         findFirst: seasonFindFirst,
         findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
-          where.id === "season-17"
-            ? { id: "season-17", slug: "blizzard-season-17" }
-            : null,
+          where.id === "season-17" ? { id: "season-17", slug: "blizzard-season-17" } : null,
         ),
         findMany: vi.fn(async () => [{ id: "season-17", slug: "blizzard-season-17" }]),
         update: vi.fn(),
@@ -183,7 +181,7 @@ describe("buildAccountCharactersView read-only semantics", () => {
     );
   });
 
-  it("keeps published grade B when latest refresh FAILED and sanitizes error", async () => {
+  it("keeps a recent published grade B available after a contract-only failure", async () => {
     const failedAt = new Date();
     const { prisma } = buildPrisma();
     prisma.verifiedCharacterOwnership.findMany = vi.fn(async () => [
@@ -230,20 +228,22 @@ describe("buildAccountCharactersView read-only semantics", () => {
         },
       },
     ]);
-    prisma.ingestionJob.findFirst = vi.fn(async ({ where }: { where?: { status?: { in?: string[] } } }) => {
-      if (where?.status?.in) return null;
-      return {
-        id: "job-fail",
-        status: "FAILED",
-        completedAt: failedAt,
-        scheduledAt: failedAt,
-        error: {
-          code: "REFRESH_CONTRACT_HASH_MISMATCH",
-          message:
-            "REFRESH_CONTRACT_HASH_MISMATCH: requested=2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997 computed=bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd",
-        },
-      };
-    });
+    prisma.ingestionJob.findFirst = vi.fn(
+      async ({ where }: { where?: { status?: { in?: string[] } } }) => {
+        if (where?.status?.in) return null;
+        return {
+          id: "job-fail",
+          status: "FAILED",
+          completedAt: failedAt,
+          scheduledAt: failedAt,
+          error: {
+            code: "REFRESH_CONTRACT_HASH_MISMATCH",
+            message:
+              "REFRESH_CONTRACT_HASH_MISMATCH: requested=2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997 computed=bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd",
+          },
+        };
+      },
+    );
 
     const view = await buildAccountCharactersView({
       prisma: prisma as never,
@@ -254,29 +254,35 @@ describe("buildAccountCharactersView read-only semantics", () => {
     const character = view.characters[0]!;
     expect(character.trustScore.grade).toBe("B");
     expect(character.trustScore.score).toBe(72);
-    expect(character.trustScore.status).toBe("STALE");
-    expect(character.trustScore.errorMessage).toBe("La dernière actualisation a échoué.");
+    expect(character.trustScore.status).toBe("AVAILABLE");
+    expect(character.trustScore.errorMessage).toBeNull();
     const serialized = JSON.stringify(view);
     expect(serialized).not.toContain("REFRESH_CONTRACT_HASH_MISMATCH");
-    expect(serialized).not.toContain("2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997");
-    expect(serialized).not.toContain("bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd");
+    expect(serialized).not.toContain(
+      "2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997",
+    );
+    expect(serialized).not.toContain(
+      "bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd",
+    );
   });
 
   it("maps no published score + FAILED refresh to FAILED with generic message only", async () => {
     const { prisma } = buildPrisma();
-    prisma.ingestionJob.findFirst = vi.fn(async ({ where }: { where?: { status?: { in?: string[] } } }) => {
-      if (where?.status?.in) return null;
-      return {
-        id: "job-fail",
-        status: "FAILED",
-        completedAt: new Date(),
-        scheduledAt: new Date(),
-        error: {
-          code: "REFRESH_CONTRACT_HASH_MISMATCH",
-          message: "REFRESH_CONTRACT_HASH_MISMATCH: requested=aaa computed=bbb",
-        },
-      };
-    });
+    prisma.ingestionJob.findFirst = vi.fn(
+      async ({ where }: { where?: { status?: { in?: string[] } } }) => {
+        if (where?.status?.in) return null;
+        return {
+          id: "job-fail",
+          status: "FAILED",
+          completedAt: new Date(),
+          scheduledAt: new Date(),
+          error: {
+            code: "REFRESH_CONTRACT_HASH_MISMATCH",
+            message: "REFRESH_CONTRACT_HASH_MISMATCH: requested=aaa computed=bbb",
+          },
+        };
+      },
+    );
 
     const view = await buildAccountCharactersView({
       prisma: prisma as never,

@@ -149,11 +149,13 @@ describe("refresh contract preflight barrier", () => {
 
   it("uses verified authority rather than stale Season.isCurrent data", async () => {
     const staleIsCurrentSlug = "blizzard-season-3";
-    resolveEffective.mockResolvedValue(stubEffectiveFromAuthority({
-      ...authority,
-      blizzardSeasonId: 17,
-      slug: "blizzard-season-17",
-    }));
+    resolveEffective.mockResolvedValue(
+      stubEffectiveFromAuthority({
+        ...authority,
+        blizzardSeasonId: 17,
+        slug: "blizzard-season-17",
+      }),
+    );
     const computed = resolveActiveRefreshContract({
       scoringModelKey: "default",
       scoringModelVersion: 6,
@@ -176,11 +178,9 @@ describe("refresh contract preflight barrier", () => {
     }).hash;
 
     await expect(
-      runRefreshContractPreflight(
-        buildDeps("live"),
-        buildJob({ refreshContractHash: staleHash }),
-        { jobId: "job-stale" },
-      ),
+      runRefreshContractPreflight(buildDeps("live"), buildJob({ refreshContractHash: staleHash }), {
+        jobId: "job-stale",
+      }),
     ).rejects.toMatchObject({
       code: REFRESH_CONTRACT_PREFLIGHT_MISMATCH,
       computedHash: computed.hash,
@@ -221,11 +221,9 @@ describe("refresh contract preflight barrier", () => {
 
   it("live jobs without a hash fail closed", async () => {
     await expect(
-      runRefreshContractPreflight(
-        buildDeps("live"),
-        buildJob({ refreshContractHash: undefined }),
-        { jobId: "job-missing" },
-      ),
+      runRefreshContractPreflight(buildDeps("live"), buildJob({ refreshContractHash: undefined }), {
+        jobId: "job-missing",
+      }),
     ).rejects.toMatchObject({ code: REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH });
   });
 
@@ -289,10 +287,10 @@ describe("refresh contract preflight barrier", () => {
     expect(Boolean(preflight.hash && preflight.hash !== publication.hash)).toBe(true);
   });
 
-  it("failed preflight maps to STALE_CONTRACT rather than generic BACKOFF", () => {
+  it("failed preflight does not invalidate an otherwise fresh product score", () => {
     const decision = decideScoreRefresh({
       hasPublishedScore: true,
-      scoreCalculatedAt: new Date(Date.now() - 8 * 86_400_000),
+      scoreCalculatedAt: new Date(),
       scoreTtlSeconds: 604_800,
       failureBackoffSeconds: 3_600,
       activeJobStatus: null,
@@ -303,8 +301,8 @@ describe("refresh contract preflight barrier", () => {
     });
     expect(decision.action).toBe("NONE");
     expect(decision.action).not.toBe("BACKOFF");
-    expect(decision.reason).toBe("STALE_CONTRACT");
-    expect(decision.publicState).toBe("STALE_USABLE");
+    expect(decision.reason).toBe("WITHIN_SCORE_TTL");
+    expect(decision.publicState).toBe("FRESH");
   });
 });
 

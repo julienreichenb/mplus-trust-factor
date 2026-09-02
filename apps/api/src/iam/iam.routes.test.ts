@@ -231,8 +231,7 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       url: "/api/v1/auth/battlenet/start?returnTo=/account",
     });
     const setCookie = start.headers["set-cookie"];
-    const stateCookie = (Array.isArray(setCookie) ? setCookie[0] : String(setCookie))
-      .split(";")[0];
+    const stateCookie = (Array.isArray(setCookie) ? setCookie[0] : String(setCookie)).split(";")[0];
     const location = String(start.headers.location);
     const state = new URL(location).searchParams.get("state");
     expect(state).toBeTruthy();
@@ -244,7 +243,9 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     });
     expect(callback.statusCode).toBe(302);
     const sessionCookies = callback.headers["set-cookie"];
-    const sessionHeader = Array.isArray(sessionCookies) ? sessionCookies.join("\n") : String(sessionCookies);
+    const sessionHeader = Array.isArray(sessionCookies)
+      ? sessionCookies.join("\n")
+      : String(sessionCookies);
     expect(sessionHeader.toLowerCase()).toContain("httponly");
     expect(sessionHeader.toLowerCase()).toContain("secure");
     expect(sessionHeader).not.toContain("access-token-value");
@@ -277,9 +278,9 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     expect(ownedBody.totalOwnedCharacterCount).toBeGreaterThanOrEqual(2);
     expect(ownedBody.hiddenCharacterCount).toBeGreaterThanOrEqual(1);
     expect(ownedBody.characters.length).toBeGreaterThan(0);
-    expect(ownedBody.characters.every((c: { relevance: { eligible: boolean } }) => c.relevance.eligible)).toBe(
-      true,
-    );
+    expect(
+      ownedBody.characters.every((c: { relevance: { eligible: boolean } }) => c.relevance.eligible),
+    ).toBe(true);
     expect(ownedBody.characters[0]).toMatchObject({
       name: OWNED_CHAR_NAME,
       level: 90,
@@ -326,7 +327,7 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     expect(refresh.statusCode).toBe(400);
   });
 
-  it("audits privileged admin-key cooldown bypass and still enforces normal user cooldown semantics", async () => {
+  it("requires admin privileges and audits admin-key cooldown bypass", async () => {
     const region = await prisma.region.findFirst();
     expect(region).toBeTruthy();
     let realm = await prisma.realm.findFirst({ where: { regionId: region!.id } });
@@ -355,8 +356,8 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       method: "POST",
       url: `/api/v1/characters/${region!.code}/${realm.slug}/${charName}/refresh`,
     });
-    expect(denied.statusCode).toBe(200);
-    expect(denied.json().cooldownSecondsRemaining).toBeGreaterThan(0);
+    expect(denied.statusCode).toBe(401);
+    expect(denied.json().error.code).toBe("UNAUTHORIZED");
 
     const bypass = await app.inject({
       method: "POST",

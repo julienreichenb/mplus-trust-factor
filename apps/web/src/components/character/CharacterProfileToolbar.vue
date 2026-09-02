@@ -9,6 +9,8 @@ const props = defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
   repairing?: boolean;
+  /** Server-backed admin capability for the manual profile refresh control. */
+  canRefresh?: boolean;
   /** When set, show a clear link to the admin character inspection page. */
   adminCharacterId?: string | null;
 }>();
@@ -53,7 +55,7 @@ const refreshButtonTestId = computed(() => {
 });
 
 const showRepairAction = computed(
-  () => bootstrapRepairRequired.value && !refreshInFlight.value,
+  () => Boolean(props.canRefresh) && bootstrapRepairRequired.value && !refreshInFlight.value,
 );
 
 const showAdminCharacterLink = computed(
@@ -85,6 +87,7 @@ const showAdminCharacterLink = computed(
         Retry Blizzard profile lookup
       </button>
       <button
+        v-if="canRefresh"
         type="button"
         class="btn secondary refresh-btn"
         :class="{ 'refresh-btn--busy': refreshInFlight }"

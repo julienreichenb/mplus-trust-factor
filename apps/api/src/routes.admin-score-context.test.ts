@@ -49,7 +49,6 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
   let app: FastifyInstance;
   let container: ApiContainer;
   let seasonA: string;
-  let seasonB: string;
   const enqueueBulk = vi.fn(async (job: { bulkOperationId: string }) => ({
     jobId: job.bulkOperationId,
     dedupeKey: job.bulkOperationId,
@@ -73,7 +72,7 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
         blizzardSeasonId: 87101,
       },
     });
-    const b = await prisma.season.create({
+    await prisma.season.create({
       data: {
         id: randomUUID(),
         slug: uniqueName("ctx-b"),
@@ -84,7 +83,6 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       },
     });
     seasonA = a.id;
-    seasonB = b.id;
     await ensureIamSeed(prisma as PrismaClient);
     container = createApiContainer(env, {
       workerOverrides: { prisma: prisma as PrismaClient },
@@ -101,7 +99,10 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
   const headers = { "x-admin-api-key": ADMIN_KEY };
 
   it("rejects unauthenticated reads and writes", async () => {
-    const read = await app.inject({ method: "GET", url: `/api/v1/admin/seasons/${seasonA}/score-context` });
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/seasons/${seasonA}/score-context`,
+    });
     expect(read.statusCode).toBe(401);
     const write = await app.inject({
       method: "POST",
@@ -202,10 +203,14 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       { percentileBps: 9900, medianKeyThreshold: 22 },
       { percentileBps: 9990, medianKeyThreshold: 24 },
     ]);
-    expect(loaded.json().keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
-      row.percentileLabel,
-      row.thresholds.EU,
-    ])).toEqual(
+    expect(
+      loaded
+        .json()
+        .keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
+          row.percentileLabel,
+          row.thresholds.EU,
+        ]),
+    ).toEqual(
       expect.arrayContaining([
         ["P60", null],
         ["P75", 15],
@@ -232,10 +237,14 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       url: `/api/v1/admin/seasons/${isolated.id}/score-context`,
       headers,
     });
-    expect(afterAdopt.json().keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
-      row.percentileLabel,
-      row.thresholds.EU,
-    ])).toEqual(
+    expect(
+      afterAdopt
+        .json()
+        .keyRows.map((row: { percentileLabel: string; thresholds: { EU: number | null } }) => [
+          row.percentileLabel,
+          row.thresholds.EU,
+        ]),
+    ).toEqual(
       expect.arrayContaining([
         ["P75", 15],
         ["P90", 18],
@@ -272,7 +281,10 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       payload: {
         source: "FIXTURE_LOCAL",
         collectedAt: "2026-08-01T00:00:00.000Z",
-        points: [{ percentileBps: 9000, medianKeyThreshold: 18 }, { percentileBps: 9000, medianKeyThreshold: 19 }],
+        points: [
+          { percentileBps: 9000, medianKeyThreshold: 18 },
+          { percentileBps: 9000, medianKeyThreshold: 19 },
+        ],
       },
     });
     expect(bad.statusCode).toBe(400);
@@ -339,8 +351,7 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     });
     expect(published1.statusCode).toBe(200);
     expect(published1.json().revision.status).toBe("PUBLISHED");
-    expect(published1.json().recalc.pinnedSeasonId).toBe(seasonA);
-    expect(published1.json().recalc.pinnedSeasonId).not.toBe(seasonB);
+    expect(published1.json().recalc).toBeNull();
 
     const mutatePublished = await app.inject({
       method: "PATCH",
@@ -367,7 +378,9 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
       url: `/api/v1/admin/seasons/${seasonA}/score-context`,
       headers,
     });
-    const archived = state.json().history.filter((h: { status: string }) => h.status === "ARCHIVED");
+    const archived = state
+      .json()
+      .history.filter((h: { status: string }) => h.status === "ARCHIVED");
     expect(archived.length).toBeGreaterThanOrEqual(1);
     expect(state.json().published.id).toBe(published2.json().revision.id);
 
@@ -388,30 +401,8 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     expect(publishAudit).toBeTruthy();
   });
 
-  it("surfaces enqueue failure as retryable without mutating the published revision", async () => {
-    enqueueBulk.mockRejectedValueOnce(new Error("queue down"));
-    const realm = await prisma.realm.findFirst();
-    if (!realm) throw new Error("Need a realm");
-    const character = await prisma.character.create({
-      data: {
-        id: randomUUID(),
-        regionId: realm.regionId,
-        realmId: realm.id,
-        normalizedName: uniqueName("ctxchar").toLowerCase(),
-        displayName: uniqueName("CtxChar"),
-      },
-    });
-    await prisma.characterScore.create({
-      data: {
-        id: randomUUID(),
-        characterId: character.id,
-        seasonId: seasonA,
-        scoringVersion: "test",
-        selectedRuns: [],
-        calculatedAt: new Date(),
-        composite: 70,
-      },
-    });
+  it("publishes without implicit bulk recalculation or a retry endpoint", async () => {
+    enqueueBulk.mockClear();
     const draft = await app.inject({
       method: "POST",
       url: `/api/v1/admin/seasons/${seasonA}/score-context/draft`,
@@ -424,26 +415,14 @@ describe.skipIf(!dbAvailable)("admin score context HTTP", { timeout: 60_000 }, (
     });
     expect(published.statusCode).toBe(200);
     expect(published.json().revision.status).toBe("PUBLISHED");
-    expect(published.json().recalc.status).toBe("ENQUEUE_FAILED");
-    expect(published.json().recalc.retryAvailable).toBe(true);
+    expect(published.json().recalc).toBeNull();
+    expect(enqueueBulk).not.toHaveBeenCalled();
 
-    enqueueBulk.mockResolvedValue({
-      jobId: "ok",
-      dedupeKey: "ok",
-      reused: false,
-      enqueued: true,
-    });
     const retry = await app.inject({
       method: "POST",
       url: `/api/v1/admin/seasons/${seasonA}/score-context/recalculate`,
       headers,
     });
-    expect(retry.statusCode).toBe(200);
-    expect(retry.json().recalc.status).toBe("QUEUED");
-    expect(retry.json().recalc.pinnedSeasonId).toBe(seasonA);
-    const op = await prisma.bulkOperation.findUnique({
-      where: { id: retry.json().recalc.bulkOperationId },
-    });
-    expect((op?.configSnapshot as { pinnedSeasonId?: string } | null)?.pinnedSeasonId).toBe(seasonA);
+    expect(retry.statusCode).toBe(404);
   });
 });

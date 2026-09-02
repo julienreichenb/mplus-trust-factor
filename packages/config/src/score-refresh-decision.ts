@@ -1,6 +1,9 @@
 /** Default published Trust Score TTL: 7 days. */
 export const DEFAULT_SCORE_TTL_SECONDS = 604_800;
 
+/** A +50 Blizzard Mythic+ rating gain invalidates an otherwise fresh score. */
+export const DEFAULT_MYTHIC_RATING_STALE_DELTA = 50;
+
 /** Default backoff after a failed refresh before ordinary reads may enqueue again. */
 export const DEFAULT_REFRESH_FAILURE_BACKOFF_SECONDS = 3_600;
 
@@ -9,7 +12,8 @@ export type ScoreContractStaleReason = string;
 
 /**
  * Actions produced by the centralized score-refresh policy.
- * Callers must execute at most one side effect from a single decision.
+ * `RECALCULATE` is kept in the public type for compatibility with explicit admin/bulk
+ * workflows, but profile-read freshness decisions never emit it.
  */
 export type ScoreRefreshAction =
   | "NONE"
@@ -18,10 +22,7 @@ export type ScoreRefreshAction =
   | "REUSE_ACTIVE_JOB"
   | "BACKOFF";
 
-/**
- * Public score lifecycle (provider states remain separate).
- * Prefer these names in docs and diagnostics; map to coarse API enums at the edge.
- */
+/** Public score lifecycle (provider states remain separate). */
 export type PublicScoreState =
   | "NO_SCORE_QUEUED"
   | "CALCULATING"
@@ -36,6 +37,7 @@ export type ScoreRefreshReason =
   | "WITHIN_SCORE_TTL"
   | "NO_PUBLISHED_SCORE"
   | "SCORE_TTL_EXPIRED"
+  | "MYTHIC_RATING_INCREASED"
   | "MODEL_CONTRACT_CHANGED"
   | "PROVIDER_EVIDENCE_INCOMPATIBLE"
   | "ACTIVE_JOB_EXISTS"
@@ -46,11 +48,6 @@ export type ScoreRefreshReason =
   | "FORCE_REFRESH"
   | "GRADE_U_ELIGIBILITY";
 
-/**
- * Coarse profile/search refreshStatus.
- * REFRESHING = usable published score + in-flight job (not STALE).
- * STALE = usable published score that requires updating.
- */
 /**
  * Coarse profile status. `QUEUED` / in-flight states must only appear when an
  * active durable job exists (or was just enqueued). Terminal no-score failures
@@ -80,7 +77,7 @@ export type ScoreRefreshDecision = {
 
 export type ScoreRefreshDecisionInput = {
   hasPublishedScore: boolean;
-  /** Published snapshot calculation/publication time — not provider fetch time. */
+  /** Product score calculation/publication time — not provider fetch time. */
   scoreCalculatedAt: Date | string | null | undefined;
   /** When published grade is U (eligibility), still usable but flagged. */
   gradeIsU?: boolean;
@@ -89,13 +86,19 @@ export type ScoreRefreshDecisionInput = {
   activeJobStatus: "QUEUED" | "ACTIVE" | null;
   latestJobStatus: "QUEUED" | "ACTIVE" | "COMPLETED" | "FAILED" | string | null;
   latestJobFinishedAt: Date | string | null | undefined;
-  /**
-   * Durable job.error.code from the latest terminal job, when present.
-   * Used to distinguish stale-contract preflight failures from provider/ops failures.
-   */
+  /** Durable job.error.code from the latest terminal job, when present. */
   latestJobErrorCode?: string | null;
-  /** Contract mismatch reasons vs active model/adapters (empty = compatible). */
+  /**
+   * Contract diagnostics versus the current runtime. These are intentionally NOT
+   * freshness triggers for an existing product score. New configuration applies on
+   * the next legitimate refresh instead of mass-invalidating already published scores.
+   */
   contractReasons: readonly ScoreContractStaleReason[];
+  /**
+   * Current Blizzard Mythic+ rating minus the rating captured for the product score.
+   * Null/undefined means no trustworthy comparison is available.
+   */
+  mythicRatingDelta?: number | null;
   /** Diagnostic only — must not force enqueue. */
   providerNewerThanScore?: boolean;
   nowMs?: number;
@@ -129,20 +132,6 @@ export function extractJobErrorCode(error: unknown): string | null {
   return typeof code === "string" && code.length > 0 ? code : null;
 }
 
-/** Reasons that invalidate persisted provider evidence → full refresh required. */
-const PROVIDER_INVALIDATING_REASONS: ReadonlySet<string> = new Set([
-  "OBSERVATION_SCHEMA_CHANGED",
-  "WCL_ADAPTER_CHANGED",
-  "BLIZZARD_ADAPTER_CHANGED",
-  "RAIDERIO_ADAPTER_CHANGED",
-  "RUN_SELECTION_CHANGED",
-  "ABILITY_CATALOG_CHANGED",
-  "MECHANIC_CATALOG_CHANGED",
-  "ACTIVE_SEASON_CHANGED",
-  "ZONE_OR_PARTITION_CHANGED",
-  "CONTRACT_MISSING",
-]);
-
 export function isScoreWithinTtl(
   scoreCalculatedAt: Date | string | null | undefined,
   ttlSeconds: number,
@@ -154,7 +143,8 @@ export function isScoreWithinTtl(
       ? Date.parse(scoreCalculatedAt)
       : scoreCalculatedAt.getTime();
   if (!Number.isFinite(at)) return false;
-  return nowMs - at <= ttlSeconds * 1000;
+  // Exactly TTL seconds old is stale by product contract (age >= TTL).
+  return nowMs - at < ttlSeconds * 1000;
 }
 
 export function isWithinFailureBackoff(
@@ -179,8 +169,8 @@ export function isWithinFailureBackoff(
 }
 
 /**
- * Prefer RECALCULATE when only the scoring model changed and persisted evidence
- * remains compatible. Any adapter/schema/season mismatch requires a full refresh.
+ * Compatibility helper retained for explicit admin/bulk workflows. Product profile
+ * reads deliberately do not use this to decide freshness anymore.
  */
 export function preferRecalculateOnly(contractReasons: readonly ScoreContractStaleReason[]): boolean {
   if (contractReasons.length === 0) return false;
@@ -209,16 +199,41 @@ function withProviderDiagnostic(
   };
 }
 
+function existingScoreDiagnostics(input: ScoreRefreshDecisionInput): string[] {
+  const warnings: string[] = [];
+  if (
+    input.latestJobStatus === "FAILED" &&
+    isEligibilityFailureCode(input.latestJobErrorCode) &&
+    input.latestJobErrorCode
+  ) {
+    warnings.push(input.latestJobErrorCode);
+  }
+  // Contract mismatches intentionally do not surface as STALE_CONTRACT here: a
+  // configuration change is not a freshness failure of an already published score.
+  return warnings;
+}
+
 /**
  * Pure, centralized Trust Score refresh decision.
- * Reading fresh profile/search/account data must produce action NONE (zero enqueue).
+ *
+ * Existing scores have exactly two automatic freshness triggers:
+ *   1. age >= SCORE_TTL_SECONDS;
+ *   2. Blizzard Mythic+ rating increased by >= 50 since the score baseline.
+ *
+ * Model/catalog/context/adapter changes are diagnostics only for existing scores and
+ * are adopted on the next legitimate refresh. They never cause profile-read
+ * RECALCULATE/ENQUEUE on their own.
  */
 export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefreshDecision {
   const nowMs = input.nowMs ?? Date.now();
   const providerNewer = Boolean(input.providerNewerThanScore);
   const ttlFresh = isScoreWithinTtl(input.scoreCalculatedAt, input.scoreTtlSeconds, nowMs);
-  const staleContractFailure =
-    input.latestJobStatus === "FAILED" && isStaleContractFailureCode(input.latestJobErrorCode);
+  const ratingDelta =
+    typeof input.mythicRatingDelta === "number" && Number.isFinite(input.mythicRatingDelta)
+      ? input.mythicRatingDelta
+      : null;
+  const ratingStale =
+    ratingDelta != null && ratingDelta >= DEFAULT_MYTHIC_RATING_STALE_DELTA;
   const eligibilityFailure =
     input.latestJobStatus === "FAILED" && isEligibilityFailureCode(input.latestJobErrorCode);
   const inBackoff = isWithinFailureBackoff(
@@ -253,64 +268,19 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
     };
   }
 
-  // Obsolete/stale contract on the terminal job: keep last score, never auto-enqueue from
-  // profile/account polling, and never apply provider/ops failure backoff. Explicit refresh
-  // (POST) bypasses this decision and may enqueue a replacement under the current contract.
-  if (staleContractFailure) {
-    if (input.hasPublishedScore) {
-      return withProviderDiagnostic(
-        {
-          action: "NONE",
-          publicState: "STALE_USABLE",
-          reason: "STALE_CONTRACT",
-          profileRefreshStatus: "STALE",
-          detailedRefreshStatus: "STALE",
-          warningCodes: ["STALE_CONTRACT"],
-        },
-        providerNewer,
-      );
-    }
-    return {
-      action: "NONE",
-      publicState: "UNAVAILABLE",
-      reason: "STALE_CONTRACT",
-      profileRefreshStatus: "FAILED",
-      detailedRefreshStatus: "FAILED",
-      warningCodes: ["STALE_CONTRACT"],
-    };
-  }
-
-  // Eligibility gate: keep last score, never auto-enqueue / BACKOFF. Explicit refresh may
-  // re-enqueue but the worker gate will fail-fast identically (cannot bypass).
-  if (eligibilityFailure) {
-    const warning =
-      typeof input.latestJobErrorCode === "string" && input.latestJobErrorCode.length > 0
-        ? input.latestJobErrorCode
-        : "NOT_REFRESH_ELIGIBLE";
-    if (input.hasPublishedScore) {
-      return withProviderDiagnostic(
-        {
-          action: "NONE",
-          publicState: "STALE_USABLE",
-          reason: "NOT_REFRESH_ELIGIBLE",
-          profileRefreshStatus: "STALE",
-          detailedRefreshStatus: "FAILED",
-          warningCodes: [warning],
-        },
-        providerNewer,
-      );
-    }
-    return {
-      action: "NONE",
-      publicState: "UNAVAILABLE",
-      reason: "NOT_REFRESH_ELIGIBLE",
-      profileRefreshStatus: "FAILED",
-      detailedRefreshStatus: "FAILED",
-      warningCodes: [warning],
-    };
-  }
-
+  // No product score yet: preserve the existing bootstrap/eligibility/failure semantics.
   if (!input.hasPublishedScore) {
+    if (eligibilityFailure) {
+      const warning = input.latestJobErrorCode ?? "NOT_REFRESH_ELIGIBLE";
+      return {
+        action: "NONE",
+        publicState: "UNAVAILABLE",
+        reason: "NOT_REFRESH_ELIGIBLE",
+        profileRefreshStatus: "FAILED",
+        detailedRefreshStatus: "FAILED",
+        warningCodes: [warning],
+      };
+    }
     if (inBackoff) {
       return {
         action: "BACKOFF",
@@ -331,7 +301,34 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
     };
   }
 
-  // Published score exists from here.
+  const staleByProductRule = !ttlFresh || ratingStale;
+
+  // A failed previous job, stale contract, model switch, adapter switch, etc. does
+  // not make an otherwise fresh published score stale.
+  if (!staleByProductRule) {
+    const diagnostics = existingScoreDiagnostics(input);
+    const decision: ScoreRefreshDecision = input.gradeIsU
+      ? {
+          action: "NONE",
+          publicState: "GRADE_U",
+          reason: "GRADE_U_ELIGIBILITY",
+          profileRefreshStatus: "FRESH",
+          detailedRefreshStatus: "FRESH",
+          warningCodes: diagnostics,
+        }
+      : {
+          action: "NONE",
+          publicState: "FRESH",
+          reason: "WITHIN_SCORE_TTL",
+          profileRefreshStatus: "FRESH",
+          detailedRefreshStatus: "FRESH",
+          warningCodes: diagnostics,
+        };
+    return withProviderDiagnostic(decision, providerNewer);
+  }
+
+  // The score is legitimately stale. A recent provider/ops failure suppresses a
+  // retry storm while preserving the last usable score.
   if (inBackoff) {
     return withProviderDiagnostic(
       {
@@ -346,57 +343,13 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
     );
   }
 
-  if (input.contractReasons.length > 0) {
-    const recalculate = preferRecalculateOnly(input.contractReasons);
-    const needsProvider = input.contractReasons.some((r) => PROVIDER_INVALIDATING_REASONS.has(r));
-    return withProviderDiagnostic(
-      {
-        action: recalculate && !needsProvider ? "RECALCULATE" : "ENQUEUE",
-        publicState: "STALE_USABLE",
-        reason: recalculate ? "MODEL_CONTRACT_CHANGED" : "PROVIDER_EVIDENCE_INCOMPATIBLE",
-        profileRefreshStatus: "STALE",
-        detailedRefreshStatus: "STALE",
-        warningCodes: [...input.contractReasons],
-      },
-      providerNewer,
-    );
-  }
-
-  if (!ttlFresh) {
-    return withProviderDiagnostic(
-      {
-        action: "ENQUEUE",
-        publicState: "STALE_USABLE",
-        reason: "SCORE_TTL_EXPIRED",
-        profileRefreshStatus: "STALE",
-        detailedRefreshStatus: "STALE",
-        warningCodes: [],
-      },
-      providerNewer,
-    );
-  }
-
-  if (input.gradeIsU) {
-    return withProviderDiagnostic(
-      {
-        action: "NONE",
-        publicState: "GRADE_U",
-        reason: "GRADE_U_ELIGIBILITY",
-        profileRefreshStatus: "FRESH",
-        detailedRefreshStatus: "FRESH",
-        warningCodes: [],
-      },
-      providerNewer,
-    );
-  }
-
   return withProviderDiagnostic(
     {
-      action: "NONE",
-      publicState: "FRESH",
-      reason: "WITHIN_SCORE_TTL",
-      profileRefreshStatus: "FRESH",
-      detailedRefreshStatus: "FRESH",
+      action: "ENQUEUE",
+      publicState: "STALE_USABLE",
+      reason: ratingStale ? "MYTHIC_RATING_INCREASED" : "SCORE_TTL_EXPIRED",
+      profileRefreshStatus: "STALE",
+      detailedRefreshStatus: "STALE",
       warningCodes: [],
     },
     providerNewer,
@@ -443,7 +396,7 @@ export function toAccountTrustStatus(
   }
 }
 
-/** Exported for tests — finishedAt age helper. */
+/** Exported for tests — calculatedAt age helper. */
 export function scoreAgeMs(
   scoreCalculatedAt: Date | string | null | undefined,
   nowMs = Date.now(),

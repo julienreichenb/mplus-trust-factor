@@ -204,20 +204,13 @@ async function mountPage(
       return jsonResponse(revision("DRAFT", contextId !== "season-17"));
     }
     if (path.includes("/publish") && init?.method === "POST") {
-      return jsonResponse({
-        recalc: { status: "QUEUED", bulkOperationId: "bulk-1", error: null, retryAvailable: true },
-      });
+      return jsonResponse({ recalc: null });
     }
     if (path.includes("/key-distribution/refresh") && init?.method === "POST") {
       return jsonResponse({ ok: true });
     }
     if (path.includes("/use-latest-distribution") && init?.method === "POST") {
       return jsonResponse({ ok: true });
-    }
-    if (path.includes("/score-context/recalculate") && init?.method === "POST") {
-      return jsonResponse({
-        recalc: { status: "QUEUED", bulkOperationId: "bulk-2", error: null, retryAvailable: false },
-      });
     }
     if (path.includes(`/seasons/${contextId}/score-context`)) {
       return jsonResponse(
@@ -385,7 +378,7 @@ describe("AdminScoreContextPage", () => {
     expect(publish).toBeTruthy();
     expect(headerValue(publish![1], "Content-Type")).toBeNull();
     expect(headerValue(publish![1], "Accept")).toBe("application/json");
-    expect(wrapper.text()).toContain("Recalculation queued");
+    expect(wrapper.text()).not.toContain("Recalculation queued");
 
     await wrapper.get("[data-testid='refresh-rio-distribution']").trigger("click");
     await flushPromises();
@@ -403,13 +396,7 @@ describe("AdminScoreContextPage", () => {
     expect(adopt).toBeTruthy();
     expect(headerValue(adopt![1], "Content-Type")).toBeNull();
 
-    await wrapper.get("[data-testid='retry-recalc']").trigger("click");
-    await flushPromises();
-    const retry = fetchMock.mock.calls.find(
-      (call) => String(call[0]).includes("/score-context/recalculate") && call[1]?.method === "POST",
-    );
-    expect(retry).toBeTruthy();
-    expect(headerValue(retry![1], "Content-Type")).toBeNull();
+    expect(wrapper.find("[data-testid='retry-recalc']").exists()).toBe(false);
   });
 
   it("AUTO uses the resolved effective scoring season", async () => {

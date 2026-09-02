@@ -11,7 +11,9 @@ import {
 
 describe("CharacterService — centralized 7-day refresh policy", () => {
   const mockEnqueue = vi.fn().mockResolvedValue({ jobId: "job-1", reused: false, enqueued: true });
-  const mockRecalc = vi.fn().mockResolvedValue({ jobId: "recalc-1", reused: false, enqueued: true });
+  const mockRecalc = vi
+    .fn()
+    .mockResolvedValue({ jobId: "recalc-1", reused: false, enqueued: true });
   const mockGetPublishedSnapshot = vi.fn();
   const mockFindByIdentity = vi.fn();
   const mockFindActive = vi.fn().mockResolvedValue(null);
@@ -156,7 +158,10 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     overrides: { modelVersion?: number; contract?: typeof matchingContract } = {},
   ) {
     const modelVersion = overrides.modelVersion ?? 4;
-    const contract = overrides.contract ?? { ...matchingContract, scoringModelVersion: modelVersion };
+    const contract = overrides.contract ?? {
+      ...matchingContract,
+      scoringModelVersion: modelVersion,
+    };
     return {
       id: "snap-1",
       characterId: "char-1",
@@ -307,8 +312,11 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(results.every((r) => r.body.score != null)).toBe(true);
     expect(mockEnqueue).not.toHaveBeenCalled();
     expect(
-      (container.worker.providers.blizzard.resolveAuthoritativeCurrentSeasonId as ReturnType<typeof vi.fn>)
-        .mock.calls.length,
+      (
+        container.worker.providers.blizzard.resolveAuthoritativeCurrentSeasonId as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls.length,
     ).toBe(0);
   });
 
@@ -349,8 +357,8 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("contract preflight mismatch keeps last score and does not enqueue polling loops", async () => {
-    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+  it("contract preflight mismatch does not stale a recent score or enqueue polling loops", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(recentCalculatedAt));
     mockFindLatest.mockResolvedValue({
       id: "job-preflight-fail",
       status: "FAILED",
@@ -373,13 +381,13 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     const second = await service.getProfile(identity);
     expect(first.body.score).not.toBeNull();
     expect(second.body.score).not.toBeNull();
-    expect(first.body.refreshStatus).toBe("STALE");
+    expect(first.body.refreshStatus).toBe("FRESH");
     expect(first.body.warnings?.some((w) => w.code === "REFRESH_FAILED")).toBeFalsy();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
   it("after preflight mismatch, explicit refresh enqueues one replacement under current contract", async () => {
-    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(recentCalculatedAt));
     mockFindLatest.mockResolvedValue({
       id: "job-preflight-fail",
       status: "FAILED",
@@ -529,7 +537,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("model-only mismatch chooses recalculate", async () => {
+  it("model-only mismatch does not implicitly recalculate", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(
       publishedSnapshot(recentCalculatedAt, {
         modelVersion: 3,
@@ -551,8 +559,8 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     });
     const service = new CharacterService(buildContainer());
     const result = await service.getProfile(identity);
-    expect(result.body.refreshStatus).toBe("REFRESHING");
-    expect(mockRecalc).toHaveBeenCalledTimes(1);
+    expect(result.body.refreshStatus).toBe("FRESH");
+    expect(mockRecalc).not.toHaveBeenCalled();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
@@ -612,7 +620,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("model-only mismatch still recalculates after force-refresh helpers exist", async () => {
+  it("model-only mismatch remains read-only after force-refresh helpers exist", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(
       publishedSnapshot(recentCalculatedAt, {
         modelVersion: 3,
@@ -621,7 +629,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     );
     const service = new CharacterService(buildContainer());
     await service.getProfile(identity);
-    expect(mockRecalc).toHaveBeenCalledTimes(1);
+    expect(mockRecalc).not.toHaveBeenCalled();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });
