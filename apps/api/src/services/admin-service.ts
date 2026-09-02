@@ -16,7 +16,7 @@ import {
   type AdminBacktestSummaryV1,
   type ConfidenceCoveragePoint,
 } from "@mplus/scoring";
-import { ScoreModelDraftInUseError } from "@mplus/worker";
+import { requireEffectiveScoringSeasonRow, ScoreModelDraftInUseError } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { mapAdminScoreModel, mapJobStatus, mapMechanicRule, type MechanicRuleDTO } from "../lib/mappers.js";
