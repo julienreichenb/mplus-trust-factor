@@ -2,9 +2,11 @@ import type { Character, IngestionJob, MechanicRule, ScoreModel } from "@mplus/d
 import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   QUEUE_NAMES,
+  publicDimensionExplainabilityV1Schema,
   type AdminScoreModelDTO,
   type CharacterIdentityInput,
   type CharacterProfileResponse,
+  type DimensionScoreDTO,
   type IsoDateTime,
   type JobStatus,
   type JobStatusDTO,
@@ -102,6 +104,18 @@ function readRankingEligibility(
   };
 }
 
+function readPublishedDimensionExplainability(
+  explanation: unknown,
+  dimension: string,
+): DimensionScoreDTO["explainability"] | undefined {
+  if (!explanation || typeof explanation !== "object") return undefined;
+  const root = (explanation as { publicScoreExplainability?: unknown }).publicScoreExplainability;
+  if (!root || typeof root !== "object" || Array.isArray(root)) return undefined;
+  const candidate = (root as Record<string, unknown>)[dimension];
+  const parsed = publicDimensionExplainabilityV1Schema.safeParse(candidate);
+  return parsed.success ? parsed.data : undefined;
+}
+
 const PUBLIC_EXPLANATION_FORBIDDEN_KEYS = new Set([
   "reportcode",
   "client_secret",
@@ -158,6 +172,10 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
       const rawState = (dimension as { state?: string }).state;
       const confidence = Number(dimension.confidence);
       const score = dimension.score == null ? null : Number(dimension.score);
+      const explainability = readPublishedDimensionExplainability(
+        snapshot.explanation,
+        dimension.dimension,
+      );
       const state =
         rawState === "AVAILABLE" ||
         rawState === "PARTIAL" ||
@@ -178,6 +196,7 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
         state,
         reason: (dimension as { reason?: string | null }).reason ?? null,
         contributors: dimension.contributors,
+        ...(explainability ? { explainability } : {}),
       };
     }),
     redFlags,
@@ -245,6 +264,7 @@ export function mapAdminScoreModel(model: ScoreModel): AdminScoreModelDTO {
     name: model.name,
     status: model.status,
     config: model.config,
+    createdByUserId: model.createdByUserId,
     createdAt: model.createdAt.toISOString(),
     activatedAt: model.activatedAt?.toISOString() ?? null,
   };
