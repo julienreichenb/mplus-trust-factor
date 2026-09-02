@@ -17,7 +17,6 @@ const props = defineProps<{ embedded?: boolean }>();
 const router = useRouter();
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
-type RecalcStatus = "QUEUED" | "ENQUEUE_FAILED" | "NO_SCORES" | null;
 type TabId = "key" | "meta";
 
 interface SeasonRow {
@@ -111,10 +110,6 @@ const error = ref<string | null>(null);
 const busy = ref(false);
 const dirty = ref(false);
 const activeTab = ref<TabId>("key");
-const recalc = ref<{ status: RecalcStatus; bulkOperationId: string | null; error: string | null; retryAvailable?: boolean } | null>(
-  null,
-);
-
 async function fetchJson<T>(path: string, init?: { method?: string; body?: string }): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== "";
   const response = await fetch(`${apiBase}${path}`, {
@@ -275,10 +270,7 @@ async function publish(): Promise<void> {
   busy.value = true;
   error.value = null;
   try {
-    const result = await fetchJson<{
-      recalc: { status: RecalcStatus; bulkOperationId: string | null; error: string | null; retryAvailable?: boolean };
-    }>(`/api/v1/admin/score-context/revisions/${working.value.id}/publish`, { method: "POST" });
-    recalc.value = result.recalc;
+    await fetchJson(`/api/v1/admin/score-context/revisions/${working.value.id}/publish`, { method: "POST" });
     await loadState();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -313,20 +305,6 @@ async function useLatestDistribution(): Promise<void> {
       method: "POST",
     });
     await loadState();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function retryRecalc(): Promise<void> {
-  busy.value = true;
-  try {
-    const result = await fetchJson<{
-      recalc: { status: RecalcStatus; bulkOperationId: string | null; error: string | null; retryAvailable?: boolean };
-    }>(`/api/v1/admin/seasons/${seasonId.value}/score-context/recalculate`, { method: "POST" });
-    recalc.value = result.recalc;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -382,16 +360,6 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
     </header>
 
     <StatusBanner v-if="error" tone="error" :message="error" />
-    <StatusBanner
-      v-if="recalc?.status === 'QUEUED'"
-      tone="success"
-      :message="`Recalculation queued (${recalc.bulkOperationId ?? 'bulk'}). Public profiles update as characters finish.`"
-    />
-    <StatusBanner
-      v-if="recalc?.status === 'ENQUEUE_FAILED'"
-      tone="error"
-      :message="`Published, but recalculation enqueue failed: ${recalc.error ?? 'unknown'}`"
-    />
 
     <dl class="season-authority" data-testid="scoring-season-header">
       <div>
@@ -449,15 +417,6 @@ async function setAnchorFactor(bps: number, factor: number): Promise<void> {
       </button>
       <button type="button" class="btn" :disabled="busy || !seasonId" data-testid="publish-draft" @click="publish">
         Publish
-      </button>
-      <button
-        v-if="recalc?.retryAvailable"
-        type="button"
-        class="btn"
-        data-testid="retry-recalc"
-        @click="retryRecalc"
-      >
-        Retry recalculation
       </button>
     </div>
     <p v-if="publishedMarked" class="muted" data-testid="published-readonly">

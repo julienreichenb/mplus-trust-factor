@@ -203,19 +203,5 @@ export function buildAdminScoreContextRoutes(container: ApiContainer): FastifyPl
       },
     );
 
-    app.post(
-      "/api/v1/admin/seasons/:seasonId/score-context/recalculate",
-      {
-        preHandler: createPermissionPreHandler(container.env, PERMISSIONS.ADMIN_SCORING_MANAGE, {
-          allowEmergencyAdminKey: true,
-          auditAction: "admin.scoring.manage",
-        }),
-        schema: { tags: ["admin"], params: uuidParams },
-      },
-      async (request) => {
-        const { seasonId } = request.params as { seasonId: string };
-        return service.retryRecalculate(seasonId, auditCtx(request), request.auth?.user?.id ?? null);
-      },
-    );
   };
 }

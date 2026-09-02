@@ -2,7 +2,6 @@ import type { MechanicRuleType } from "@mplus/database";
 import type {
   ActivateScoreModelResponse,
   AdminScoreModelDTO,
-  BulkOperationDTO,
   DeleteScoreModelResponse,
   Grade,
   JobStatusDTO,
@@ -17,13 +16,11 @@ import {
   type AdminBacktestSummaryV1,
   type ConfidenceCoveragePoint,
 } from "@mplus/scoring";
-import { requireEffectiveScoringSeasonRow } from "@mplus/worker";
 import { ScoreModelDraftInUseError } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { mapAdminScoreModel, mapJobStatus, mapMechanicRule, type MechanicRuleDTO } from "../lib/mappers.js";
 import { writeAuditEvent } from "../iam/audit.js";
-import { BulkCharacterProcessingService } from "./bulk-character-processing-service.js";
 import { buildPersistedCalibrationBundle } from "./calibration-export.js";
 
 export interface CreateScoreModelInput {
@@ -249,8 +246,8 @@ export class AdminService {
   }
 
   /**
-   * Transactional draft activation: archive previous ACTIVE for the key, audit, then enqueue
-   * RECALCULATE_ONLY for all persisted characters. No provider calls during the request.
+   * Transactional draft activation: archive previous ACTIVE for the key and audit.
+   * Existing character scores are not recalculated here; the new model is adopted on the next legitimate refresh.
    */
   async activateScoreModel(
     id: string,
@@ -324,75 +321,12 @@ export class AdminService {
       },
     });
 
-    let bulkOperation: BulkOperationDTO | null = null;
-    let bulkEnqueueError: string | null = null;
-    try {
-      const bulkService = new BulkCharacterProcessingService(this.container);
-      bulkOperation = await bulkService.enqueueRecalculateAllForModel(activated.id, {
-        createdByUserId: opts.actorUserId ?? null,
-        logicalKey: `model-activate:${activated.id}`,
-      });
-      await writeAuditEvent(this.container.worker.prisma, {
-        userId: opts.actorUserId ?? null,
-        actorType: opts.actorType ?? "system",
-        action: "admin.score_models.activate_recalculate_enqueued",
-        resourceType: "bulk_operation",
-        resourceId: bulkOperation.id,
-        outcome: "SUCCESS",
-        ip: opts.ip,
-        userAgent: opts.userAgent,
-        sessionSecret: this.container.env.SESSION_SECRET,
-        metadata: {
-          scoreModelId: activated.id,
-          mode: "RECALCULATE_ONLY",
-          logicalKey: `model-activate:${activated.id}`,
-        },
-      });
-    } catch (error) {
-      bulkEnqueueError = error instanceof Error ? error.message : String(error);
-      await writeAuditEvent(this.container.worker.prisma, {
-        userId: opts.actorUserId ?? null,
-        actorType: opts.actorType ?? "system",
-        action: "admin.score_models.activate_recalculate_enqueued",
-        resourceType: "score_model",
-        resourceId: activated.id,
-        outcome: "FAILURE",
-        ip: opts.ip,
-        userAgent: opts.userAgent,
-        sessionSecret: this.container.env.SESSION_SECRET,
-        metadata: {
-          scoreModelId: activated.id,
-          error: bulkEnqueueError,
-          recovery:
-            "Activation committed. Retry RECALCULATE_ONLY via Admin Bulk Processing using scoreModelId.",
-        },
-      });
-    }
-
-    // Optional single-character recalculate remains available for focused smoke tests.
-    if (opts.characterId) {
-      const character = await this.repositories.character.findById(opts.characterId);
-      if (!character) {
-        throw HttpError.notFound("CHARACTER_NOT_FOUND", `Character ${opts.characterId} was not found`);
-      }
-      const season = await requireEffectiveScoringSeasonRow(
-        this.container.worker.prisma,
-        { regionId: character.regionId },
-      );
-      await this.container.producers.enqueueRecalculateScore({
-        characterId: character.id,
-        seasonId: season.id,
-        scoreModelKey: activated.key,
-        scoreModelVersion: activated.version,
-      });
-    }
-
     return {
       ...mapAdminScoreModel(activated),
       previousActiveId: previousActive?.id ?? null,
       previousActiveVersion: previousActive?.version ?? null,
-      bulkOperationId: bulkOperation?.id ?? null,
-      bulkEnqueueError,
+      bulkOperationId: null,
+      bulkEnqueueError: null,
     };
   }
 
