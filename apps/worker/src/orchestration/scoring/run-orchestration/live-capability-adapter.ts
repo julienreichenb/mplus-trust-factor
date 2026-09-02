@@ -122,6 +122,22 @@ export function evaluateLiveCapabilityPermission(
   return { allowed: true };
 }
 
+/**
+ * Product refresh must be able to acquire the evidence it needs before deciding
+ * whether the resulting score may be published. Publication state is therefore
+ * not a provider-permission gate on this path. Canary/operator flows keep using
+ * evaluateLiveCapabilityPermission directly and remain fail-closed when
+ * publication is enabled.
+ */
+export function evaluateProductLiveCapabilityPermission(
+  input: LiveCapabilityPermissionInput,
+): { allowed: true } | { allowed: false; reasons: LiveCapabilityPermissionDenial[] } {
+  return evaluateLiveCapabilityPermission({
+    ...input,
+    scoringPublicationEnabled: false,
+  });
+}
+
 /** Conservative documented estimate when measured points are unavailable. */
 export const CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT = 45;
 
@@ -275,7 +291,7 @@ export function createLiveCapabilityAcquireHook(
   participants: OrchestrationParticipant[];
 }) => Promise<LiveCapabilityAcquireResult> {
   return async (input) => {
-    const gate = evaluateLiveCapabilityPermission(deps.permission);
+    const gate = evaluateProductLiveCapabilityPermission(deps.permission);
     if (!gate.allowed) {
       throw Object.assign(
         new Error(`live_capability_acquire_refused:${gate.reasons.join(",")}`),
