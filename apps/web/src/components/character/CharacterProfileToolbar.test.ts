@@ -20,7 +20,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
     ];
     for (const [status, label, testId] of cases) {
       const wrapper = mount(CharacterProfileToolbar, {
-        props: { profile: profile(status) },
+        props: { profile: profile(status), canRefresh: true },
         global: {
           stubs: { RouterLink: { template: "<a><slot /></a>" } },
         },
@@ -38,7 +38,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   it("shows idle refresh label without spinner", () => {
     for (const status of ["STALE", "FRESH", "FAILED"] as const) {
       const wrapper = mount(CharacterProfileToolbar, {
-        props: { profile: profile(status) },
+        props: { profile: profile(status), canRefresh: true },
         global: {
           stubs: { RouterLink: { template: "<a><slot /></a>" } },
         },
@@ -54,6 +54,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   it("exposes bootstrap repair when incomplete and not in-flight", () => {
     const wrapper = mount(CharacterProfileToolbar, {
       props: {
+        canRefresh: true,
         profile: {
           ...profile("FAILED"),
           bootstrapRepairRequired: true,
@@ -81,6 +82,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   it("exposes repair via CHARACTER_BOOTSTRAP_INCOMPLETE without the boolean flag", () => {
     const wrapper = mount(CharacterProfileToolbar, {
       props: {
+        canRefresh: true,
         profile: {
           ...profile("FAILED"),
           warnings: [
@@ -103,6 +105,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   it("applies the narrow version-skew fallback for incomplete + eligibility-unknown", () => {
     const wrapper = mount(CharacterProfileToolbar, {
       props: {
+        canRefresh: true,
         profile: {
           ...profile("QUEUED"),
           score: null,
@@ -129,6 +132,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
 
     const failed = mount(CharacterProfileToolbar, {
       props: {
+        canRefresh: true,
         profile: {
           ...profile("FAILED"),
           score: null,
@@ -156,6 +160,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   it("hides repair CTA while a real in-flight refresh is shown", () => {
     const wrapper = mount(CharacterProfileToolbar, {
       props: {
+        canRefresh: true,
         profile: {
           ...profile("QUEUED"),
           bootstrapRepairRequired: true,
@@ -179,13 +184,31 @@ describe("CharacterProfileToolbar refresh labels", () => {
 
   it("never shows a separate force-refresh control", () => {
     const wrapper = mount(CharacterProfileToolbar, {
-      props: { profile: profile("STALE") },
+      props: { profile: profile("STALE"), canRefresh: true },
       global: {
         stubs: { RouterLink: { template: "<a><slot /></a>" } },
       },
     });
     expect(wrapper.find("[data-testid='force-refresh-button']").exists()).toBe(false);
     expect(wrapper.find("[data-testid='refresh-button']").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("hides manual refresh and bootstrap repair without admin capability", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("FAILED"),
+          bootstrapRepairRequired: true,
+        },
+        canRefresh: false,
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(wrapper.find("[data-testid='refresh-button']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='bootstrap-repair-button']").exists()).toBe(false);
     wrapper.unmount();
   });
 

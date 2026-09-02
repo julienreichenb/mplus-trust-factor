@@ -34,8 +34,8 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
       workerOverrides: { prisma: prisma as PrismaClient },
       skipQueues: true,
     });
-    // Activation enqueues RECALCULATE_ONLY for all characters; do not run that cohort
-    // inline during this suite (avoids post-teardown Prisma races).
+    // Keep bulk work stubbed so unrelated admin operations cannot create
+    // post-teardown Prisma races in this suite.
     container.producers.enqueueBulkCharacterProcessing = async () => ({
       jobId: randomUUID(),
       dedupeKey: `stub-bulk-${randomUUID()}`,
@@ -112,7 +112,7 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
     });
     expect(activateResponse.statusCode).toBe(200);
     expect(activateResponse.json().status).toBe("ACTIVE");
-    expect(activateResponse.json().bulkOperationId).toBeTruthy();
+    expect(activateResponse.json().bulkOperationId).toBeNull();
 
     const backtestBody = backtestResponse.json();
     expect(backtestBody.source).toBe("persisted-export");
@@ -123,7 +123,12 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
     const region = await prisma.region.upsert({
       where: { code: "EU" },
       update: {},
-      create: { code: "EU", apiHost: "https://eu.api.blizzard.com", localeDefault: "en_GB", enabled: true },
+      create: {
+        code: "EU",
+        apiHost: "https://eu.api.blizzard.com",
+        localeDefault: "en_GB",
+        enabled: true,
+      },
     });
     const season = await ensureCurrentSeason(prisma, region.id);
     const dungeon = await ensureDungeon(prisma, `admin-test-dungeon-${randomUUID().slice(0, 8)}`);
@@ -174,7 +179,10 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
 
   it("recalculates a character's score on demand", async () => {
     const name = uniqueName("AdminRecalcTarget");
-    const response = await app.inject({ method: "GET", url: `/api/v1/characters/EU/tarren-mill/${name}` });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/EU/tarren-mill/${name}`,
+    });
     expect([200, 202]).toContain(response.statusCode);
     const characterId = response.json().characterId as string;
 

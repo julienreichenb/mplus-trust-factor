@@ -88,7 +88,10 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     testEnv = buildTestEnv();
     // `skipQueues: true` runs the refresh pipeline inline (no Redis/BullMQ worker required) so
     // `inject()` tests can observe a persisted score synchronously.
-    container = createApiContainer(testEnv, { workerOverrides: { prisma: prisma as PrismaClient }, skipQueues: true });
+    container = createApiContainer(testEnv, {
+      workerOverrides: { prisma: prisma as PrismaClient },
+      skipQueues: true,
+    });
     app = await buildApp({ env: testEnv, container });
     await app.ready();
 
@@ -123,13 +126,19 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     });
 
     await withStableActiveCatalog(async () => {
-      const first = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+      const first = await app.inject({
+        method: "GET",
+        url: `/api/v1/characters/${REALM_PATH}/${name}`,
+      });
       expect(first.statusCode).toBe(202);
       const firstBody = first.json();
       expect(firstBody.refreshStatus).toBe("QUEUED");
       expect(firstBody.score).toBeNull();
 
-      const second = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+      const second = await app.inject({
+        method: "GET",
+        url: `/api/v1/characters/${REALM_PATH}/${name}`,
+      });
       expect(second.statusCode).toBe(200);
       const secondBody = second.json();
       expect(secondBody.refreshStatus).toBe("FRESH");
@@ -159,7 +168,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       expect(fresh.json().refreshStatus).toBe("FRESH");
       expect(fresh.json().score).not.toBeNull();
 
-      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      const character = await prisma.character.findFirst({
+        where: { normalizedName: normalizeName(name) },
+      });
       expect(character).not.toBeNull();
 
       // Canonical score freshness is ScoreSnapshot.calculatedAt (not lastPublicRefreshAt).
@@ -212,7 +223,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       await app.inject({ method: "GET", url: path });
       await app.inject({ method: "GET", url: path });
 
-      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      const character = await prisma.character.findFirst({
+        where: { normalizedName: normalizeName(name) },
+      });
       expect(character).not.toBeNull();
       await prisma.character.update({
         where: { id: character!.id },
@@ -240,7 +253,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       await app.inject({ method: "GET", url: path });
       await app.inject({ method: "GET", url: path });
 
-      const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+      const character = await prisma.character.findFirst({
+        where: { normalizedName: normalizeName(name) },
+      });
       expect(character).not.toBeNull();
 
       const published = await prisma.characterPublishedScore.findFirst({
@@ -318,13 +333,16 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     });
     expect(first.statusCode).toBe(404);
 
-    const second = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${name}`,
+    });
     expect(second.statusCode).toBe(404);
     expect(second.json().error.code).toBe("CHARACTER_NOT_FOUND");
     expect(second.json().error.requestId).toBeTruthy();
   });
 
-  it("enforces the manual refresh cooldown on repeated POST /refresh calls", async () => {
+  it("lets the emergency admin key bypass the manual refresh cooldown", async () => {
     const name = uniqueName("Cooldowncharacter");
     await seedRefreshEligibilityEvidenceForTest(container.worker, {
       region: "EU",
@@ -332,13 +350,21 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    const first = await app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` });
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+      headers: { "x-admin-api-key": "test-admin-key" },
+    });
     expect(first.statusCode).toBe(200);
     expect(first.json().cooldownSecondsRemaining).toBe(0);
 
-    const second = await app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` });
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+      headers: { "x-admin-api-key": "test-admin-key" },
+    });
     expect(second.statusCode).toBe(200);
-    expect(second.json().cooldownSecondsRemaining).toBeGreaterThan(0);
+    expect(second.json().cooldownSecondsRemaining).toBe(0);
   });
 
   it("exposes job status via GET /jobs/:id after a refresh completes", async () => {
@@ -349,7 +375,11 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    const refreshResponse = await app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` });
+    const refreshResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+      headers: { "x-admin-api-key": "test-admin-key" },
+    });
     const jobId = refreshResponse.json().job?.jobId as string | undefined;
     expect(jobId).toBeTruthy();
 
@@ -358,7 +388,7 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     expect(jobResponse.json().status).toBe("completed");
   });
 
-  it("runs a second manual refresh after COMPLETED (same dedupe, cooldown cleared)", async () => {
+  it("runs a second admin refresh after COMPLETED with the same dedupe key", async () => {
     const name = uniqueName("SecondRefresh");
     const path = `/api/v1/characters/${REALM_PATH}/${name}/refresh`;
     await seedRefreshEligibilityEvidenceForTest(container.worker, {
@@ -367,20 +397,21 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
 
-    const first = await app.inject({ method: "POST", url: path });
+    const first = await app.inject({
+      method: "POST",
+      url: path,
+      headers: { "x-admin-api-key": "test-admin-key" },
+    });
     expect(first.statusCode).toBe(200);
     expect(first.json().job?.status).toBe("completed");
     const firstJobId = first.json().job?.jobId as string;
     const firstFinishedAt = first.json().job?.finishedAt as string | null;
 
-    // Clear cooldown without forceRefresh so the same logical dedupe key is reused
-    // (the live regression: terminal BullMQ jobId === dedupeKey blocked requeue).
-    await prisma.character.updateMany({
-      where: { normalizedName: normalizeName(name) },
-      data: { lastPublicRefreshAt: null },
+    const second = await app.inject({
+      method: "POST",
+      url: path,
+      headers: { "x-admin-api-key": "test-admin-key" },
     });
-
-    const second = await app.inject({ method: "POST", url: path });
     expect(second.statusCode).toBe(200);
     expect(second.json().job?.status).toBe("completed");
     expect(second.json().job?.jobId).toBe(firstJobId);
@@ -421,8 +452,16 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       expect(queued.job.status).toBe("QUEUED");
 
       const [a, b] = await Promise.all([
-        app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
-        app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
+        app.inject({
+          method: "POST",
+          url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+          headers: { "x-admin-api-key": "test-admin-key" },
+        }),
+        app.inject({
+          method: "POST",
+          url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+          headers: { "x-admin-api-key": "test-admin-key" },
+        }),
       ]);
       expect(a.statusCode).toBe(200);
       expect(b.statusCode).toBe(200);
@@ -442,7 +481,10 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       name,
     });
     await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
-    const response = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${name}`,
+    });
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body).toHaveProperty("equipment");
@@ -482,23 +524,21 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   });
 
   it("returns 404 for an unknown job id", async () => {
-    const response = await app.inject({ method: "GET", url: "/api/v1/jobs/00000000-0000-0000-0000-000000000000" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/jobs/00000000-0000-0000-0000-000000000000",
+    });
     expect(response.statusCode).toBe(404);
   });
 
-  it("allows normal POST /refresh without force permission", async () => {
+  it("rejects unauthenticated POST /refresh", async () => {
     const name = uniqueName("NormalRefreshOk");
-    await seedRefreshEligibilityEvidenceForTest(container.worker, {
-      region: "EU",
-      realmSlug: "tarren-mill",
-      name,
-    });
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
     });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().cooldownSecondsRemaining).toBe(0);
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error.code).toBe("UNAUTHORIZED");
   });
 
   it("denies ?force=true for authenticated users without profile.refresh.force", async () => {
@@ -590,7 +630,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     await app.inject({ method: "GET", url: path });
     await app.inject({ method: "GET", url: path });
 
-    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+    const character = await prisma.character.findFirst({
+      where: { normalizedName: normalizeName(name) },
+    });
     expect(character).not.toBeNull();
     const published = await prisma.characterPublishedScore.findFirst({
       where: { characterId: character!.id },
@@ -648,7 +690,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ displayedCharacterIsMain: false, rerolls: [] });
     const serialized = JSON.stringify(response.json());
-    expect(serialized).not.toMatch(/battletag|providerAccountId|userId|ownershipId|email|relevanceEligible/i);
+    expect(serialized).not.toMatch(
+      /battletag|providerAccountId|userId|ownershipId|email|relevanceEligible/i,
+    );
   });
 
   it("returns owner A rerolls to authenticated non-owner B without mixing B roster", async () => {
@@ -798,7 +842,9 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     expect(body.rerolls[0].name).toBe(altName);
     expect(body.rerolls[0].isMain).toBe(false);
     expect(body.rerolls.map((r: { name: string }) => r.name)).not.toContain(bOnlyName);
-    expect(JSON.stringify(body)).not.toMatch(/OwnerA#1|ViewerB#2|battletag|providerAccountId|ownershipId/i);
+    expect(JSON.stringify(body)).not.toMatch(
+      /OwnerA#1|ViewerB#2|battletag|providerAccountId|ownershipId/i,
+    );
   });
 
   it("public autocomplete starts at 2 chars, caps at 8, and omits characterId/ownership", async () => {
@@ -889,6 +935,7 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     const refresh = await app.inject({
       method: "POST",
       url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+      headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(refresh.statusCode).toBe(409);
     expect(refresh.json().error.code).toBe("CHARACTER_BELOW_MAX_LEVEL");
