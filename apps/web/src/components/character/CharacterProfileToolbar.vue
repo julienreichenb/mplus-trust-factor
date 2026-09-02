@@ -9,7 +9,7 @@ const props = defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
   repairing?: boolean;
-  /** Manual profile refresh is an admin-only action. */
+  /** Server-backed admin capability for the manual profile refresh control. */
   canRefresh?: boolean;
   /** When set, show a clear link to the admin character inspection page. */
   adminCharacterId?: string | null;
