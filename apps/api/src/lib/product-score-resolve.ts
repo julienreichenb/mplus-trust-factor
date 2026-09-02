@@ -1,10 +1,9 @@
 /**
  * Product Character page / profile score resolution.
  *
- * Operational CharacterScore (from scoreCharacter) is the source of truth for
- * the website. Published ScoreSnapshot is used only when no CharacterScore exists.
- * This prevents SCORING_PUBLICATION_ENABLED / stale published U from masking a
- * fresh operational composite.
+ * Product reads preserve the publication boundary: an operational CharacterScore
+ * may replace a stale published snapshot when it is newer, but a newer published
+ * snapshot must never be masked by an older operational row.
  *
  * Revision authority: prefer the CharacterScore matching the published context
  * revision for the score's season. While N+1 is published but not yet persisted,
@@ -45,6 +44,18 @@ export async function resolveProductScoreDto(input: {
     ? mapScoreSnapshot(input.publishedSnapshot)
     : null;
 
+  if (
+    publishedDto &&
+    (!row || input.publishedSnapshot!.calculatedAt.getTime() > row.calculatedAt.getTime())
+  ) {
+    return {
+      source: "published_snapshot",
+      score: publishedDto,
+      characterScoreCalculatedAt: row?.calculatedAt ?? null,
+      publishedCalculatedAt: input.publishedSnapshot!.calculatedAt,
+    };
+  }
+
   if (row) {
     const operational = mapCharacterScoreToSnapshotDto(row, {
       modelKey: input.modelKey ?? publishedDto?.modelKey,
@@ -52,22 +63,11 @@ export async function resolveProductScoreDto(input: {
       dimensionWeights: input.dimensionWeights,
       gradeThresholds: input.gradeThresholds,
     });
-    // Prefer operational CharacterScore whenever present — even if an older
-    // published snapshot exists with grade U / empty dimensions.
     return {
       source: "character_score",
       score: operational,
       characterScoreCalculatedAt: row.calculatedAt,
       publishedCalculatedAt: input.publishedSnapshot?.calculatedAt ?? null,
-    };
-  }
-
-  if (publishedDto) {
-    return {
-      source: "published_snapshot",
-      score: publishedDto,
-      characterScoreCalculatedAt: null,
-      publishedCalculatedAt: input.publishedSnapshot!.calculatedAt,
     };
   }
 
