@@ -594,7 +594,7 @@ watch(
 .character-page__hero {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .character-page__loading {

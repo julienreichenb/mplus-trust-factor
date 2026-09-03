@@ -145,7 +145,7 @@ const mediaTypeAttr = computed(() => {
   border: none;
   border-radius: 0;
   background: transparent;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .media-panel__image {

@@ -31,7 +31,7 @@ defineProps<{
   display: grid;
   align-items: end;
   justify-items: end;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .portrait-stage__glow {
@@ -62,7 +62,7 @@ defineProps<{
   margin-right: -1rem;
   margin-bottom: -1.25rem;
   transform: translate(4%, 4%);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .portrait-stage :deep(.media-panel--bare),
@@ -70,7 +70,7 @@ defineProps<{
   width: 100%;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .portrait-stage :deep(.media-panel--bare .media-panel__image) {
