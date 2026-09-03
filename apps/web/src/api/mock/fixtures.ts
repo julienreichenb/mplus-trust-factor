@@ -481,9 +481,9 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         ],
       },
       media: {
-        avatarUrl: "/fixtures/media-avatar.svg",
-        insetUrl: "/fixtures/media-inset.svg",
-        mainRawUrl: "/fixtures/media-main.svg",
+        avatarUrl: "https://render.worldofwarcraft.com/eu/characters/avatar.jpg",
+        insetUrl: "https://render.worldofwarcraft.com/eu/characters/inset.jpg",
+        mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw.jpg",
       },
       talents: {
         specializationSlug: "fire",
@@ -638,34 +638,6 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         { code: "AUTHENTICITY", message: "Authenticity signals are probabilistic, not proof of boosting.", severity: "INFO" },
       ],
       raiderIoUsed: true,
-    },
-  },
-  {
-    identity: { region: "EU", realmSlug: "tarren-mill", name: "Insetqa" },
-    profile: {
-      characterId: "44444444-4444-4444-8444-444444444444",
-      region: "EU",
-      realmSlug: "tarren-mill",
-      displayName: "Insetqa",
-      score: aleriaScore,
-      redFlags: [],
-      dataConfidence: 70,
-      lastAnalyzedRunId: sharedRun.runId,
-      highestAnalyzedRunId: sharedRun.runId,
-      sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
-      refreshStatus: "FRESH",
-      classSlug: "hunter",
-      specSlug: "beast-mastery",
-      role: "DPS",
-      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
-      warnings: [],
-      media: {
-        // main-raw intentionally broken so the ladder must advance to inset.
-        mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw-fail.jpg",
-        insetUrl: "/fixtures/media-inset.svg",
-        avatarUrl: "/fixtures/media-avatar.svg",
-      },
-      scoringRunSelection: null,
     },
   },
 ];

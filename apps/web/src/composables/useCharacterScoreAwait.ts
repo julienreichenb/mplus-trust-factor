@@ -16,6 +16,8 @@ import {
 import {
   ADMIN_REFRESH_POLL_INTERVAL_MS,
   ADMIN_REFRESH_POLL_MAX_MS,
+  FIRST_SCORE_POLL_INTERVAL_MS,
+  FIRST_SCORE_POLL_MAX_MS,
   NORMAL_REFRESH_POLL_INTERVAL_MS,
   NORMAL_REFRESH_POLL_MAX_MS,
   useRefreshPolling,
@@ -80,17 +82,27 @@ export function useCharacterScoreAwait() {
     return `${identity.region}:${identity.realmSlug}:${identity.name}`.toLowerCase();
   }
 
-  function pollingOptions(admin: boolean) {
-    // Deterministic mock fixture: keep polls short so visual QA can observe transitions.
-    if (import.meta.env.VITE_API_MODE === "mock") {
+  /**
+   * First-score wait uses a short interval (5s) for the interactive loading panel.
+   * Background refresh of an existing score keeps the slower 60s cadence.
+   * Admins keep the faster 5s interval either way.
+   */
+  function pollingOptions(admin: boolean, awaitingFirstScore: boolean) {
+    if (admin) {
       return {
-        intervalMs: 1_000,
-        maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : 60_000,
+        intervalMs: ADMIN_REFRESH_POLL_INTERVAL_MS,
+        maxDurationMs: ADMIN_REFRESH_POLL_MAX_MS,
+      };
+    }
+    if (awaitingFirstScore) {
+      return {
+        intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
+        maxDurationMs: FIRST_SCORE_POLL_MAX_MS,
       };
     }
     return {
-      intervalMs: admin ? ADMIN_REFRESH_POLL_INTERVAL_MS : NORMAL_REFRESH_POLL_INTERVAL_MS,
-      maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : NORMAL_REFRESH_POLL_MAX_MS,
+      intervalMs: NORMAL_REFRESH_POLL_INTERVAL_MS,
+      maxDurationMs: NORMAL_REFRESH_POLL_MAX_MS,
     };
   }
 
@@ -169,30 +181,78 @@ export function useCharacterScoreAwait() {
     const current = options.profile.value;
     if (!current) return;
 
-    let initialStatus: RefreshStatusResponse;
+    let initialStatus: RefreshStatusResponse | null = null;
+    let initialStatusFailed = false;
     if (options.seedStatus) {
       initialStatus = options.seedStatus;
     } else {
       try {
         initialStatus = await api.getRefreshStatus(options.identity);
       } catch {
-        initialStatus = {
-          characterId: current.characterId,
-          refreshStatus: current.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
-          job: null,
-          cooldownSecondsRemaining: 0,
-          bootstrapRepairRequired: current.bootstrapRepairRequired === true,
-        };
+        initialStatusFailed = true;
       }
     }
     if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+
+    const awaitingFirstScore = isInitialScoreCalculating(current);
+
+    // Transient GET failure must not abandon a first-score wait — keep GET-only observation.
+    if (initialStatusFailed) {
+      if (!awaitingFirstScore) return;
+      lastRefreshStatus.value = null;
+      await start({
+        identity: options.identity,
+        ...pollingOptions(options.admin === true, true),
+        onUpdate: (status) => {
+          if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+          lastRefreshStatus.value = status;
+          if (!options.profile.value) return;
+          options.profile.value = applyRefreshStatusToProfile(options.profile.value, status);
+        },
+        onComplete: async (status) => {
+          if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+          lastRefreshStatus.value = status;
+          const failed =
+            status.job?.status !== "cancelled" &&
+            (status.refreshStatus === "FAILED" || status.job?.status === "failed");
+
+          if (failed) {
+            terminalFailure.value = !hasPublishedScore(options.profile.value);
+            const message =
+              status.job?.errorMessage?.trim() ||
+              "Score calculation failed. You can retry without losing character identity.";
+            options.onError?.(message);
+          }
+
+          await applyFetchedProfile(options, key, epoch, failed);
+          if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+
+          if (
+            status.refreshStatus === "FRESH" ||
+            status.job?.status === "completed" ||
+            status.job?.status === "cancelled"
+          ) {
+            lastRefreshStatus.value = null;
+          }
+        },
+        onTimeout: () => {
+          if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+          options.onError?.(
+            "Score calculation is taking longer than expected. Retry or reopen this profile.",
+          );
+        },
+      });
+      return;
+    }
+
+    if (!initialStatus) return;
 
     const reconciled = applyRefreshStatusToProfile(current, initialStatus);
     options.profile.value = reconciled;
     lastRefreshStatus.value = initialStatus;
 
-    const awaitingFirstScore = isInitialScoreCalculating(reconciled);
-    const backgroundRefresh =
+    const awaitingAfterStatus = isInitialScoreCalculating(reconciled);
+    const backgroundAfterStatus =
       hasPublishedScore(reconciled) &&
       (reconciled.refreshStatus === "QUEUED" || reconciled.refreshStatus === "REFRESHING");
 
@@ -200,7 +260,7 @@ export function useCharacterScoreAwait() {
       refreshStatusHasRealInFlightJob(initialStatus) &&
       (initialStatus.refreshStatus === "QUEUED" ||
         initialStatus.refreshStatus === "IN_PROGRESS") &&
-      (awaitingFirstScore || backgroundRefresh);
+      (awaitingAfterStatus || backgroundAfterStatus);
 
     if (!shouldPoll) {
       if (reconciled.refreshStatus === "FAILED" && !hasPublishedScore(reconciled)) {
@@ -215,7 +275,7 @@ export function useCharacterScoreAwait() {
 
     await start({
       identity: options.identity,
-      ...pollingOptions(options.admin === true),
+      ...pollingOptions(options.admin === true, awaitingAfterStatus),
       onUpdate: (status) => {
         if (epoch !== pollEpoch || activeIdentityKey !== key) return;
         lastRefreshStatus.value = status;

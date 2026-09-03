@@ -169,29 +169,7 @@ const bannerTitles = computed(() => {
 const showBannerGroup = computed(() => bannerTitles.value.length > 0);
 
 const scoreLoadPhase = computed(() => scorePhaseFor(profile.value));
-
-/** Mock-only URL flag (`?qa=score-timeout|score-failed`) for visual QA compositions. */
-function readMockScoreQaFlag(): string | undefined {
-  if (import.meta.env.VITE_API_MODE !== "mock") return undefined;
-  if (typeof window === "undefined") return undefined;
-  try {
-    return new URL(window.location.href).searchParams.get("qa") ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 const scoreLoadingPhase = computed(() => {
-  const qa = readMockScoreQaFlag();
-  if (qa === "score-timeout") {
-    return "timed_out" as const;
-  }
-  if (qa === "score-failed") {
-    return "failed" as const;
-  }
-  if (qa === "score-calculating") {
-    return "calculating" as const;
-  }
   const phase = scoreLoadPhase.value;
   if (phase === "calculating" || phase === "timed_out" || phase === "failed") return phase;
   return null;
@@ -542,7 +520,11 @@ watch(
       </details>
 
       <div class="character-page__hero">
-        <CharacterPortraitStage :profile="profile" />
+        <!-- Portrait is score-hero chrome; hide while the first-score loading panel owns the hero. -->
+        <CharacterPortraitStage
+          v-if="!scoreLoadingPhase"
+          :profile="profile"
+        />
         <CharacterScoreLoadingPanel
           v-if="scoreLoadingPhase"
           :phase="scoreLoadingPhase"
@@ -612,7 +594,7 @@ watch(
 .character-page__hero {
   position: relative;
   isolation: isolate;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .character-page__loading {

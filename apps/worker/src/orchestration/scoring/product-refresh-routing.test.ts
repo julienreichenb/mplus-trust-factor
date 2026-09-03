@@ -17,9 +17,22 @@ function readSrc(rel: string): string {
 describe("product refresh routing (static convergence)", () => {
   it("Character page refresh POSTs once then polls GET status", () => {
     const page = readSrc("apps/web/src/pages/CharacterPage.vue");
+    const scoreAwait = readSrc("apps/web/src/composables/useCharacterScoreAwait.ts");
     const polling = readSrc("apps/web/src/composables/useRefreshPolling.ts");
+
+    // Admin force refresh: one capability-gated POST, then the shared await lifecycle.
     expect(page).toMatch(/api\.refreshCharacter\(/);
-    expect(page).toMatch(/startPolling\(/);
+    expect(page).toMatch(/canForceRefresh/);
+    expect(page).toMatch(/startAwaiting\(/);
+    expect(page).toMatch(/seedStatus:\s*status/);
+
+    // Public Retry: profile/status GETs + restart await — never POST refresh.
+    expect(page).toMatch(/retryScoreCalculation\(/);
+    expect(page).toMatch(/retryScoreLoad\(/);
+    expect(scoreAwait).toMatch(/Never enqueues provider work \(no POST refresh\)/);
+    expect(scoreAwait).not.toMatch(/refreshCharacter\(/);
+
+    // Polling is GET-only and never creates refresh jobs.
     expect(polling).toMatch(/getRefreshStatus/);
     expect(polling).not.toMatch(/refreshCharacter\(/);
     expect(polling).toMatch(/never enqueues refresh work/);

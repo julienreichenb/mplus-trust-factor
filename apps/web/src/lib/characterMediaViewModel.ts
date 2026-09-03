@@ -1,9 +1,8 @@
-﻿import type { CharacterProfileView } from "../api/types";
+import type { CharacterProfileView } from "../api/types";
 import { isCharacterMediaEnabled } from "../config/features";
 import { humanizeSlug } from "./characterViewModel";
 import { readOptionalHttpsUrl, sanitizeHttpsUrl } from "./safeUrl";
 import { classColor } from "./wowClass";
-import { classIconName, specIconName, wowIconUrl } from "./wowIcons";
 
 export type CharacterMediaType = "render" | "avatar" | "placeholder";
 export type CharacterMediaSource = "profile" | "blizzard" | "fallback";
@@ -76,14 +75,6 @@ export function characterMediaInitials(displayName: string | null | undefined): 
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-function resolveOptionalIconUrl(profile: CharacterProfileView): string | null {
-  const specName = specIconName(profile.classSlug, profile.specSlug);
-  const className = classIconName(profile.classSlug);
-  return (
-    sanitizeHttpsUrl(wowIconUrl(specName)) ?? sanitizeHttpsUrl(wowIconUrl(className)) ?? null
-  );
-}
-
 function buildFallback(profile: CharacterProfileView): CharacterMediaFallbackIdentity {
   const caption = buildCaption(profile);
   return {
@@ -95,22 +86,9 @@ function buildFallback(profile: CharacterProfileView): CharacterMediaFallbackIde
     alt: buildAlt(profile, "placeholder"),
     classColor: classColor(profile.classSlug),
     initials: characterMediaInitials(profile.displayName),
-    optionalIconUrl: resolveOptionalIconUrl(profile),
+    // Local CSS monogram is the offline fallback; remote icons are never required.
+    optionalIconUrl: null,
   };
-}
-
-/**
- * Accept https media URLs, plus same-origin `/fixtures/*` paths in mock mode for visual QA.
- */
-export function sanitizeCharacterMediaUrl(raw: string | null | undefined): string | null {
-  const https = sanitizeHttpsUrl(raw);
-  if (https) return https;
-  if (import.meta.env.VITE_API_MODE !== "mock") return null;
-  if (!raw || typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("/fixtures/")) return null;
-  if (trimmed.includes("://") || trimmed.includes("..")) return null;
-  return trimmed;
 }
 
 function pushCandidate(
@@ -120,7 +98,7 @@ function pushCandidate(
   raw: string | null,
   type: Exclude<CharacterMediaType, "placeholder">,
 ): void {
-  const url = sanitizeCharacterMediaUrl(raw);
+  const url = sanitizeHttpsUrl(raw);
   if (!url || seen.has(url)) return;
   seen.add(url);
   out.push({ kind, url, type });
@@ -138,17 +116,17 @@ export function toCharacterMediaCandidates(profile: CharacterProfileView): Chara
   const seen = new Set<string>();
 
   const mainRaw =
-    sanitizeCharacterMediaUrl(profile.media?.mainRawUrl ?? null) ??
+    sanitizeHttpsUrl(profile.media?.mainRawUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["renderUrl", "characterRenderUrl", "mainRawUrl"]);
   pushCandidate(candidates, seen, "main-raw", mainRaw, "render");
 
   const inset =
-    sanitizeCharacterMediaUrl(profile.media?.insetUrl ?? null) ??
+    sanitizeHttpsUrl(profile.media?.insetUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["insetUrl", "bustUrl"]);
   pushCandidate(candidates, seen, "inset", inset, "avatar");
 
   const avatar =
-    sanitizeCharacterMediaUrl(profile.media?.avatarUrl ?? null) ??
+    sanitizeHttpsUrl(profile.media?.avatarUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["avatarUrl"]);
   pushCandidate(candidates, seen, "avatar", avatar, "avatar");
 

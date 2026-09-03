@@ -39,7 +39,7 @@ describe("characterMediaViewModel ladder", () => {
     expect(candidates.map((c) => c.kind)).toEqual(["main-raw", "inset", "avatar"]);
   });
 
-  it("accepts mock-only same-origin /fixtures media paths", () => {
+  it("rejects non-https media paths", () => {
     const candidates = toCharacterMediaCandidates(
       baseProfile({
         avatarUrl: "/fixtures/media-avatar.svg",
@@ -47,11 +47,19 @@ describe("characterMediaViewModel ladder", () => {
         mainRawUrl: "/fixtures/media-main.svg",
       }),
     );
-    expect(candidates.map((c) => c.url)).toEqual([
-      "/fixtures/media-main.svg",
-      "/fixtures/media-inset.svg",
-      "/fixtures/media-avatar.svg",
-    ]);
+    expect(candidates).toEqual([]);
+  });
+
+  it("uses local CSS initials without a remote icon URL", () => {
+    const ladder = toCharacterMediaLadder(
+      baseProfile({
+        avatarUrl: null,
+        insetUrl: null,
+        mainRawUrl: null,
+      }),
+    );
+    expect(ladder.fallback.initials).toBe("AL");
+    expect(ladder.fallback.optionalIconUrl).toBeNull();
   });
 
   it("prefers main-raw as primary view model", () => {

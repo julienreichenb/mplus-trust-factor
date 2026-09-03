@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import type { CharacterProfileView } from "../../api/types";
 import { toCharacterMediaLadder } from "../../lib/characterMediaViewModel";
 import { useCharacterMediaLadder } from "../../composables/useCharacterMediaLadder";
-import { sanitizeHttpsUrl } from "../../lib/safeUrl";
 
 const props = withDefaults(
   defineProps<{
@@ -37,21 +36,8 @@ const {
 } = useCharacterMediaLadder(() => ladder.value.candidates, { identityKey });
 
 const fallback = computed(() => ladder.value.fallback);
-const optionalIconUrl = computed(() => sanitizeHttpsUrl(fallback.value.optionalIconUrl));
-const optionalIconFailed = ref(false);
-
-watch(
-  () => optionalIconUrl.value,
-  () => {
-    optionalIconFailed.value = false;
-  },
-);
-
 const showFallback = computed(() => !showRemoteImage.value);
 const loadingAttr = computed(() => (props.priority || props.variant === "bare" ? "eager" : "lazy"));
-const showOptionalIcon = computed(
-  () => Boolean(optionalIconUrl.value) && !optionalIconFailed.value,
-);
 
 const statusLabel = computed(() => {
   if (showRemoteImage.value) {
@@ -76,10 +62,6 @@ const mediaTypeAttr = computed(() => {
   if (showRemoteImage.value) return activeType.value ?? "render";
   return "placeholder";
 });
-
-function onOptionalIconError(): void {
-  optionalIconFailed.value = true;
-}
 </script>
 
 <template>
@@ -115,17 +97,6 @@ function onOptionalIconError(): void {
         <div class="media-panel__identity-glow" />
         <div class="media-panel__identity-plate">
           <div class="media-panel__identity-badge" aria-hidden="true">
-            <img
-              v-if="showOptionalIcon"
-              class="media-panel__identity-icon"
-              :src="optionalIconUrl!"
-              alt=""
-              width="72"
-              height="72"
-              loading="eager"
-              decoding="async"
-              @error="onOptionalIconError"
-            />
             <span class="media-panel__identity-initials">{{ fallback.initials }}</span>
           </div>
           <p class="media-panel__identity-name">{{ fallback.displayName }}</p>
@@ -174,7 +145,7 @@ function onOptionalIconError(): void {
   border: none;
   border-radius: 0;
   background: transparent;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .media-panel__image {
@@ -195,6 +166,7 @@ function onOptionalIconError(): void {
   display: grid;
   place-items: center;
   padding: var(--space-4);
+  overflow: hidden;
   background:
     radial-gradient(
       circle at 50% 42%,
@@ -242,18 +214,6 @@ function onOptionalIconError(): void {
   height: 4.5rem;
 }
 
-.media-panel__identity-icon {
-  position: absolute;
-  inset: 0;
-  width: 4.5rem;
-  height: 4.5rem;
-  border-radius: var(--radius-control);
-  border: 1px solid color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 55%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 18%, transparent);
-  object-fit: cover;
-  background: var(--color-obsidian-950);
-}
-
 .media-panel__identity-initials {
   display: grid;
   place-items: center;
@@ -273,10 +233,6 @@ function onOptionalIconError(): void {
       color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 34%, var(--color-obsidian-950)),
       var(--color-obsidian-950)
     );
-}
-
-.media-panel__identity-icon + .media-panel__identity-initials {
-  opacity: 0;
 }
 
 .media-panel__identity-name {

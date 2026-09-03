@@ -4,6 +4,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { useCharacterScoreAwait } from "./useCharacterScoreAwait";
 import type { CharacterProfileView, RefreshStatusResponse } from "../api/types";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
+import { FIRST_SCORE_POLL_INTERVAL_MS } from "./useRefreshPolling";
 
 const getRefreshStatus = vi.fn();
 const getCharacterProfile = vi.fn();
@@ -135,7 +136,7 @@ describe("useCharacterScoreAwait", () => {
       }),
     );
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(FIRST_SCORE_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getCharacterProfile).toHaveBeenCalled();
@@ -318,6 +319,69 @@ describe("useCharacterScoreAwait", () => {
     await flushPromises();
     expect(getRefreshStatus.mock.calls.length).toBeGreaterThan(callsAfterFirst);
     expect(api.polling.value).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("retries GET polling after a failed initial refresh-status when first score is pending", async () => {
+    vi.useFakeTimers();
+    getRefreshStatus
+      .mockRejectedValueOnce(new Error("network blip"))
+      .mockResolvedValue(
+        status({
+          refreshStatus: "IN_PROGRESS",
+          job: {
+            jobId: "job-1",
+            queue: "refresh-character",
+            status: "active",
+            dedupeKey: null,
+            createdAt: "2026-07-20T12:00:00.000Z",
+            startedAt: "2026-07-20T12:00:01.000Z",
+            finishedAt: null,
+            errorMessage: null,
+          },
+        }),
+      );
+    getCharacterProfile.mockResolvedValue(scoredProfile());
+
+    const { api, wrapper, profile } = mountAwaitHarness();
+    await api.startAwaiting({
+      identity: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      profile,
+    });
+    await flushPromises();
+
+    expect(api.polling.value).toBe(true);
+    expect(api.showScoreLoadingUi(profile.value)).toBe(true);
+    expect(refreshCharacter).not.toHaveBeenCalled();
+
+    getRefreshStatus.mockResolvedValueOnce(
+      status({
+        refreshStatus: "FRESH",
+        job: {
+          jobId: "job-1",
+          queue: "refresh-character",
+          status: "completed",
+          dedupeKey: null,
+          createdAt: "2026-07-20T12:00:00.000Z",
+          startedAt: "2026-07-20T12:00:01.000Z",
+          finishedAt: "2026-07-20T12:01:00.000Z",
+          errorMessage: null,
+        },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(FIRST_SCORE_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(profile.value?.score).toBeTruthy();
+    expect(api.showScoreContent(profile.value)).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("uses a short first-score poll interval and a slow background interval", () => {
+    const { api, wrapper } = mountAwaitHarness();
+    expect(api.pollingOptions(false, true).intervalMs).toBe(FIRST_SCORE_POLL_INTERVAL_MS);
+    expect(api.pollingOptions(false, false).intervalMs).toBe(60_000);
+    expect(api.pollingOptions(true, true).intervalMs).toBe(5_000);
     wrapper.unmount();
   });
 });
