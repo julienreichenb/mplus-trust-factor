@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="320" height="427" viewBox="0 0 320 427">
-  <rect width="320" height="427" fill="#0b1220"/>
-  <ellipse cx="160" cy="390" rx="90" ry="22" fill="#F48CBA" opacity="0.25"/>
-  <circle cx="160" cy="120" r="42" fill="#F48CBA"/>
-  <rect x="118" y="160" width="84" height="170" rx="28" fill="#F48CBA"/>
-  <text x="160" y="40" text-anchor="middle" fill="#F48CBA" font-family="Segoe UI, sans-serif" font-size="18">MAIN</text>
-</svg>
