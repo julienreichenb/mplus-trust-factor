@@ -131,6 +131,7 @@ const pageStubs = {
   StatusBanner: true,
   HeroGearPanel: true,
   HeroTalentPanel: true,
+  TrustRadarChart: true,
 };
 
 describe("CharacterPage first-score loading UI", () => {
@@ -160,7 +161,7 @@ describe("CharacterPage first-score loading UI", () => {
     });
   });
 
-  it("renders progressive Blizzard profile + media with score skeletons only", async () => {
+  it("renders ScoreHeader-shaped progressive profile with score skeletons only", async () => {
     const wrapper = mount(CharacterPage, {
       props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
       global: {
@@ -174,6 +175,7 @@ describe("CharacterPage first-score loading UI", () => {
     await flushPromises();
     await nextTick();
 
+    expect(wrapper.find("[data-testid='score-header']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='character-score-loading']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='character-score-loading']").attributes("data-phase")).toBe(
       "calculating",
@@ -183,17 +185,19 @@ describe("CharacterPage first-score loading UI", () => {
     expect(wrapper.find("[data-testid='score-loading-realm']").text()).toMatch(/tarren-mill/i);
     expect(wrapper.find("[data-testid='score-loading-class']").text()).toMatch(/Fire Mage/i);
     expect(wrapper.find("[data-testid='score-loading-role']").text()).toContain("DPS");
-    expect(wrapper.find("[data-testid='score-loading-equipment']").exists()).toBe(true);
-    expect(wrapper.find("[data-testid='score-loading-talents']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='insight-accordion']").exists()).toBe(true);
+    expect(wrapper.text()).toMatch(/Character gear/i);
+    expect(wrapper.text()).toMatch(/Specialization/i);
     expect(wrapper.find("[data-testid='score-loading-grade-skeleton']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='score-loading-radar-skeleton']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='dimension-cards']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='overall-score']").exists()).toBe(false);
     expect(wrapper.text()).not.toMatch(/Grade unavailable/i);
     expect(wrapper.text()).not.toMatch(/\/\s*100/);
     wrapper.unmount();
   });
 
-  it("integrates ETA into the loading panel without duplicating standalone ETA", async () => {
+  it("integrates ETA into ScoreHeader without duplicating standalone ETA", async () => {
     const wrapper = mount(CharacterPage, {
       props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
       global: { stubs: pageStubs },
@@ -251,7 +255,7 @@ describe("CharacterPage first-score loading UI", () => {
     wrapper.unmount();
   });
 
-  it("replaces loading UI with score content after publication without a reload", async () => {
+  it("replaces loading chrome with published score content without a reload", async () => {
     vi.useFakeTimers();
     const wrapper = mount(CharacterPage, {
       props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
@@ -260,7 +264,6 @@ describe("CharacterPage first-score loading UI", () => {
           ...pageStubs,
           CharacterPortraitStage: true,
           CharacterRefreshEta: true,
-          ScoreHeader: true,
           DimensionCards: true,
         },
       },
@@ -268,6 +271,7 @@ describe("CharacterPage first-score loading UI", () => {
 
     await flushPromises();
     expect(wrapper.find("[data-testid='character-score-loading']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-grade-skeleton']").exists()).toBe(true);
 
     getRefreshStatus.mockResolvedValue({
       characterId: "c-queued",
@@ -291,7 +295,9 @@ describe("CharacterPage first-score loading UI", () => {
     await nextTick();
 
     expect(wrapper.find("[data-testid='character-score-loading']").exists()).toBe(false);
-    expect(wrapper.find("score-header-stub").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-header']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='overall-score']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-grade-skeleton']").exists()).toBe(false);
     vi.useRealTimers();
     wrapper.unmount();
   });

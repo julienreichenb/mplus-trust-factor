@@ -99,7 +99,6 @@ describe("CharacterPage public score Retry", () => {
           CharacterPortraitStage: true,
           CharacterProfileToolbar: true,
           CharacterRefreshEta: true,
-          ScoreHeader: true,
           DimensionCards: true,
           BoostSuspicionSection: true,
           BoostSuspicionAlertDialog: true,
@@ -108,6 +107,10 @@ describe("CharacterPage public score Retry", () => {
           MethodologyPanel: true,
           AppToast: true,
           StatusBanner: true,
+          HeroGearPanel: true,
+          HeroTalentPanel: true,
+          TrustRadarChart: true,
+          HeroInsightAccordion: true,
         },
       },
     });

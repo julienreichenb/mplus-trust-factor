@@ -18,6 +18,8 @@ type PanelId = "signals" | "gear" | "talents";
 const props = defineProps<{
   profile: CharacterProfileView;
   boostAssessment?: BoostAssessmentPublicDTO | null;
+  /** Prefer gear/talents when score-derived key signals are not yet available. */
+  preferProfilePanels?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -26,7 +28,7 @@ const emit = defineEmits<{
 
 const highBoost = computed(() => isHighBoostSuspicionAlert(props.boostAssessment));
 
-const openPanel = ref<PanelId>("signals");
+const openPanel = ref<PanelId>(props.preferProfilePanels ? "gear" : "signals");
 const copyState = ref<"idle" | "copied" | "failed">("idle");
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 

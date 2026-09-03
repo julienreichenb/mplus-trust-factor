@@ -13,7 +13,6 @@ import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue"
 import CharacterPortraitStage from "../components/character/CharacterPortraitStage.vue";
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
 import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
-import CharacterScoreLoadingPanel from "../components/character/CharacterScoreLoadingPanel.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import BoostSuspicionSection from "../components/profile/BoostSuspicionSection.vue";
@@ -147,7 +146,7 @@ const bannerTitles = computed(() => {
   if (!profile.value) return [];
   const titles: string[] = [];
   // Quiet refresh UX (main): no in-flight queued/refreshing banners — chips cover those states.
-  // Initial score calculation uses CharacterScoreLoadingPanel instead of these banners.
+  // Initial score calculation uses ScoreHeader loading mode instead of these banners.
   if (showScoreLoadingUi(profile.value)) {
     /* score-loading panel owns calculating / timeout / failure messaging */
   } else if (timedOut.value) {
@@ -526,19 +525,15 @@ watch(
       >
         <!-- Keep Blizzard media visible during first-score calculation. -->
         <CharacterPortraitStage :profile="profile" />
-        <CharacterScoreLoadingPanel
-          v-if="scoreLoadingPhase"
-          :phase="scoreLoadingPhase"
-          :profile="profile"
-          :job="lastRefreshStatus?.job ?? null"
-          @retry="retryScoreCalculation()"
-        />
         <ScoreHeader
-          v-else-if="showScoreContent(profile) || !showScoreLoadingUi(profile)"
+          v-if="scoreLoadingPhase || showScoreContent(profile) || !showScoreLoadingUi(profile)"
           :profile="profile"
           :active-rerolls="activeRerolls"
           :displayed-character-is-main="displayedCharacterIsMain"
+          :score-load-phase="scoreLoadingPhase"
+          :refresh-job="scoreLoadingPhase ? (lastRefreshStatus?.job ?? null) : null"
           @open-boost-alert="openBoostAlert"
+          @retry-score-load="retryScoreCalculation()"
         />
       </div>
 
