@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import type { CharacterProfileView, JobStatusDTO } from "../../api/types";
 import type { CharacterScoreLoadPhase } from "../../lib/characterScoreLoadState";
 import { characterScoreLoadStatusMessage } from "../../lib/characterScoreLoadState";
-import { humanizeSlug, presentGrade } from "../../lib/characterViewModel";
+import { humanizeSlug, presentGrade, resolveDataConfidence } from "../../lib/characterViewModel";
 import { filterDimensionsForModel, formatScore } from "../../lib/format";
 import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
 import { gradeThemeCssVars } from "../../lib/gradeTheme";
