@@ -481,9 +481,9 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         ],
       },
       media: {
-        avatarUrl: null,
-        insetUrl: null,
-        mainRawUrl: null,
+        avatarUrl: "/fixtures/media-avatar.svg",
+        insetUrl: "/fixtures/media-inset.svg",
+        mainRawUrl: "/fixtures/media-main.svg",
       },
       talents: {
         specializationSlug: "fire",
@@ -640,6 +640,34 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       raiderIoUsed: true,
     },
   },
+  {
+    identity: { region: "EU", realmSlug: "tarren-mill", name: "Insetqa" },
+    profile: {
+      characterId: "44444444-4444-4444-8444-444444444444",
+      region: "EU",
+      realmSlug: "tarren-mill",
+      displayName: "Insetqa",
+      score: aleriaScore,
+      redFlags: [],
+      dataConfidence: 70,
+      lastAnalyzedRunId: sharedRun.runId,
+      highestAnalyzedRunId: sharedRun.runId,
+      sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
+      refreshStatus: "FRESH",
+      classSlug: "hunter",
+      specSlug: "beast-mastery",
+      role: "DPS",
+      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+      warnings: [],
+      media: {
+        // main-raw intentionally broken so the ladder must advance to inset.
+        mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw-fail.jpg",
+        insetUrl: "/fixtures/media-inset.svg",
+        avatarUrl: "/fixtures/media-avatar.svg",
+      },
+      scoringRunSelection: null,
+    },
+  },
 ];
 
 export function identityKey(id: CharacterIdentityInput): string {
@@ -711,9 +739,9 @@ export function createDynamicQueuedProfile(identity: CharacterIdentityInput): Ch
     highestAnalyzedRunId: null,
     sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
     refreshStatus: "QUEUED",
-    classSlug: null,
-    specSlug: null,
-    role: null,
+    classSlug: "mage",
+    specSlug: "fire",
+    role: "DPS",
     entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
     warnings: [
       {
@@ -723,6 +751,11 @@ export function createDynamicQueuedProfile(identity: CharacterIdentityInput): Ch
       },
     ],
     scoringRunSelection: null,
+    media: {
+      avatarUrl: "https://render.worldofwarcraft.com/eu/characters/avatar-fail.jpg",
+      insetUrl: "https://render.worldofwarcraft.com/eu/characters/inset-fail.jpg",
+      mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw-fail.jpg",
+    },
   };
 }
 

@@ -39,6 +39,21 @@ describe("characterMediaViewModel ladder", () => {
     expect(candidates.map((c) => c.kind)).toEqual(["main-raw", "inset", "avatar"]);
   });
 
+  it("accepts mock-only same-origin /fixtures media paths", () => {
+    const candidates = toCharacterMediaCandidates(
+      baseProfile({
+        avatarUrl: "/fixtures/media-avatar.svg",
+        insetUrl: "/fixtures/media-inset.svg",
+        mainRawUrl: "/fixtures/media-main.svg",
+      }),
+    );
+    expect(candidates.map((c) => c.url)).toEqual([
+      "/fixtures/media-main.svg",
+      "/fixtures/media-inset.svg",
+      "/fixtures/media-avatar.svg",
+    ]);
+  });
+
   it("prefers main-raw as primary view model", () => {
     const media = toCharacterMediaViewModel(
       baseProfile({
@@ -72,6 +87,7 @@ describe("characterMediaViewModel ladder", () => {
     );
     expect(ladder.candidates).toHaveLength(0);
     expect(ladder.fallback.displayName).toBeTruthy();
+    expect(ladder.fallback.initials.length).toBeGreaterThan(0);
     expect(ladder.fallback.classColor).toMatch(/^#|var\(/);
     expect(ladder.fallback.caption.toLowerCase()).toContain("mage");
   });
@@ -116,6 +132,26 @@ describe("useCharacterMediaLadder", () => {
     expect(api.activeKind.value).toBe("main-raw");
     expect(api.activeUrl.value).toContain("main-raw.jpg");
     wrapper.unmount();
+  });
+
+  it("cache-busts the same URL on bounded retry so a new request is issued", async () => {
+    vi.useFakeTimers();
+    const { api, wrapper } = mountLadder(
+      toCharacterMediaCandidates(
+        baseProfile({
+          avatarUrl: null,
+          insetUrl: null,
+          mainRawUrl: "https://render.worldofwarcraft.com/eu/main-raw.jpg",
+        }),
+      ),
+    );
+    expect(api.requestUrl.value).toBe("https://render.worldofwarcraft.com/eu/main-raw.jpg");
+    api.onImageError();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(api.requestUrl.value).toContain("_mpts_retry=1");
+    expect(api.activeKind.value).toBe("main-raw");
+    wrapper.unmount();
+    vi.useRealTimers();
   });
 
   it("falls back to inset after main-raw retries are exhausted", async () => {
@@ -314,12 +350,13 @@ describe("CharacterMediaPanel", () => {
     vi.useRealTimers();
   });
 
-  it("renders identity fallback immediately when media is missing", () => {
+  it("renders identity fallback with offline initials when media is missing", () => {
     const wrapper = mount(CharacterMediaPanel, {
       props: { profile: { ...FIXTURE_CHARACTERS[0]!.profile, media: null } },
     });
     expect(wrapper.attributes("data-media-type")).toBe("placeholder");
     expect(wrapper.find("[data-testid='character-media-fallback']").exists()).toBe(true);
     expect(wrapper.text()).toContain("Character identity");
+    expect(wrapper.find(".media-panel__identity-initials").exists()).toBe(true);
   });
 });

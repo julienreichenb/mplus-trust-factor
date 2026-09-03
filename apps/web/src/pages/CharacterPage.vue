@@ -49,14 +49,13 @@ const {
   lastRefreshStatus,
   terminalFailure,
   startAwaiting,
+  retryScoreLoad,
   stopAwaiting,
   scorePhaseFor,
   showScoreLoadingUi,
   showScoreContent,
   applyRefreshStatusToProfile,
   withBootstrapRepairSignal,
-  startPolling,
-  pollingOptions: scorePollingOptions,
 } = useCharacterScoreAwait();
 const { canForceRefresh, authenticated, hasPermission, fetchAuthMe } = useAuthSession();
 
@@ -170,16 +169,50 @@ const bannerTitles = computed(() => {
 const showBannerGroup = computed(() => bannerTitles.value.length > 0);
 
 const scoreLoadPhase = computed(() => scorePhaseFor(profile.value));
+
+/** Mock-only URL flag (`?qa=score-timeout|score-failed`) for visual QA compositions. */
+function readMockScoreQaFlag(): string | undefined {
+  if (import.meta.env.VITE_API_MODE !== "mock") return undefined;
+  if (typeof window === "undefined") return undefined;
+  try {
+    return new URL(window.location.href).searchParams.get("qa") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const scoreLoadingPhase = computed(() => {
+  const qa = readMockScoreQaFlag();
+  if (qa === "score-timeout") {
+    return "timed_out" as const;
+  }
+  if (qa === "score-failed") {
+    return "failed" as const;
+  }
+  if (qa === "score-calculating") {
+    return "calculating" as const;
+  }
   const phase = scoreLoadPhase.value;
   if (phase === "calculating" || phase === "timed_out" || phase === "failed") return phase;
   return null;
 });
 
-function pollingOptions(identity: { region: string; realmSlug: string; name: string }) {
+function currentIdentity() {
   return {
-    identity,
-    ...scorePollingOptions(canForceRefresh.value),
+    region: props.region.toUpperCase(),
+    realmSlug: props.realm.toLowerCase(),
+    name: props.name,
+  };
+}
+
+function awaitCallbacks() {
+  return {
+    onNotice: (message: string | null) => {
+      refreshNotice.value = message;
+    },
+    onError: (message: string | null) => {
+      error.value = message;
+    },
   };
 }
 
@@ -215,11 +248,7 @@ async function load(): Promise<void> {
   activeRerolls.value = [];
   displayedCharacterIsMain.value = false;
   const signal = nextSignal();
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  const identity = currentIdentity();
   try {
     await fetchAuthMe();
     const data = withBootstrapRepairSignal(await api.getCharacterProfile(identity, signal));
@@ -240,12 +269,8 @@ async function load(): Promise<void> {
         identity,
         profile,
         admin: canForceRefresh.value,
-        onNotice: (message) => {
-          refreshNotice.value = message;
-        },
-        onError: (message) => {
-          error.value = message;
-        },
+        force: true,
+        ...awaitCallbacks(),
       });
     }
   } catch (err) {
@@ -263,13 +288,23 @@ async function load(): Promise<void> {
   }
 }
 
+/** Public-safe: re-read profile/status and restart polling. Never POSTs refresh. */
+async function retryScoreCalculation(): Promise<void> {
+  if (!profile.value) return;
+  error.value = null;
+  refreshNotice.value = null;
+  await retryScoreLoad({
+    identity: currentIdentity(),
+    profile,
+    admin: canForceRefresh.value,
+    force: true,
+    ...awaitCallbacks(),
+  });
+}
+
 async function repairBootstrap(): Promise<void> {
   if (!profile.value || repairing.value) return;
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  const identity = currentIdentity();
   repairing.value = true;
   error.value = null;
   refreshNotice.value = null;
@@ -317,12 +352,8 @@ async function repairBootstrap(): Promise<void> {
         identity,
         profile,
         admin: canForceRefresh.value,
-        onNotice: (message) => {
-          if (message) refreshNotice.value = message;
-        },
-        onError: (message) => {
-          if (message) error.value = message;
-        },
+        force: true,
+        ...awaitCallbacks(),
       });
     }
   } catch (err) {
@@ -332,16 +363,14 @@ async function repairBootstrap(): Promise<void> {
   }
 }
 
+/** Admin-only capability: POST refresh then poll via the same score-await lifecycle. */
 async function refresh(): Promise<void> {
-  if (!profile.value) return;
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  if (!profile.value || !canForceRefresh.value) return;
+  const identity = currentIdentity();
   const force = canForceRefresh.value;
   try {
     refreshNotice.value = null;
+    error.value = null;
     const status = await api.refreshCharacter(identity, undefined, { force });
     const inFlight = refreshStatusHasRealInFlightJob(status);
 
@@ -364,44 +393,18 @@ async function refresh(): Promise<void> {
       return;
     }
 
-    if (!inFlight) {
-      profile.value = applyRefreshStatusToProfile(profile.value, status);
-      return;
-    }
-
     profile.value = applyRefreshStatusToProfile(profile.value, status);
     lastRefreshStatus.value = status;
-    void startPolling({
-      ...pollingOptions(identity),
-      onUpdate: (statusUpdate) => {
-        lastRefreshStatus.value = statusUpdate;
-        if (profile.value) {
-          profile.value = applyRefreshStatusToProfile(profile.value, statusUpdate);
-        }
-      },
-      onComplete: async (statusUpdate) => {
-        lastRefreshStatus.value = statusUpdate;
-        if (
-          statusUpdate.job?.status !== "cancelled" &&
-          (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
-        ) {
-          refreshNotice.value =
-            statusUpdate.job?.errorMessage?.trim() ||
-            "Refresh failed. You can retry without losing the last available snapshot.";
-        }
-        const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
-        profile.value = refreshed;
-        if (
-          statusUpdate.refreshStatus === "FRESH" ||
-          statusUpdate.job?.status === "completed" ||
-          statusUpdate.job?.status === "cancelled"
-        ) {
-          lastRefreshStatus.value = null;
-        }
-      },
-      onTimeout: () => {
-        error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
-      },
+
+    if (!inFlight) return;
+
+    await startAwaiting({
+      identity,
+      profile,
+      admin: true,
+      force: true,
+      seedStatus: status,
+      ...awaitCallbacks(),
     });
   } catch (err) {
     refreshNotice.value = (err as Error).message || "Refresh failed";
@@ -543,7 +546,7 @@ watch(
         <CharacterScoreLoadingPanel
           v-if="scoreLoadingPhase"
           :phase="scoreLoadingPhase"
-          @retry="refresh()"
+          @retry="retryScoreCalculation()"
         />
         <ScoreHeader
           v-else-if="showScoreContent(profile) || !showScoreLoadingUi(profile)"

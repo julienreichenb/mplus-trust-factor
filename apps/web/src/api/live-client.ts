@@ -113,6 +113,18 @@ export function createLiveApiClient(options: {
     return parseJson<T>(response);
   }
 
+  /** Profile/status reads must not be masked by intermediary HTTP caches after publication. */
+  async function getNoStore<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const response = await fetch(`${base}${path}`, {
+      method: "GET",
+      headers: jsonFetchHeaders(false),
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
+    return parseJson<T>(response);
+  }
+
   async function send<T>(
     method: string,
     path: string,
@@ -153,7 +165,7 @@ export function createLiveApiClient(options: {
       send<CharacterResolveResponse>("POST", "/api/v1/characters/resolve", request, signal),
 
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>
-      get<CharacterProfileResponse>(identityPath(identity), signal),
+      getNoStore<CharacterProfileResponse>(identityPath(identity), signal),
 
     refreshCharacter: (identity, signal, opts) => {
       const forceQs = opts?.force ? "?force=true" : "";
@@ -166,7 +178,7 @@ export function createLiveApiClient(options: {
     },
 
     getRefreshStatus: (identity, signal) =>
-      get<RefreshStatusResponse>(`${identityPath(identity)}/refresh-status`, signal),
+      getNoStore<RefreshStatusResponse>(`${identityPath(identity)}/refresh-status`, signal),
 
     compareCharacters: (request: CharacterComparisonRequest, signal) =>
       send<CharacterComparisonResponse>("POST", "/api/v1/comparisons", request, signal),

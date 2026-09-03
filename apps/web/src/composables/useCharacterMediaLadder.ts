@@ -62,6 +62,21 @@ export function useCharacterMediaLadder(
   const activeUrl = computed(() => active.value?.url ?? null);
   const activeKind = computed(() => active.value?.kind ?? null);
   const activeType = computed(() => active.value?.type ?? null);
+  /** Cache-bust same-URL retries so the browser issues a fresh request. */
+  const requestUrl = computed(() => {
+    const url = activeUrl.value;
+    if (!url) return null;
+    if (loadGeneration.value <= 0) return url;
+    try {
+      const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "https://local.test");
+      parsed.searchParams.set("_mpts_retry", String(loadGeneration.value));
+      return parsed.pathname.startsWith("/") && url.startsWith("/")
+        ? `${parsed.pathname}${parsed.search}`
+        : parsed.toString();
+    } catch {
+      return url;
+    }
+  });
   const showRemoteImage = computed(() => Boolean(activeUrl.value) && !exhausted.value);
 
   function advanceOrExhaust(): void {
@@ -104,6 +119,7 @@ export function useCharacterMediaLadder(
   return {
     active,
     activeUrl,
+    requestUrl,
     activeKind,
     activeType,
     showRemoteImage,

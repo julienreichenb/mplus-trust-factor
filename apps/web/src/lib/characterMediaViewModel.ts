@@ -1,8 +1,8 @@
-import type { CharacterProfileView } from "../api/types";
+﻿import type { CharacterProfileView } from "../api/types";
 import { isCharacterMediaEnabled } from "../config/features";
 import { humanizeSlug } from "./characterViewModel";
 import { readOptionalHttpsUrl, sanitizeHttpsUrl } from "./safeUrl";
-import { classColor, classIconUrl } from "./wowClass";
+import { classColor } from "./wowClass";
 import { classIconName, specIconName, wowIconUrl } from "./wowIcons";
 
 export type CharacterMediaType = "render" | "avatar" | "placeholder";
@@ -33,8 +33,13 @@ export interface CharacterMediaFallbackIdentity {
   caption: string;
   alt: string;
   classColor: string;
-  /** Prefer HTTPS class/spec icon; null when unavailable. */
-  iconUrl: string | null;
+  /** Local monogram — always available offline. */
+  initials: string;
+  /**
+   * Optional remote class/spec icon enhancement.
+   * Must never be required for a character-specific fallback.
+   */
+  optionalIconUrl: string | null;
 }
 
 export interface CharacterMediaLadder {
@@ -60,14 +65,23 @@ function buildAlt(profile: CharacterProfileView, type: CharacterMediaType): stri
   return `Character render for ${name}`;
 }
 
-function resolveFallbackIconUrl(profile: CharacterProfileView): string | null {
+/** Offline-safe initials from the character display name. */
+export function characterMediaInitials(displayName: string | null | undefined): string {
+  const trimmed = displayName?.trim() ?? "";
+  if (!trimmed) return "M+";
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]!.charAt(0)}${parts[1]!.charAt(0)}`.toUpperCase();
+  }
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
+function resolveOptionalIconUrl(profile: CharacterProfileView): string | null {
   const specName = specIconName(profile.classSlug, profile.specSlug);
   const className = classIconName(profile.classSlug);
-  const fromSpec = sanitizeHttpsUrl(wowIconUrl(specName));
-  if (fromSpec) return fromSpec;
-  const fromClass = sanitizeHttpsUrl(wowIconUrl(className));
-  if (fromClass) return fromClass;
-  return sanitizeHttpsUrl(classIconUrl(profile.classSlug));
+  return (
+    sanitizeHttpsUrl(wowIconUrl(specName)) ?? sanitizeHttpsUrl(wowIconUrl(className)) ?? null
+  );
 }
 
 function buildFallback(profile: CharacterProfileView): CharacterMediaFallbackIdentity {
@@ -80,8 +94,23 @@ function buildFallback(profile: CharacterProfileView): CharacterMediaFallbackIde
     caption,
     alt: buildAlt(profile, "placeholder"),
     classColor: classColor(profile.classSlug),
-    iconUrl: resolveFallbackIconUrl(profile),
+    initials: characterMediaInitials(profile.displayName),
+    optionalIconUrl: resolveOptionalIconUrl(profile),
   };
+}
+
+/**
+ * Accept https media URLs, plus same-origin `/fixtures/*` paths in mock mode for visual QA.
+ */
+export function sanitizeCharacterMediaUrl(raw: string | null | undefined): string | null {
+  const https = sanitizeHttpsUrl(raw);
+  if (https) return https;
+  if (import.meta.env.VITE_API_MODE !== "mock") return null;
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("/fixtures/")) return null;
+  if (trimmed.includes("://") || trimmed.includes("..")) return null;
+  return trimmed;
 }
 
 function pushCandidate(
@@ -91,7 +120,7 @@ function pushCandidate(
   raw: string | null,
   type: Exclude<CharacterMediaType, "placeholder">,
 ): void {
-  const url = sanitizeHttpsUrl(raw);
+  const url = sanitizeCharacterMediaUrl(raw);
   if (!url || seen.has(url)) return;
   seen.add(url);
   out.push({ kind, url, type });
@@ -109,17 +138,17 @@ export function toCharacterMediaCandidates(profile: CharacterProfileView): Chara
   const seen = new Set<string>();
 
   const mainRaw =
-    sanitizeHttpsUrl(profile.media?.mainRawUrl ?? null) ??
+    sanitizeCharacterMediaUrl(profile.media?.mainRawUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["renderUrl", "characterRenderUrl", "mainRawUrl"]);
   pushCandidate(candidates, seen, "main-raw", mainRaw, "render");
 
   const inset =
-    sanitizeHttpsUrl(profile.media?.insetUrl ?? null) ??
+    sanitizeCharacterMediaUrl(profile.media?.insetUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["insetUrl", "bustUrl"]);
   pushCandidate(candidates, seen, "inset", inset, "avatar");
 
   const avatar =
-    sanitizeHttpsUrl(profile.media?.avatarUrl ?? null) ??
+    sanitizeCharacterMediaUrl(profile.media?.avatarUrl ?? null) ??
     readOptionalHttpsUrl(profile, ["avatarUrl"]);
   pushCandidate(candidates, seen, "avatar", avatar, "avatar");
 

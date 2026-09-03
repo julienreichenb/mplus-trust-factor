@@ -27,7 +27,7 @@ const identityKey = computed(
 );
 
 const {
-  activeUrl,
+  requestUrl,
   activeKind,
   activeType,
   showRemoteImage,
@@ -37,18 +37,21 @@ const {
 } = useCharacterMediaLadder(() => ladder.value.candidates, { identityKey });
 
 const fallback = computed(() => ladder.value.fallback);
-const fallbackIconUrl = computed(() => sanitizeHttpsUrl(fallback.value.iconUrl));
-const fallbackIconFailed = ref(false);
+const optionalIconUrl = computed(() => sanitizeHttpsUrl(fallback.value.optionalIconUrl));
+const optionalIconFailed = ref(false);
 
 watch(
-  () => fallbackIconUrl.value,
+  () => optionalIconUrl.value,
   () => {
-    fallbackIconFailed.value = false;
+    optionalIconFailed.value = false;
   },
 );
 
 const showFallback = computed(() => !showRemoteImage.value);
 const loadingAttr = computed(() => (props.priority || props.variant === "bare" ? "eager" : "lazy"));
+const showOptionalIcon = computed(
+  () => Boolean(optionalIconUrl.value) && !optionalIconFailed.value,
+);
 
 const statusLabel = computed(() => {
   if (showRemoteImage.value) {
@@ -59,13 +62,23 @@ const statusLabel = computed(() => {
   return "Character identity";
 });
 
+const mediaAlt = computed(() => {
+  if (showRemoteImage.value && activeType.value === "avatar") {
+    return `Avatar for ${fallback.value.displayName}`;
+  }
+  if (showRemoteImage.value) {
+    return `Character render for ${fallback.value.displayName}`;
+  }
+  return fallback.value.alt;
+});
+
 const mediaTypeAttr = computed(() => {
   if (showRemoteImage.value) return activeType.value ?? "render";
   return "placeholder";
 });
 
-function onFallbackIconError(): void {
-  fallbackIconFailed.value = true;
+function onOptionalIconError(): void {
+  optionalIconFailed.value = true;
 }
 </script>
 
@@ -80,11 +93,11 @@ function onFallbackIconError(): void {
   >
     <div class="media-panel__frame" :aria-hidden="showRemoteImage ? undefined : 'true'">
       <img
-        v-if="showRemoteImage && activeUrl"
-        :key="`${loadGeneration}:${activeUrl}`"
+        v-if="showRemoteImage && requestUrl"
+        :key="`${loadGeneration}:${requestUrl}`"
         class="media-panel__image"
-        :src="activeUrl"
-        :alt="fallback.alt"
+        :src="requestUrl"
+        :alt="mediaAlt"
         width="320"
         height="427"
         :loading="loadingAttr"
@@ -101,20 +114,23 @@ function onFallbackIconError(): void {
       >
         <div class="media-panel__identity-glow" />
         <div class="media-panel__identity-plate">
-          <img
-            v-if="fallbackIconUrl && !fallbackIconFailed"
-            class="media-panel__identity-icon"
-            :src="fallbackIconUrl"
-            alt=""
-            width="72"
-            height="72"
-            loading="eager"
-            decoding="async"
-            @error="onFallbackIconError"
-          />
-          <div v-else class="media-panel__identity-mark" aria-hidden="true">M+TS</div>
+          <div class="media-panel__identity-badge" aria-hidden="true">
+            <img
+              v-if="showOptionalIcon"
+              class="media-panel__identity-icon"
+              :src="optionalIconUrl!"
+              alt=""
+              width="72"
+              height="72"
+              loading="eager"
+              decoding="async"
+              @error="onOptionalIconError"
+            />
+            <span class="media-panel__identity-initials">{{ fallback.initials }}</span>
+          </div>
           <p class="media-panel__identity-name">{{ fallback.displayName }}</p>
           <p class="media-panel__identity-meta">{{ fallback.caption }}</p>
+          <p v-if="fallback.role" class="media-panel__identity-role">{{ fallback.role }}</p>
         </div>
       </div>
     </div>
@@ -122,7 +138,7 @@ function onFallbackIconError(): void {
       <span class="media-panel__status">{{ statusLabel }}</span>
       <span>{{ fallback.caption }}</span>
     </p>
-    <p v-if="showFallback || variant === 'bare'" class="sr-only">{{ fallback.alt }}</p>
+    <p v-if="showFallback || variant === 'bare'" class="sr-only">{{ mediaAlt }}</p>
   </div>
 </template>
 
@@ -218,7 +234,17 @@ function onFallbackIconError(): void {
   max-width: 14rem;
 }
 
+.media-panel__identity-badge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+}
+
 .media-panel__identity-icon {
+  position: absolute;
+  inset: 0;
   width: 4.5rem;
   height: 4.5rem;
   border-radius: var(--radius-control);
@@ -228,18 +254,29 @@ function onFallbackIconError(): void {
   background: var(--color-obsidian-950);
 }
 
-.media-panel__identity-mark {
+.media-panel__identity-initials {
   display: grid;
   place-items: center;
   width: 4.5rem;
   height: 4.5rem;
   border-radius: var(--radius-control);
-  border: 1px solid color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 45%, transparent);
-  font-family: var(--font-data);
-  font-size: var(--text-sm);
-  letter-spacing: 0.08em;
-  color: var(--color-gold-300);
-  background: var(--color-obsidian-950);
+  border: 1px solid color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 18%, transparent);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 34%, var(--color-obsidian-950)),
+      var(--color-obsidian-950)
+    );
+}
+
+.media-panel__identity-icon + .media-panel__identity-initials {
+  opacity: 0;
 }
 
 .media-panel__identity-name {
@@ -256,6 +293,15 @@ function onFallbackIconError(): void {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--color-text-muted);
+}
+
+.media-panel__identity-role {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--media-class-color, var(--color-gold-300)) 80%, var(--color-text-muted));
 }
 
 .media-panel__caption {

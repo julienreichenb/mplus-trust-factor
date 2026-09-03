@@ -26,6 +26,13 @@ export interface CharacterScoreAwaitOptions {
   /** Current profile ref — updated in place as status/profile arrive. */
   profile: Ref<CharacterProfileView | null>;
   admin?: boolean;
+  /** Restart even if a poll loop for this identity is already active. */
+  force?: boolean;
+  /**
+   * Optional status already obtained (e.g. after admin POST refresh).
+   * When set, skips the initial getRefreshStatus round-trip.
+   */
+  seedStatus?: RefreshStatusResponse;
   onNotice?: (message: string | null) => void;
   onError?: (message: string | null) => void;
 }
@@ -57,7 +64,7 @@ function applyRefreshStatusToProfile(
 }
 
 /**
- * Focused lifecycle for first-time score calculation (and shared refresh polling helpers).
+ * Single authoritative score/refresh polling lifecycle for CharacterPage.
  * Prevents overlapping polls; cleans up on unmount; preserves stale-while-revalidate.
  */
 export function useCharacterScoreAwait() {
@@ -66,12 +73,21 @@ export function useCharacterScoreAwait() {
   const terminalFailure = ref(false);
   let activeIdentityKey: string | null = null;
   let fetchInFlight = false;
+  let pendingProfileFetch: CharacterIdentityInput | null = null;
+  let pollEpoch = 0;
 
   function identityKey(identity: CharacterIdentityInput): string {
     return `${identity.region}:${identity.realmSlug}:${identity.name}`.toLowerCase();
   }
 
   function pollingOptions(admin: boolean) {
+    // Deterministic mock fixture: keep polls short so visual QA can observe transitions.
+    if (import.meta.env.VITE_API_MODE === "mock") {
+      return {
+        intervalMs: 1_000,
+        maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : 60_000,
+      };
+    }
     return {
       intervalMs: admin ? ADMIN_REFRESH_POLL_INTERVAL_MS : NORMAL_REFRESH_POLL_INTERVAL_MS,
       maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : NORMAL_REFRESH_POLL_MAX_MS,
@@ -98,33 +114,78 @@ export function useCharacterScoreAwait() {
   }
 
   async function fetchProfile(identity: CharacterIdentityInput): Promise<CharacterProfileView> {
-    return withBootstrapRepairSignal(await api.getCharacterProfile(identity));
+    // Bust intermediary caches so a newly published score is never masked by a stale GET.
+    return withBootstrapRepairSignal(
+      await api.getCharacterProfile({
+        ...identity,
+      }),
+    );
+  }
+
+  async function applyFetchedProfile(
+    options: CharacterScoreAwaitOptions,
+    key: string,
+    epoch: number,
+    failed: boolean,
+  ): Promise<void> {
+    if (fetchInFlight) {
+      pendingProfileFetch = options.identity;
+      return;
+    }
+    fetchInFlight = true;
+    try {
+      do {
+        pendingProfileFetch = null;
+        const refreshed = await fetchProfile(options.identity);
+        if (activeIdentityKey !== key || epoch !== pollEpoch) return;
+        options.profile.value = refreshed;
+        if (hasPublishedScore(refreshed)) {
+          terminalFailure.value = false;
+          options.onError?.(null);
+        } else if (failed) {
+          terminalFailure.value = true;
+        }
+      } while (
+        pendingProfileFetch &&
+        activeIdentityKey === key &&
+        epoch === pollEpoch &&
+        identityKey(pendingProfileFetch) === key
+      );
+    } finally {
+      fetchInFlight = false;
+    }
   }
 
   async function startAwaiting(options: CharacterScoreAwaitOptions): Promise<void> {
     const key = identityKey(options.identity);
-    // Prevent overlapping polling sessions for the same identity.
-    if (polling.value && activeIdentityKey === key) return;
+    if (polling.value && activeIdentityKey === key && !options.force) return;
 
+    const epoch = ++pollEpoch;
     terminalFailure.value = false;
     activeIdentityKey = key;
+    pendingProfileFetch = null;
     stop();
 
     const current = options.profile.value;
     if (!current) return;
 
     let initialStatus: RefreshStatusResponse;
-    try {
-      initialStatus = await api.getRefreshStatus(options.identity);
-    } catch {
-      initialStatus = {
-        characterId: current.characterId,
-        refreshStatus: current.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
-        job: null,
-        cooldownSecondsRemaining: 0,
-        bootstrapRepairRequired: current.bootstrapRepairRequired === true,
-      };
+    if (options.seedStatus) {
+      initialStatus = options.seedStatus;
+    } else {
+      try {
+        initialStatus = await api.getRefreshStatus(options.identity);
+      } catch {
+        initialStatus = {
+          characterId: current.characterId,
+          refreshStatus: current.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
+          job: null,
+          cooldownSecondsRemaining: 0,
+          bootstrapRepairRequired: current.bootstrapRepairRequired === true,
+        };
+      }
     }
+    if (epoch !== pollEpoch || activeIdentityKey !== key) return;
 
     const reconciled = applyRefreshStatusToProfile(current, initialStatus);
     options.profile.value = reconciled;
@@ -152,15 +213,17 @@ export function useCharacterScoreAwait() {
       return;
     }
 
-    void start({
+    await start({
       identity: options.identity,
       ...pollingOptions(options.admin === true),
       onUpdate: (status) => {
+        if (epoch !== pollEpoch || activeIdentityKey !== key) return;
         lastRefreshStatus.value = status;
         if (!options.profile.value) return;
         options.profile.value = applyRefreshStatusToProfile(options.profile.value, status);
       },
       onComplete: async (status) => {
+        if (epoch !== pollEpoch || activeIdentityKey !== key) return;
         lastRefreshStatus.value = status;
         const failed =
           status.job?.status !== "cancelled" &&
@@ -180,30 +243,19 @@ export function useCharacterScoreAwait() {
           }
         }
 
-        if (fetchInFlight) return;
-        fetchInFlight = true;
-        try {
-          const refreshed = await fetchProfile(options.identity);
-          if (activeIdentityKey !== key) return;
-          options.profile.value = refreshed;
-          if (hasPublishedScore(refreshed)) {
-            terminalFailure.value = false;
-            options.onError?.(null);
-          } else if (failed) {
-            terminalFailure.value = true;
-          }
-          if (
-            status.refreshStatus === "FRESH" ||
-            status.job?.status === "completed" ||
-            status.job?.status === "cancelled"
-          ) {
-            lastRefreshStatus.value = null;
-          }
-        } finally {
-          fetchInFlight = false;
+        await applyFetchedProfile(options, key, epoch, failed);
+        if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+
+        if (
+          status.refreshStatus === "FRESH" ||
+          status.job?.status === "completed" ||
+          status.job?.status === "cancelled"
+        ) {
+          lastRefreshStatus.value = null;
         }
       },
       onTimeout: () => {
+        if (epoch !== pollEpoch || activeIdentityKey !== key) return;
         if (!hasPublishedScore(options.profile.value)) {
           options.onError?.(
             "Score calculation is taking longer than expected. Retry or reopen this profile.",
@@ -215,11 +267,43 @@ export function useCharacterScoreAwait() {
     });
   }
 
+  /**
+   * Public-safe retry: re-read profile + status and restart bounded polling.
+   * Never enqueues provider work (no POST refresh).
+   */
+  async function retryScoreLoad(options: CharacterScoreAwaitOptions): Promise<void> {
+    const key = identityKey(options.identity);
+    const epoch = ++pollEpoch;
+    terminalFailure.value = false;
+    activeIdentityKey = key;
+    pendingProfileFetch = null;
+    stop();
+    options.onError?.(null);
+
+    try {
+      const refreshed = await fetchProfile(options.identity);
+      if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+      options.profile.value = refreshed;
+      if (hasPublishedScore(refreshed) && !isInitialScoreCalculating(refreshed)) {
+        lastRefreshStatus.value = null;
+        return;
+      }
+    } catch (err) {
+      if (epoch !== pollEpoch || activeIdentityKey !== key) return;
+      options.onError?.((err as Error).message || "Failed to reload profile");
+      return;
+    }
+
+    await startAwaiting({ ...options, force: true });
+  }
+
   function stopAwaiting(): void {
+    pollEpoch += 1;
     stop();
     activeIdentityKey = null;
     lastRefreshStatus.value = null;
     fetchInFlight = false;
+    pendingProfileFetch = null;
   }
 
   onBeforeUnmount(stopAwaiting);
@@ -230,15 +314,13 @@ export function useCharacterScoreAwait() {
     lastRefreshStatus,
     terminalFailure,
     startAwaiting,
+    retryScoreLoad,
     stopAwaiting,
     scorePhaseFor,
     showScoreLoadingUi,
     showScoreContent,
     applyRefreshStatusToProfile,
     withBootstrapRepairSignal,
-    /** Low-level refresh polling for manual refresh button (existing behaviour). */
-    startPolling: start,
-    stopPolling: stop,
     pollingOptions,
   };
 }

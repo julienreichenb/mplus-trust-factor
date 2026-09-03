@@ -249,7 +249,7 @@ export function createMockApiClient(): MplusApiClient {
         mockSession.refreshPolls.set(profile.characterId, 0);
       }
       const polls = mockSession.refreshPolls.get(profile.characterId) ?? 0;
-      if (polls >= 2) {
+      if (polls >= 3) {
         const fresh = finalizeDynamicProfile(profile);
         mockSession.dynamicProfiles.set(key, fresh);
         return deepClone(fresh);
@@ -293,7 +293,9 @@ export function createMockApiClient(): MplusApiClient {
       const characterId = fixture?.profile.characterId ?? dynamic?.characterId ?? "unknown";
       const polls = (mockSession.refreshPolls.get(characterId) ?? 0) + 1;
       mockSession.refreshPolls.set(characterId, polls);
-      if (polls < 2) {
+      // Require 3 status reads so CharacterPage can show calculating UI before FRESH
+      // (startAwaiting does an initial status read, then polling starts with an immediate tick).
+      if (polls < 3) {
         return {
           characterId,
           refreshStatus: "IN_PROGRESS",

@@ -300,6 +300,7 @@ describe("character media panel", () => {
     expect(wrapper.attributes("data-media-type")).toBe("placeholder");
     expect(wrapper.text()).toContain("Character identity");
     expect(wrapper.find("[data-testid='character-media-fallback']").exists()).toBe(true);
+    expect(wrapper.find(".media-panel__identity-initials").exists()).toBe(true);
   });
 });
 

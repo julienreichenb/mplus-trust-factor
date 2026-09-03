@@ -28,6 +28,8 @@ function isTerminalJobStatus(status: string | undefined): boolean {
 /**
  * Queued refresh polling — fixed interval, Page Visibility aware.
  * Immediately fetches once on start; never enqueues refresh work.
+ * Continues polling while the tab is hidden so score publication cannot stall
+ * in backgrounded / embedded browsers; resumes immediately on visibility.
  * Clears timers on stop / unmount; does not create duplicate timers.
  * CANCELLED jobs are terminal (same as completed/failed) and stop polling.
  */
@@ -76,17 +78,12 @@ export function useRefreshPolling() {
     const options = activeOptions;
     if (stopped || !options) return;
 
-    if (Date.now() - startedAt > maxDuration) {
+    if (Date.now() - startedAt >= maxDuration) {
       polling.value = false;
       timedOut.value = true;
       clearTimer();
       detachVisibility();
       options.onTimeout?.();
-      return;
-    }
-
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      // Wait until visible; visibility handler resumes with an immediate tick.
       return;
     }
 
@@ -104,7 +101,7 @@ export function useRefreshPolling() {
         polling.value = false;
         clearTimer();
         detachVisibility();
-        options.onComplete(status);
+        await options.onComplete(status);
         return;
       }
     } catch {
@@ -123,8 +120,6 @@ export function useRefreshPolling() {
       if (document.visibilityState === "visible") {
         clearTimer();
         void tick();
-      } else {
-        clearTimer();
       }
     };
     document.addEventListener("visibilitychange", visibilityHandler);

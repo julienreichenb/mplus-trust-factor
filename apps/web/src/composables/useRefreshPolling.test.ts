@@ -242,7 +242,7 @@ describe("useRefreshPolling", () => {
     wrapper.unmount();
   });
 
-  it("pauses while the tab is hidden and resumes with an immediate fetch", async () => {
+  it("keeps polling while the tab is hidden and fetches immediately on resume", async () => {
     let visibility: DocumentVisibilityState = "visible";
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -279,14 +279,99 @@ describe("useRefreshPolling", () => {
 
     visibility = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();
-    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+    // Backgrounded tabs must keep making progress so score publication cannot stall.
+    expect(getRefreshStatus).toHaveBeenCalledTimes(2);
 
     visibility = "visible";
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
+    expect(getRefreshStatus).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
+  it("fetches once immediately even when the tab starts hidden", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "7",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    void pollingApi.start({
+      identity,
+      intervalMs: 5_000,
+      maxDurationMs: 60_000,
+      onUpdate: () => undefined,
+      onComplete: () => undefined,
+    });
+    await flushPromises();
+    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
     expect(getRefreshStatus).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("fires onTimeout while remaining hidden", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "8",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const onTimeout = vi.fn();
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    void pollingApi.start({
+      identity,
+      intervalMs: 1_000,
+      maxDurationMs: 3_000,
+      onUpdate: () => undefined,
+      onComplete: () => undefined,
+      onTimeout,
+    });
+    await flushPromises();
+    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(3_500);
+    await flushPromises();
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+    expect(pollingApi.timedOut.value).toBe(true);
+    expect(pollingApi.polling.value).toBe(false);
     wrapper.unmount();
   });
 

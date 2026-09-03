@@ -7,11 +7,13 @@ import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
 
 const getRefreshStatus = vi.fn();
 const getCharacterProfile = vi.fn();
+const refreshCharacter = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: {
     getRefreshStatus: (...args: unknown[]) => getRefreshStatus(...args),
     getCharacterProfile: (...args: unknown[]) => getCharacterProfile(...args),
+    refreshCharacter: (...args: unknown[]) => refreshCharacter(...args),
   },
 }));
 
@@ -246,5 +248,76 @@ describe("useCharacterScoreAwait", () => {
     await nextTick();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(getRefreshStatus.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("public retryScoreLoad re-reads profile/status and never POSTs refresh", async () => {
+    vi.useFakeTimers();
+    getCharacterProfile.mockResolvedValue(queuedProfile());
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "job-1",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "2026-07-20T12:00:00.000Z",
+          startedAt: "2026-07-20T12:00:01.000Z",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const { api, wrapper, profile } = mountAwaitHarness();
+    api.terminalFailure.value = true;
+    await api.retryScoreLoad({
+      identity: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      profile,
+      force: true,
+    });
+    await flushPromises();
+
+    expect(refreshCharacter).not.toHaveBeenCalled();
+    expect(getCharacterProfile).toHaveBeenCalled();
+    expect(getRefreshStatus).toHaveBeenCalled();
+    expect(api.terminalFailure.value).toBe(false);
+    expect(api.polling.value).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("force restart replaces an active poll loop for the same identity", async () => {
+    vi.useFakeTimers();
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "job-1",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "2026-07-20T12:00:00.000Z",
+          startedAt: "2026-07-20T12:00:01.000Z",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const { api, wrapper, profile } = mountAwaitHarness();
+    await api.startAwaiting({
+      identity: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      profile,
+    });
+    const callsAfterFirst = getRefreshStatus.mock.calls.length;
+    await api.startAwaiting({
+      identity: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      profile,
+      force: true,
+    });
+    await flushPromises();
+    expect(getRefreshStatus.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    expect(api.polling.value).toBe(true);
+    wrapper.unmount();
   });
 });
