@@ -60,6 +60,11 @@ function headerRoutes() {
     { path: "/", name: "home", component: { template: "<div />" } },
     { path: "/compare", name: "compare", component: { template: "<div />" } },
     { path: "/faq", name: "faq", component: { template: "<div />" } },
+    {
+      path: "/tools/exboss-voice-pack",
+      name: "exboss-voice-pack",
+      component: { template: "<div />" },
+    },
     { path: "/account", name: "account", component: { template: "<div />" } },
     { path: "/administrator", name: "administrator", component: { template: "<div />" } },
     { path: "/admin", name: "admin-root", component: { template: "<div />" } },
@@ -280,14 +285,19 @@ describe("AppHeader admin navigation", () => {
     authenticated.value = false;
   });
 
-  it("keeps Home, Compare and FAQ in the primary navbar", async () => {
+  it("keeps Home, Compare, Voice Pack and FAQ in the primary navbar", async () => {
     const { wrapper } = await mountHeader();
     const nav = wrapper.get("nav[aria-label='Primary']");
     expect(nav.text()).toContain("Home");
     expect(nav.text()).toContain("Compare");
+    expect(nav.text()).toContain("Voice Pack");
     expect(nav.text()).toContain("FAQ");
     expect(nav.get('a[href="/"]').text()).toBe("Home");
     expect(nav.get('a[href="/compare"]').text()).toBe("Compare");
+    expect(nav.get("[data-testid='navbar-voice-pack']").text()).toBe("Voice Pack");
+    expect(nav.get('a[href="/tools/exboss-voice-pack"]').attributes("href")).toBe(
+      "/tools/exboss-voice-pack",
+    );
     expect(nav.get('a[href="/faq"]').text()).toBe("FAQ");
     wrapper.unmount();
   });

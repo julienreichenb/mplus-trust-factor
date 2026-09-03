@@ -28,8 +28,8 @@ const visible = computed(() => Boolean(props.title.trim()) || hasBody.value);
     v-if="visible"
     class="banner"
     :data-tone="tone"
-    role="status"
-    aria-live="polite"
+    :role="tone === 'error' ? 'alert' : 'status'"
+    :aria-live="tone === 'error' ? 'assertive' : 'polite'"
     data-testid="status-banner"
   >
     <strong v-if="title">{{ title }}</strong>
