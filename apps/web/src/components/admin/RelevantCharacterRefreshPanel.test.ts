@@ -49,7 +49,7 @@ describe("RelevantCharacterRefreshPanel", () => {
 
   it("loads relevant refresh and saves updated settings", async () => {
     fetchMock.mockReset();
-    fetchMock.mockImplementation(async (url: string, _init?: { method?: string; body?: string }) => {
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
       if (String(url).includes("/api/v1/admin/misc/relevant-refresh")) {
         if (init?.method === "PUT") {
           return jsonResponse({ ...relevantRefreshStatus, relevantRefreshEnabled: true, settingsVersion: 2 });
