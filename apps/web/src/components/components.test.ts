@@ -40,7 +40,6 @@ describe("ScoreHeader", () => {
     expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--xl");
     expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--A");
     expect(wrapper.get(".tier-grade-letter").text()).toBe("A");
-    expect(wrapper.get("[data-testid='confidence']").text()).toContain("78");
     expect(wrapper.find("[data-testid='freshness']").exists()).toBe(false);
     expect(wrapper.find("[data-testid='trust-dimension-radar']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='grade']").exists()).toBe(false);

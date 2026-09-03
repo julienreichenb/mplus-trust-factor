@@ -9,6 +9,7 @@ import {
   EXPERIENCE_PHASE1_ELITE_FLOOR,
   type ExperiencePhase1Result,
 } from "../experience/phase1/calculate.js";
+import { NATIVE_BAND_STANDING_SCORES } from "../experience/phase1/season-population-policy.js";
 import type { PerformancePhase2ComputeResult } from "../performance/phase2/types.js";
 import type {
   SurvivalV2ComputeResult,
@@ -1210,6 +1211,124 @@ describe("Score Explainability V1", () => {
       expect(dim.confidenceStory.reasons.map((r) => r.code)).toEqual([
         "previous_evidence_unavailable",
       ]);
+    });
+
+    function winningHistoricalProofForBand(
+      nativeBand: "p999" | "p990" | "p900" | "p750" | "p600" | "below_p600",
+    ) {
+      const score =
+        (NATIVE_BAND_STANDING_SCORES as Record<string, number>)[nativeBand] ?? 0;
+      const seasonSlug = "test-season";
+      const policySeasonSlug = "test-policy-season";
+      const bandMap: Record<string, string> = {
+        p999: "TOP_0_1_OR_BETTER",
+        p990: "TOP_1",
+        p900: "TOP_10",
+        p750: "TOP_25",
+        p600: "TOP_40",
+        below_p600: "BELOW_TOP_40",
+      };
+      return {
+        seasonId: "season-1",
+        seasonSlug,
+        blizzardSeasonId: 1,
+        rating: 200,
+        nativeBand,
+        standingScore: score,
+        standing: {
+          rating: 200,
+          nativeBand,
+          standingScore: score,
+          band: bandMap[nativeBand] ?? "TOP_10",
+          estimatedTopPercent: null,
+          method: "NATIVE_BAND",
+          betterAnchor: null,
+          worseAnchor: null,
+          thresholdsUsed: [],
+          policyVersion: "v1",
+          region: "US",
+          seasonSlug,
+        },
+        thresholdsUsed: [],
+        populationPolicyVersion: "v1",
+        region: "US",
+        policySeasonSlug,
+      };
+    }
+
+    it("maps p999 (Top 0.1%) to VERY GOOD historical standing", () => {
+      const band = "p999" as const;
+      const score = NATIVE_BAND_STANDING_SCORES.p999;
+
+      const built = buildScoreExplainabilityV1({
+        performance: null,
+        survival: null,
+        utility: null,
+        experience: experienceFixture({
+          score,
+          historicalStandingScore: score,
+          previousStandingScore: score,
+          winningHistoricalProof: winningHistoricalProofForBand(band),
+        }),
+        composite: null,
+      });
+
+      const dim = projectScoreExplainabilityPublic(built).dimensions.EXPERIENCE;
+      const driver = dim.scoreDrivers.find(
+        (d) => d.code === "experience.historical_standing",
+      );
+      expect(driver?.qualitativeLabel).toBe("VERY GOOD");
+      expect(driver?.label).toContain("top 0.1%");
+    });
+
+    it("maps p990 (Top 1%) to GOOD historical standing", () => {
+      const band = "p990" as const;
+      const score = NATIVE_BAND_STANDING_SCORES.p990;
+
+      const built = buildScoreExplainabilityV1({
+        performance: null,
+        survival: null,
+        utility: null,
+        experience: experienceFixture({
+          score,
+          historicalStandingScore: score,
+          previousStandingScore: score,
+          winningHistoricalProof: winningHistoricalProofForBand(band),
+        }),
+        composite: null,
+      });
+
+      const dim = projectScoreExplainabilityPublic(built).dimensions.EXPERIENCE;
+      const driver = dim.scoreDrivers.find(
+        (d) => d.code === "experience.historical_standing",
+      );
+      expect(driver?.qualitativeLabel).toBe("GOOD");
+      expect(driver?.label).toContain("top 1%");
+    });
+
+    it("maps p900 (Top 10%) to BAD historical standing", () => {
+      const band = "p900" as const;
+      const score = NATIVE_BAND_STANDING_SCORES.p900;
+
+      const built = buildScoreExplainabilityV1({
+        performance: null,
+        survival: null,
+        utility: null,
+        experience: experienceFixture({
+          score,
+          historicalStandingScore: score,
+          previousStandingScore: score,
+          winningHistoricalProof: winningHistoricalProofForBand(band),
+        }),
+        composite: null,
+      });
+
+      const dim = projectScoreExplainabilityPublic(built).dimensions.EXPERIENCE;
+      const driver = dim.scoreDrivers.find(
+        (d) => d.code === "experience.historical_standing",
+      );
+      expect(driver?.qualitativeLabel).toBe("BAD");
+      expect(driver?.label).toContain("top 10%");
     });
   });
 

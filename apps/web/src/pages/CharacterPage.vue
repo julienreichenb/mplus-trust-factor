@@ -17,6 +17,7 @@ import CharacterScoreLoadingPanel from "../components/character/CharacterScoreLo
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import BoostSuspicionSection from "../components/profile/BoostSuspicionSection.vue";
+import ScoreHistorySection from "../components/profile/ScoreHistorySection.vue";
 import BoostSuspicionAlertDialog from "../components/profile/BoostSuspicionAlertDialog.vue";
 import RunDetailsDrawer from "../components/profile/RunDetailsDrawer.vue";
 import type { RunDrawerModel } from "../components/profile/RunDetailsDrawer.vue";
@@ -539,6 +540,23 @@ watch(
         />
       </div>
 
+      <details
+        v-if="showScoreContent(profile)"
+        class="character-page__boost-disclosure"
+        data-testid="boost-suspicion-collapse"
+      >
+        <summary>Boost suspicion</summary>
+        <BoostSuspicionSection
+          :assessment="profile.boostAssessment ?? null"
+          :locked="!entitlements.detailsUnlocked"
+        />
+      </details>
+
+      <ScoreHistorySection
+        v-if="showScoreContent(profile)"
+        :identity="currentIdentity()"
+      />
+
       <DimensionCards
         v-if="showScoreContent(profile) && profile.score"
         :dimensions="visibleDimensions"
@@ -552,12 +570,6 @@ watch(
         :boost-run-evidence="profile.boostAssessment?.runEvidence"
         :runs-locked="!entitlements.runsUnlocked"
         @open-run="selectedDrawerRun = $event"
-      />
-
-      <BoostSuspicionSection
-        v-if="showScoreContent(profile)"
-        :assessment="profile.boostAssessment ?? null"
-        :locked="!entitlements.detailsUnlocked"
       />
 
       <MethodologyPanel v-if="showScoreContent(profile)" :profile="profile" />

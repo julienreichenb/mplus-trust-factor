@@ -24,7 +24,7 @@ const dims: DimensionScoreDTO[] = [
         {
           code: "performance.offensive_cooldown_discipline",
           labelKey: "score.performance.offensive_cooldown_discipline",
-          label: "Offensive cooldown discipline below neutral",
+          label: "Offensive uptime below neutral",
           direction: "NEGATIVE",
           value: 42,
         },
@@ -131,19 +131,51 @@ describe("DimensionCards explainability", () => {
     expect(wrapper.find('[data-testid="dimension-cards"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain("What affects your score");
     expect(wrapper.text()).toContain("Strong Phase 1 performance");
-    expect(wrapper.text()).toContain("Offensive cooldown discipline below neutral");
+    expect(wrapper.text()).toContain("Offensive uptime below neutral");
     expect(wrapper.text()).toContain("No strategic CC observed");
     expect(wrapper.text()).toContain("Previous-season activity: none confirmed");
     expect(wrapper.text()).not.toContain("Full confidence");
     expect(wrapper.text()).not.toContain("Why confidence is");
-    expect(wrapper.text()).toContain("Incomplete cooldown evidence coverage");
-    expect(wrapper.text()).toContain("Some health evidence is incomplete");
+    expect(wrapper.text()).not.toContain("Incomplete cooldown evidence coverage");
+    expect(wrapper.text()).not.toContain("Some health evidence is incomplete");
 
     const cards = wrapper.findAll("article.card");
     const experience = cards.find((c) => c.text().includes("Experience"));
     expect(experience?.text()).not.toMatch(/Facts \/ context/i);
     expect(experience?.text()).toMatch(/none confirmed/i);
     expect(experience?.text()).not.toMatch(/Weaknesses[\s\S]*none confirmed/i);
+  });
+
+  it("does not render confidence explanations inside unavailable dimension cards", () => {
+    const wrapper = mount(DimensionCards, {
+      props: {
+        modelVersion: 3,
+        dimensions: [
+          {
+            dimension: "PERFORMANCE",
+            score: null,
+            confidence: 0.4,
+            weight: 0.35,
+            state: "UNAVAILABLE",
+            reason: null,
+            contributors: null,
+            explainability: {
+              scoreDrivers: [],
+              confidenceReasons: [
+                {
+                  code: "cooldown_evidence_unavailable",
+                  labelKey: "confidence.performance.cooldown_evidence_unavailable",
+                  label: "Offensive uptime evidence unavailable",
+                },
+              ],
+            },
+          },
+        ] as unknown as DimensionScoreDTO[],
+      },
+    });
+
+    expect(wrapper.text()).toContain("Performance");
+    expect(wrapper.text()).not.toContain("Offensive uptime evidence unavailable");
   });
 
   it("shows legacy fallback when explainability is missing", () => {

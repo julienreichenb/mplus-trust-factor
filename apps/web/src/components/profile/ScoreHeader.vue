@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { CharacterProfileView } from "../../api/types";
-import { humanizeSlug, presentGrade, resolveDataConfidence } from "../../lib/characterViewModel";
-import { filterDimensionsForModel, formatPercent, formatScore } from "../../lib/format";
+import { humanizeSlug, presentGrade } from "../../lib/characterViewModel";
+import { filterDimensionsForModel, formatScore } from "../../lib/format";
 import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
 import { gradeThemeCssVars } from "../../lib/gradeTheme";
 import { classColor } from "../../lib/wowClass";
 import TierGradeLetter from "../brand/TierGradeLetter.vue";
-import MetaChip from "../common/MetaChip.vue";
 import TrustRadarChart from "../charts/TrustRadarChart.vue";
 import HeroInsightAccordion from "./HeroInsightAccordion.vue";
 import ActiveRerolls from "../character/ActiveRerolls.vue";
@@ -26,7 +25,6 @@ const emit = defineEmits<{
 }>();
 
 const grade = computed(() => presentGrade(props.profile.score?.grade));
-const confidence = computed(() => resolveDataConfidence(props.profile));
 const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
 const visibleDimensions = computed(() =>
   filterDimensionsForModel(
@@ -36,21 +34,6 @@ const visibleDimensions = computed(() =>
 );
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const accentColor = computed(() => gradeThemeCssVars(props.profile.score?.grade)["--color-brand"]);
-
-const calculatedLabel = computed(() => {
-  const at = props.profile.score?.calculatedAt;
-  return at ? new Date(at).toLocaleString() : "Unavailable";
-});
-
-const modelLabel = computed(() => {
-  const key = props.profile.score?.modelKey ?? "—";
-  const version = props.profile.score?.modelVersion ?? "—";
-  return `${key} v${version}`;
-});
-
-const confidenceLabel = computed(() =>
-  confidence.value == null ? "Unavailable" : formatPercent(confidence.value, 0),
-);
 
 const partialDimensionsNote = computed(() => {
   const dims = props.profile.score?.dimensions ?? [];
@@ -100,14 +83,18 @@ function factorChipKind(factor: number | null): "bonus" | "malus" | "neutral" {
   return factor > 1 ? "bonus" : "malus";
 }
 
-function factorChipLabel(kind: "Key level" | "Meta", factor: number | null): string {
+function factorChipLabel(kind: "Key" | "Meta", factor: number | null): string {
   const formatted = factor != null ? factor.toFixed(2) : "1.00";
   return `${kind} ×${formatted}`;
 }
 
 const rawBarOpen = ref(false);
 
-const rawBarToggleLabel = computed(() => (rawBarOpen.value ? "Hide raw score" : "Show raw score"));
+const rawBarToggleLabel = computed(() =>
+  rawBarOpen.value
+    ? "Hide score before key level and meta adjustments"
+    : "Show score before key level and meta adjustments",
+);
 
 function toggleRawBar(): void {
   rawBarOpen.value = !rawBarOpen.value;
@@ -145,6 +132,7 @@ const gradeAriaLabel = computed(() => {
                 }}</span>
                 <span class="trust__scale">/ 100</span>
               </div>
+              <span class="trust__score-caption">Final Trust Score</span>
             </div>
           </div>
           <div
@@ -197,7 +185,7 @@ const gradeAriaLabel = computed(() => {
                   :data-kind="factorChipKind(keyFactor)"
                   data-testid="key-context-chip"
                 >
-                  {{ factorChipLabel("Key level", keyFactor) }}
+                  {{ factorChipLabel("Key", keyFactor) }}
                 </span>
                 <span
                   class="trust__context-chip"
@@ -226,17 +214,6 @@ const gradeAriaLabel = computed(() => {
           :locked="detailsLocked"
           :accent-color="accentColor"
         />
-
-        <div class="trust__stats" role="list" aria-label="Score metadata">
-          <MetaChip
-            role="listitem"
-            label="Confidence"
-            :value="confidenceLabel"
-            data-testid="confidence"
-          />
-          <MetaChip role="listitem" label="Model" :value="modelLabel" value-class="mpts-data" />
-          <MetaChip role="listitem" label="Calculated" :value="calculatedLabel" />
-        </div>
         <p
           v-if="partialDimensionsNote"
           class="trust__partial-note"
@@ -748,13 +725,6 @@ const gradeAriaLabel = computed(() => {
 
 .trust__context-chip[data-kind="neutral"] {
   color: var(--color-text-muted);
-}
-
-.trust__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: 0;
 }
 
 .trust__partial-note {

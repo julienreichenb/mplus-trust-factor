@@ -1,5 +1,6 @@
 import {
   presentQualitativeScoreLabel,
+  type QualitativeScoreLabel,
   type DimensionExplainabilityV1,
   type PublicDimensionExplainabilityV1,
   type PublicScoreExplainabilityV1,
@@ -62,7 +63,19 @@ export function projectDimensionExplainabilityPublic(
       label: driver.label,
       direction: driver.direction,
       value: driver.value,
-      qualitativeLabel: presentQualitativeScoreLabel(driver.value),
+      qualitativeLabel: (() => {
+        // Experience historical standing is a percentile-banded display, not a 0–100
+        // component-score cut mapping.
+        if (
+          driver.code === "experience.historical_standing" ||
+          driver.code === "experience.previous_standing"
+        ) {
+          const nativeBand = driver.params?.nativeBand as string | null | undefined;
+          const mapped = qualitativeFromExperienceHistoricalStanding(nativeBand);
+          return mapped ?? presentQualitativeScoreLabel(driver.value);
+        }
+        return presentQualitativeScoreLabel(driver.value);
+      })(),
     }));
 
   const confidenceReasons = dimension.confidenceStory.reasons
@@ -74,6 +87,25 @@ export function projectDimensionExplainabilityPublic(
     }));
 
   return { scoreDrivers, confidenceReasons };
+}
+
+function qualitativeFromExperienceHistoricalStanding(
+  nativeBand: string | null | undefined,
+): QualitativeScoreLabel | null {
+  switch (nativeBand) {
+    case "p999":
+      return "VERY GOOD";
+    case "p990":
+      return "GOOD";
+    case "p900":
+      return "BAD";
+    case "p750":
+    case "p600":
+    case "below_p600":
+      return "VERY BAD";
+    default:
+      return null;
+  }
 }
 
 /** Audit projection keeps the full canonical object (already evidence-bounded). */
