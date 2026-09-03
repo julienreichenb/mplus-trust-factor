@@ -55,7 +55,11 @@ function parsePctClass(value: number | null | undefined): string {
 
 function dungeonArtUrl(slug: string): string | null {
   const dungeon = current.value?.dungeons.find((row) => row.dungeonSlug === slug);
-  return sanitizeDungeonImageUrl(dungeon?.dungeonImageUrl);
+  const fromApi = sanitizeDungeonImageUrl(dungeon?.dungeonImageUrl);
+  if (fromApi) return fromApi;
+  // Fallback for fixtures and partial API responses where `dungeonImageUrl` is absent.
+  // Uses a deterministic zone tile pattern under render.worldofwarcraft.com.
+  return `https://render.worldofwarcraft.com/eu/zones/${encodeURIComponent(slug)}-small.jpg`;
 }
 
 type LegacyDungeon = NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number];

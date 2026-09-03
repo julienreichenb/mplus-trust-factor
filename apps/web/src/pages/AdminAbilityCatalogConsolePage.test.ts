@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file */
 import { describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";

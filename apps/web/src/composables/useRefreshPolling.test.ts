@@ -3,6 +3,7 @@ import { defineComponent, nextTick } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 import {
   ADMIN_REFRESH_POLL_INTERVAL_MS,
+  FIRST_SCORE_POLL_INTERVAL_MS,
   NORMAL_REFRESH_POLL_INTERVAL_MS,
   useRefreshPolling,
 } from "./useRefreshPolling";
@@ -37,17 +38,18 @@ function mountPollingHarness() {
     },
   });
   const wrapper = mount(Comp);
-  return { wrapper, get api() { return apiHandle!; } };
+  return {
+    wrapper,
+    get api() {
+      return apiHandle!;
+    },
+  };
 }
 
 describe("useRefreshPolling", () => {
   beforeEach(() => {
     vi.mocked(api.getRefreshStatus).mockReset();
     vi.useFakeTimers();
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "visible",
-    });
   });
 
   afterEach(() => {
@@ -165,6 +167,45 @@ describe("useRefreshPolling", () => {
     wrapper.unmount();
   });
 
+  it("supports maxDurationMs null with no total timeout", async () => {
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "no-timeout",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const onTimeout = vi.fn();
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    void pollingApi.start({
+      identity,
+      intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
+      maxDurationMs: null,
+      onUpdate: () => undefined,
+      onComplete: () => undefined,
+      onTimeout,
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(31 * 60_000);
+    await flushPromises();
+
+    expect(pollingApi.polling.value).toBe(true);
+    expect(pollingApi.timedOut.value).toBe(false);
+    expect(onTimeout).not.toHaveBeenCalled();
+    expect(getRefreshStatus.mock.calls.length).toBeGreaterThan(1);
+    wrapper.unmount();
+  });
+
   it("stops on cancelled job status without treating it as active", async () => {
     const getRefreshStatus = vi.mocked(api.getRefreshStatus);
     getRefreshStatus.mockResolvedValue(
@@ -201,7 +242,7 @@ describe("useRefreshPolling", () => {
     wrapper.unmount();
   });
 
-  it("uses a 60s interval for normal users and fetches immediately on start", async () => {
+  it("uses a 60s interval for background refresh and fetches immediately on start", async () => {
     const getRefreshStatus = vi.mocked(api.getRefreshStatus);
     getRefreshStatus.mockResolvedValue(
       status({
@@ -238,15 +279,15 @@ describe("useRefreshPolling", () => {
     await flushPromises();
     expect(getRefreshStatus).toHaveBeenCalledTimes(2);
     expect(NORMAL_REFRESH_POLL_INTERVAL_MS).toBe(60_000);
-    expect(ADMIN_REFRESH_POLL_INTERVAL_MS).toBeLessThan(NORMAL_REFRESH_POLL_INTERVAL_MS);
+    expect(FIRST_SCORE_POLL_INTERVAL_MS).toBe(5_000);
+    expect(ADMIN_REFRESH_POLL_INTERVAL_MS).toBe(5_000);
     wrapper.unmount();
   });
 
-  it("pauses while the tab is hidden and resumes with an immediate fetch", async () => {
-    let visibility: DocumentVisibilityState = "visible";
+  it("continues polling while the tab is hidden", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
-      get: () => visibility,
+      get: () => "hidden",
     });
 
     const getRefreshStatus = vi.mocked(api.getRefreshStatus);
@@ -277,16 +318,64 @@ describe("useRefreshPolling", () => {
     await flushPromises();
     expect(getRefreshStatus).toHaveBeenCalledTimes(1);
 
-    visibility = "hidden";
-    document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(20_000);
-    await flushPromises();
-    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
-
-    visibility = "visible";
-    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();
     expect(getRefreshStatus).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("does not start a second concurrent status request while one is in flight", async () => {
+    let resolveStatus: ((value: RefreshStatusResponse) => void) | null = null;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockImplementation(
+      () =>
+        new Promise<RefreshStatusResponse>((resolve) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          resolveStatus = (value) => {
+            inFlight -= 1;
+            resolve(value);
+          };
+        }),
+    );
+
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    void pollingApi.start({
+      identity,
+      intervalMs: 1_000,
+      maxDurationMs: 60_000,
+      onUpdate: () => undefined,
+      onComplete: () => undefined,
+    });
+    await flushPromises();
+    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+    expect(inFlight).toBe(1);
+
+    // A scheduled tick while the deferred request is open must coalesce, not overlap.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+    expect(maxInFlight).toBe(1);
+
+    resolveStatus!(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "overlap",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(maxInFlight).toBe(1);
     wrapper.unmount();
   });
 
@@ -374,7 +463,6 @@ describe("useRefreshPolling", () => {
     await done;
 
     expect(getRefreshStatus.mock.calls.length).toBeGreaterThanOrEqual(1);
-    // Composable only imports getRefreshStatus from the API client.
     expect(Object.keys(api)).toEqual(["getRefreshStatus"]);
     wrapper.unmount();
   });

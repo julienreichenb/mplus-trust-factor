@@ -481,9 +481,9 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         ],
       },
       media: {
-        avatarUrl: null,
-        insetUrl: null,
-        mainRawUrl: null,
+        avatarUrl: "https://render.worldofwarcraft.com/eu/characters/avatar.jpg",
+        insetUrl: "https://render.worldofwarcraft.com/eu/characters/inset.jpg",
+        mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw.jpg",
       },
       talents: {
         specializationSlug: "fire",
@@ -711,9 +711,9 @@ export function createDynamicQueuedProfile(identity: CharacterIdentityInput): Ch
     highestAnalyzedRunId: null,
     sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
     refreshStatus: "QUEUED",
-    classSlug: null,
-    specSlug: null,
-    role: null,
+    classSlug: "mage",
+    specSlug: "fire",
+    role: "DPS",
     entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
     warnings: [
       {
@@ -723,6 +723,11 @@ export function createDynamicQueuedProfile(identity: CharacterIdentityInput): Ch
       },
     ],
     scoringRunSelection: null,
+    media: {
+      avatarUrl: "https://render.worldofwarcraft.com/eu/characters/avatar-fail.jpg",
+      insetUrl: "https://render.worldofwarcraft.com/eu/characters/inset-fail.jpg",
+      mainRawUrl: "https://render.worldofwarcraft.com/eu/characters/main-raw-fail.jpg",
+    },
   };
 }
 

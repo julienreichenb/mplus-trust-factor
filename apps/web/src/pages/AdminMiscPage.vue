@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import type {
   AdminRealmSyncResult,
-  AdminRelevantRefreshSettingsDTO,
   RegionCode,
   ScoringSeasonSelectionStatusDTO,
 } from "@mplus/contracts";
@@ -13,10 +12,6 @@ import StatusBanner from "../components/common/StatusBanner.vue";
 import AdminSelect from "../components/admin/AdminSelect.vue";
 import { formatScoringSeasonLabel } from "../lib/scoringSeasonLabel";
 import { ADMIN_SCORING_DEFAULT_REGION } from "../lib/adminScoringRegion";
-import {
-  formatTopPercentLabel,
-  topPercentToPercentileBps,
-} from "../lib/relevantPopulationPercentile";
 
 const router = useRouter();
 
@@ -29,10 +24,6 @@ type BusyAction =
   | "scoringSeasonLoad"
   | "scoringSeasonSave"
   | "scoringSeasonSync"
-  | "relevantRefreshLoad"
-  | "relevantRefreshSave"
-  | "relevantDiscoveryRun"
-  | "relevantDrainRun"
   | null;
 
 interface SeasonSyncResultRow {
@@ -58,14 +49,6 @@ const seasonResults = ref<SeasonSyncResultRow[]>([]);
 const scoringSeasonStatus = ref<ScoringSeasonSelectionStatusDTO | null>(null);
 const draftMode = ref<"AUTO" | "PINNED">("AUTO");
 const draftPinnedBlizzardSeasonId = ref<number | null>(null);
-
-const relevantRefresh = ref<AdminRelevantRefreshSettingsDTO | null>(null);
-const draftRelevantEnabled = ref(false);
-const draftParallelEnabled = ref(false);
-const draftConcurrency = ref(2);
-const draftCandidateTarget = ref(500);
-const draftTopPercent = ref(10);
-const draftDrainSeconds = ref(300);
 
 const bannerText = computed(() => error.value || message.value || "");
 const bannerTone = computed(() => (error.value ? "error" : "success"));
@@ -95,30 +78,6 @@ const pinnedWarning = computed(() => {
   if (pinned == null || detected == null) return null;
   return `Scoring is pinned to Season ${pinned} while Blizzard currently reports Season ${detected}.`;
 });
-
-const drainMinutesLabel = computed(() => {
-  const seconds = draftDrainSeconds.value;
-  if (!Number.isFinite(seconds)) return "—";
-  if (seconds % 60 === 0) return `${seconds / 60} min`;
-  return `${seconds} s`;
-});
-
-const killSwitchLabel = computed(() => {
-  if (!relevantRefresh.value) return null;
-  return relevantRefresh.value.killSwitchActive
-    ? "Infrastructure kill switch: ACTIVE — automatic relevant refresh is forced off"
-    : "Infrastructure kill switch: inactive";
-});
-
-function applyRelevantRefresh(settings: AdminRelevantRefreshSettingsDTO): void {
-  relevantRefresh.value = settings;
-  draftRelevantEnabled.value = settings.relevantRefreshEnabled;
-  draftParallelEnabled.value = settings.refreshConcurrencyEnabled;
-  draftConcurrency.value = settings.concurrencyOperation;
-  draftCandidateTarget.value = settings.relevantCandidateTarget;
-  draftTopPercent.value = settings.relevantPopulationTopPercent;
-  draftDrainSeconds.value = settings.wclPreResetDrainSeconds;
-}
 
 function handleAuthError(err: unknown): boolean {
   if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
@@ -263,108 +222,6 @@ async function synchronizeSeasonData(): Promise<void> {
   }
 }
 
-async function loadRelevantRefresh(): Promise<void> {
-  busyAction.value = "relevantRefreshLoad";
-  error.value = null;
-  try {
-    const body = await fetchJson<AdminRelevantRefreshSettingsDTO>(
-      "/api/v1/admin/misc/relevant-refresh",
-    );
-    applyRelevantRefresh(body);
-  } catch (err) {
-    if (!handleAuthError(err)) error.value = (err as Error).message;
-  } finally {
-    busyAction.value = null;
-  }
-}
-
-async function saveRelevantRefresh(): Promise<void> {
-  if (anyBusy.value || !relevantRefresh.value) return;
-  const topPercent = Number(draftTopPercent.value);
-  const bps = topPercentToPercentileBps(topPercent);
-  if (!Number.isFinite(topPercent) || topPercent <= 0 || topPercent >= 100) {
-    error.value = "Relevant population must be a Top % between 0 and 100 (exclusive).";
-    return;
-  }
-  if (bps < 1 || bps > 10_000) {
-    error.value = "Relevant population percentile is out of range.";
-    return;
-  }
-  const concurrency = Number(draftConcurrency.value);
-  const hardMax = relevantRefresh.value.concurrencyHardMax;
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > hardMax) {
-    error.value = `Concurrent character refreshes must be an integer from 1 to ${hardMax}.`;
-    return;
-  }
-  const target = Number(draftCandidateTarget.value);
-  if (!Number.isInteger(target) || target < 1 || target > 10_000) {
-    error.value = "Candidates per discovery run must be an integer from 1 to 10000.";
-    return;
-  }
-  const drain = Number(draftDrainSeconds.value);
-  if (!Number.isInteger(drain) || drain < 0 || drain > 3600) {
-    error.value = "Pre-reset drain window must be an integer from 0 to 3600 seconds.";
-    return;
-  }
-
-  busyAction.value = "relevantRefreshSave";
-  error.value = null;
-  message.value = null;
-  try {
-    const body = await fetchJson<AdminRelevantRefreshSettingsDTO>(
-      "/api/v1/admin/misc/relevant-refresh",
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          relevantRefreshEnabled: draftRelevantEnabled.value,
-          refreshConcurrencyEnabled: draftParallelEnabled.value,
-          concurrencyOperation: concurrency,
-          relevantCandidateTarget: target,
-          relevantCandidatePercentileBps: bps,
-          wclPreResetDrainSeconds: drain,
-          expectedVersion: relevantRefresh.value.settingsVersion,
-        }),
-      },
-    );
-    applyRelevantRefresh(body);
-    message.value = "Relevant character refresh settings saved.";
-  } catch (err) {
-    if (!handleAuthError(err)) error.value = (err as Error).message;
-  } finally {
-    busyAction.value = null;
-  }
-}
-
-async function runRelevantDiscovery(mode: "daily_discovery" | "drain_feed"): Promise<void> {
-  if (anyBusy.value) return;
-  busyAction.value = mode === "drain_feed" ? "relevantDrainRun" : "relevantDiscoveryRun";
-  error.value = null;
-  message.value = null;
-  try {
-    const regionCode = selectedRegions.value[0] ?? ADMIN_SCORING_DEFAULT_REGION;
-    const body = await fetchJson<{
-      jobId: string;
-      dedupeKey: string;
-      reused: boolean;
-      enqueued: boolean;
-      mode: string;
-      regionCode: string;
-    }>("/api/v1/admin/misc/relevant-refresh/run", {
-      method: "POST",
-      body: JSON.stringify({ regionCode, mode }),
-    });
-    const status = body.reused ? "reused existing job" : body.enqueued ? "queued" : "accepted";
-    message.value =
-      mode === "drain_feed"
-        ? `WCL drain check ${status} (${body.regionCode}) · job ${body.jobId}`
-        : `Relevant discovery ${status} (${body.regionCode}) · job ${body.jobId}`;
-  } catch (err) {
-    if (!handleAuthError(err)) error.value = (err as Error).message;
-  } finally {
-    busyAction.value = null;
-  }
-}
-
 async function postSeasonJson(body: unknown): Promise<{ ok?: boolean; results?: SeasonSyncResultRow[] }> {
   return fetchJson("/api/v1/admin/misc/season/sync-authority", {
     method: "POST",
@@ -421,7 +278,6 @@ async function syncSeasonAuthority(): Promise<void> {
 
 onMounted(() => {
   void loadScoringSeason();
-  void loadRelevantRefresh();
 });
 </script>
 
@@ -501,7 +357,12 @@ onMounted(() => {
           <div>
             <dt>Identity</dt>
             <dd data-testid="season-data-identity">
-              {{ scoringSeasonStatus.seasonData.identityReady ? "Ready" : "Missing" }}
+              <span
+                class="state-chip"
+                :class="scoringSeasonStatus.seasonData.identityReady ? 'state-chip--success' : 'state-chip--danger'"
+              >
+                {{ scoringSeasonStatus.seasonData.identityReady ? "Ready" : "Missing" }}
+              </span>
             </dd>
           </div>
           <div>
@@ -515,7 +376,12 @@ onMounted(() => {
           <div>
             <dt>WCL bindings</dt>
             <dd data-testid="season-data-wcl">
-              {{ scoringSeasonStatus.seasonData.catalogReady ? "Ready" : "Not ready" }}
+              <span
+                class="state-chip"
+                :class="scoringSeasonStatus.seasonData.catalogReady ? 'state-chip--success' : 'state-chip--warning'"
+              >
+                {{ scoringSeasonStatus.seasonData.catalogReady ? "Ready" : "Not ready" }}
+              </span>
               <template v-if="scoringSeasonStatus.seasonData.wclZoneId != null">
                 (zone {{ scoringSeasonStatus.seasonData.wclZoneId }})
               </template>
@@ -524,7 +390,18 @@ onMounted(() => {
           <div>
             <dt>Median-key distribution</dt>
             <dd data-testid="season-data-distribution">
-              {{ scoringSeasonStatus.seasonData.medianKeyDistribution?.status ?? "Missing" }}
+              <span
+                class="state-chip"
+                :class="
+                  scoringSeasonStatus.seasonData.medianKeyDistribution?.status === 'Ready'
+                    ? 'state-chip--success'
+                    : scoringSeasonStatus.seasonData.medianKeyDistribution?.status === 'Missing'
+                      ? 'state-chip--danger'
+                      : 'state-chip--warning'
+                "
+              >
+                {{ scoringSeasonStatus.seasonData.medianKeyDistribution?.status ?? "Missing" }}
+              </span>
             </dd>
           </div>
         </dl>
@@ -554,169 +431,6 @@ onMounted(() => {
           @click="synchronizeSeasonData"
         >
           {{ busyAction === "scoringSeasonSync" ? "Synchronizing…" : "Synchronize season data" }}
-        </button>
-      </div>
-    </article>
-
-    <article class="tool-row" data-testid="relevant-refresh-tool">
-      <div class="tool-row__copy">
-        <h2>Relevant character refresh</h2>
-        <p class="muted">
-          Operational controls for discovering and refreshing high-value Mythic+ characters.
-          Settings apply at runtime through RuntimeSettings — no redeploy required.
-        </p>
-        <dl v-if="relevantRefresh" class="scoring-season-grid" data-testid="relevant-refresh-status">
-          <div>
-            <dt>Environment</dt>
-            <dd data-testid="relevant-refresh-app-env">{{ relevantRefresh.appEnv }}</dd>
-          </div>
-          <div>
-            <dt>Automatic scheduling</dt>
-            <dd data-testid="relevant-refresh-scheduling">
-              {{
-                relevantRefresh.automaticSchedulingActive
-                  ? "Active on this environment"
-                  : "Disabled in local development (manual Run Now still works)"
-              }}
-            </dd>
-          </div>
-          <div>
-            <dt>Kill switch</dt>
-            <dd data-testid="relevant-refresh-kill-switch">{{ killSwitchLabel }}</dd>
-          </div>
-          <div>
-            <dt>Summary</dt>
-            <dd data-testid="relevant-refresh-summary">
-              Automatic:
-              {{ draftRelevantEnabled ? "Enabled" : "Disabled" }}
-              · Parallel: {{ draftParallelEnabled ? "Enabled" : "Disabled" }}
-              · Concurrency: {{ draftConcurrency }}
-              · Candidates: {{ draftCandidateTarget }}
-              · Population: {{ formatTopPercentLabel(topPercentToPercentileBps(Number(draftTopPercent))) }}
-              · Drain: {{ drainMinutesLabel }}
-            </dd>
-          </div>
-        </dl>
-
-        <div v-if="relevantRefresh" class="relevant-refresh-form" data-testid="relevant-refresh-form">
-          <label class="admin-checkbox">
-            <input
-              v-model="draftRelevantEnabled"
-              type="checkbox"
-              data-testid="relevant-refresh-enabled"
-              :disabled="anyBusy || relevantRefresh.killSwitchActive"
-            />
-            <span>Automatic relevant-character refresh</span>
-          </label>
-          <p class="field-help">
-            Automatically discovers and queues high-value Mythic+ characters on deployed
-            environments. Local development never schedules automatically, even when this toggle
-            is on.
-          </p>
-
-          <label class="admin-checkbox">
-            <input
-              v-model="draftParallelEnabled"
-              type="checkbox"
-              data-testid="refresh-concurrency-enabled"
-              :disabled="anyBusy"
-            />
-            <span>Parallel character refresh</span>
-          </label>
-
-          <label class="field">
-            <span>Concurrent character refreshes</span>
-            <input
-              v-model.number="draftConcurrency"
-              type="number"
-              min="1"
-              :max="relevantRefresh.concurrencyHardMax"
-              step="1"
-              data-testid="concurrency-operation"
-              :disabled="anyBusy"
-            />
-            <span class="field-help">Hard maximum: {{ relevantRefresh.concurrencyHardMax }}</span>
-          </label>
-
-          <label class="field">
-            <span>Candidates per discovery run</span>
-            <input
-              v-model.number="draftCandidateTarget"
-              type="number"
-              min="1"
-              max="10000"
-              step="1"
-              data-testid="relevant-candidate-target"
-              :disabled="anyBusy"
-            />
-          </label>
-
-          <label class="field">
-            <span>Relevant population (Top %)</span>
-            <input
-              v-model.number="draftTopPercent"
-              type="number"
-              min="0.01"
-              max="99.99"
-              step="0.01"
-              data-testid="relevant-population-top-percent"
-              :disabled="anyBusy"
-            />
-            <span class="field-help">
-              Example: 10 = Top 10% (9000 bps). Stored as
-              {{ topPercentToPercentileBps(Number(draftTopPercent)) }} bps.
-            </span>
-          </label>
-
-          <label class="field">
-            <span>Pre-reset drain window (seconds)</span>
-            <input
-              v-model.number="draftDrainSeconds"
-              type="number"
-              min="0"
-              max="3600"
-              step="1"
-              data-testid="wcl-pre-reset-drain-seconds"
-              :disabled="anyBusy"
-            />
-            <span class="field-help">
-              Near the Warcraft Logs hourly reset, unused API budget may be spent on useful
-              background refreshes. Does not bypass WCL admission ({{ drainMinutesLabel }}).
-            </span>
-          </label>
-        </div>
-      </div>
-      <div class="tool-row__actions">
-        <button
-          type="button"
-          class="btn"
-          data-testid="save-relevant-refresh-button"
-          :disabled="anyBusy || !relevantRefresh"
-          @click="saveRelevantRefresh"
-        >
-          {{ busyAction === "relevantRefreshSave" ? "Saving…" : "Save" }}
-        </button>
-        <button
-          type="button"
-          class="btn"
-          data-testid="run-relevant-discovery-button"
-          :disabled="anyBusy || relevantRefresh?.killSwitchActive"
-          @click="runRelevantDiscovery('daily_discovery')"
-        >
-          {{
-            busyAction === "relevantDiscoveryRun" ? "Queuing…" : "Run relevant discovery now"
-          }}
-        </button>
-        <button
-          type="button"
-          class="btn"
-          data-testid="run-relevant-drain-button"
-          :disabled="anyBusy || relevantRefresh?.killSwitchActive"
-          @click="runRelevantDiscovery('drain_feed')"
-        >
-          {{
-            busyAction === "relevantDrainRun" ? "Queuing…" : "Run WCL drain check now"
-          }}
         </button>
       </div>
     </article>
@@ -829,29 +543,6 @@ onMounted(() => {
   margin: 0;
   font-size: 1.05rem;
 }
-.relevant-refresh-form {
-  display: grid;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
-.field {
-  display: grid;
-  gap: 0.35rem;
-  max-width: 20rem;
-}
-.field input[type="number"] {
-  min-height: 2.25rem;
-  padding: 0.35rem 0.55rem;
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: 0.35rem;
-  background: rgb(0 0 0 / 20%);
-  color: inherit;
-}
-.field-help {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-}
 .regions {
   display: flex;
   flex-wrap: wrap;
@@ -908,6 +599,7 @@ code {
   display: grid;
   gap: 0.75rem;
   margin: 0;
+  grid-template-columns: 1fr;
 }
 .scoring-season-controls {
   display: flex;
@@ -921,6 +613,45 @@ code {
 }
 .scoring-season-grid dd {
   margin: 0.15rem 0 0;
+}
+
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.65rem;
+  font-family: var(--font-data);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.state-chip--success {
+  color: #bbf7d0;
+  background: rgb(34 197 94 / 16%);
+  border-color: rgb(34 197 94 / 40%);
+}
+
+.state-chip--warning {
+  color: #fde68a;
+  background: rgb(245 158 11 / 16%);
+  border-color: rgb(245 158 11 / 42%);
+}
+
+.state-chip--danger {
+  color: #fecaca;
+  background: rgb(239 68 68 / 16%);
+  border-color: rgb(239 68 68 / 42%);
+}
+
+@media (min-width: 900px) {
+  .scoring-season-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .pinned-warning {
   margin: 0;

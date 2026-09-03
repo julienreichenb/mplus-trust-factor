@@ -2,9 +2,14 @@ import { onBeforeUnmount, ref } from "vue";
 import { api } from "../api/client";
 import type { CharacterIdentityInput, RefreshStatusResponse } from "../api/types";
 
+/** Background refresh when a published score already exists (stale-while-revalidate). */
 export const NORMAL_REFRESH_POLL_INTERVAL_MS = 60_000;
+/** Interactive first-score wait — short enough for the loading panel. */
+export const FIRST_SCORE_POLL_INTERVAL_MS = 5_000;
 export const ADMIN_REFRESH_POLL_INTERVAL_MS = 5_000;
 export const NORMAL_REFRESH_POLL_MAX_MS = 30 * 60_000;
+/** @deprecated Prefer `maxDurationMs: null` for first-score observation (no total timeout). */
+export const FIRST_SCORE_POLL_MAX_MS = 30 * 60_000;
 export const ADMIN_REFRESH_POLL_MAX_MS = 5 * 60_000;
 
 export interface RefreshPollingOptions {
@@ -13,10 +18,15 @@ export interface RefreshPollingOptions {
   onComplete: (status: RefreshStatusResponse) => void;
   /** Called when polling hits the bounded timeout without a terminal status. */
   onTimeout?: () => void;
-  maxDurationMs?: number;
+  /**
+   * Maximum wall-clock duration for this poll loop.
+   * Pass `null` for no total timeout (first-score observation).
+   * Omit to use the normal refresh default.
+   */
+  maxDurationMs?: number | null;
   /**
    * Fixed poll interval after the immediate first fetch.
-   * Normal users: 60s. Admins may pass a faster interval.
+   * First-score wait: 5s. Background refresh: 60s. Admins may pass a faster interval.
    */
   intervalMs?: number;
 }
@@ -26,8 +36,9 @@ function isTerminalJobStatus(status: string | undefined): boolean {
 }
 
 /**
- * Queued refresh polling — fixed interval, Page Visibility aware.
+ * Queued refresh polling — fixed interval, single in-flight GET.
  * Immediately fetches once on start; never enqueues refresh work.
+ * Continues while the tab is hidden so score publication cannot stall.
  * Clears timers on stop / unmount; does not create duplicate timers.
  * CANCELLED jobs are terminal (same as completed/failed) and stop polling.
  */
@@ -37,10 +48,14 @@ export function useRefreshPolling() {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let startedAt = 0;
-  let maxDuration = NORMAL_REFRESH_POLL_MAX_MS;
+  /** null = no total timeout (first-score observation). */
+  let maxDuration: number | null = NORMAL_REFRESH_POLL_MAX_MS;
   let intervalMs = NORMAL_REFRESH_POLL_INTERVAL_MS;
   let activeOptions: RefreshPollingOptions | null = null;
-  let visibilityHandler: (() => void) | null = null;
+  /** At most one getRefreshStatus request at a time. */
+  let requestInFlight = false;
+  /** Coalesce ticks that arrive while a request is in flight. */
+  let pendingTick = false;
 
   function clearTimer(): void {
     if (timer) {
@@ -49,19 +64,13 @@ export function useRefreshPolling() {
     }
   }
 
-  function detachVisibility(): void {
-    if (visibilityHandler && typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", visibilityHandler);
-    }
-    visibilityHandler = null;
-  }
-
   function stop(): void {
     stopped = true;
     polling.value = false;
     clearTimer();
-    detachVisibility();
     activeOptions = null;
+    requestInFlight = false;
+    pendingTick = false;
   }
 
   function scheduleNext(delay: number): void {
@@ -76,20 +85,20 @@ export function useRefreshPolling() {
     const options = activeOptions;
     if (stopped || !options) return;
 
-    if (Date.now() - startedAt > maxDuration) {
+    if (requestInFlight) {
+      pendingTick = true;
+      return;
+    }
+
+    if (maxDuration != null && Date.now() - startedAt >= maxDuration) {
       polling.value = false;
       timedOut.value = true;
       clearTimer();
-      detachVisibility();
       options.onTimeout?.();
       return;
     }
 
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      // Wait until visible; visibility handler resumes with an immediate tick.
-      return;
-    }
-
+    requestInFlight = true;
     try {
       const status = await api.getRefreshStatus(options.identity);
       if (stopped || activeOptions !== options) return;
@@ -103,31 +112,24 @@ export function useRefreshPolling() {
       ) {
         polling.value = false;
         clearTimer();
-        detachVisibility();
-        options.onComplete(status);
+        pendingTick = false;
+        await options.onComplete(status);
         return;
       }
     } catch {
       /* keep polling on transient errors until timeout */
+    } finally {
+      requestInFlight = false;
     }
 
     if (stopped || activeOptions !== options) return;
-    scheduleNext(intervalMs);
-  }
 
-  function attachVisibility(): void {
-    detachVisibility();
-    if (typeof document === "undefined") return;
-    visibilityHandler = () => {
-      if (stopped || !activeOptions || !polling.value) return;
-      if (document.visibilityState === "visible") {
-        clearTimer();
-        void tick();
-      } else {
-        clearTimer();
-      }
-    };
-    document.addEventListener("visibilitychange", visibilityHandler);
+    if (pendingTick) {
+      pendingTick = false;
+      scheduleNext(0);
+      return;
+    }
+    scheduleNext(intervalMs);
   }
 
   async function start(options: RefreshPollingOptions): Promise<void> {
@@ -139,11 +141,9 @@ export function useRefreshPolling() {
     startedAt = Date.now();
     intervalMs = options.intervalMs ?? NORMAL_REFRESH_POLL_INTERVAL_MS;
     maxDuration =
-      options.maxDurationMs ??
-      (intervalMs >= NORMAL_REFRESH_POLL_INTERVAL_MS
+      options.maxDurationMs === undefined
         ? NORMAL_REFRESH_POLL_MAX_MS
-        : ADMIN_REFRESH_POLL_MAX_MS);
-    attachVisibility();
+        : options.maxDurationMs;
     await tick();
   }
 

@@ -230,10 +230,16 @@ onBeforeUnmount(() => {
             v-if="slide.profile"
             class="hero-carousel__media"
             :profile="slide.profile"
+            :priority="index === trackIndex || index === trackIndex + 1"
           />
-          <div v-else class="hero-carousel__placeholder" aria-hidden="true">
+          <div
+            v-else
+            class="hero-carousel__placeholder"
+            aria-hidden="true"
+            data-testid="hero-carousel-placeholder"
+          >
             <div class="hero-carousel__glow" />
-            <div class="hero-carousel__silhouette" />
+            <p class="hero-carousel__placeholder-name">{{ slide.identity.name }}</p>
           </div>
 
           <div class="hero-carousel__trust-zone">
@@ -391,10 +397,17 @@ onBeforeUnmount(() => {
   background: rgb(251 113 133 / 18%);
 }
 
-.hero-carousel__silhouette {
+.hero-carousel__placeholder-name {
   position: absolute;
-  inset: 18% 28% 16% 28%;
-  background: rgb(241 233 219 / 18%);
-  clip-path: polygon(50% 0%, 78% 14%, 72% 38%, 88% 100%, 12% 100%, 28% 38%, 22% 14%);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: rgb(241 233 219 / 72%);
+  text-align: center;
 }
 </style>

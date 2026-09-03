@@ -8,6 +8,7 @@ import HelpTooltip from "../components/common/HelpTooltip.vue";
 import StatusChip from "../components/character/StatusChip.vue";
 import CharacterIdentity from "../components/character/CharacterIdentity.vue";
 import AdminCharacterPicker from "../components/admin/AdminCharacterPicker.vue";
+import RelevantCharacterRefreshPanel from "../components/admin/RelevantCharacterRefreshPanel.vue";
 import { parseOptionalNumber } from "../lib/parseOptionalNumber";
 
 const DRY_RUN_TOOLTIP =
@@ -74,6 +75,9 @@ const message = ref<string | null>(null);
 const error = ref<string | null>(null);
 const fieldErrors = ref<Record<string, string>>({});
 const busy = ref(false);
+
+type BulkTab = "bulk" | "relevant-refresh";
+const activeTab = ref<BulkTab>("bulk");
 
 const mode = ref<BulkMode>("RECALCULATE_ONLY");
 const selectionMode = ref<SelectionMode>("COHORT");
@@ -350,10 +354,38 @@ onUnmounted(() => {
       </p>
     </header>
 
-    <StatusBanner v-if="message" tone="success">{{ message }}</StatusBanner>
-    <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
+    <nav class="tabs" aria-label="Admin sections">
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'tab--active': activeTab === 'bulk' }"
+        data-testid="tab-bulk-processing"
+        @click="activeTab = 'bulk'"
+      >
+        Bulk processing
+      </button>
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'tab--active': activeTab === 'relevant-refresh' }"
+        data-testid="tab-relevant-character-refresh"
+        @click="activeTab = 'relevant-refresh'"
+      >
+        Relevant character refresh
+      </button>
+    </nav>
 
-    <form class="admin-bulk__form" data-testid="bulk-create-form" @submit.prevent="createOperation">
+    <StatusBanner v-if="activeTab === 'bulk' && message" tone="success">{{ message }}</StatusBanner>
+    <StatusBanner v-if="activeTab === 'bulk' && error" tone="error">{{ error }}</StatusBanner>
+
+    <RelevantCharacterRefreshPanel v-if="activeTab === 'relevant-refresh'" />
+
+    <form
+      v-if="activeTab === 'bulk'"
+      class="admin-bulk__form"
+      data-testid="bulk-create-form"
+      @submit.prevent="createOperation"
+    >
       <div class="admin-bulk__grid">
         <section class="admin-card" data-testid="bulk-section-mode">
           <h2>Operation type</h2>
@@ -511,7 +543,11 @@ onUnmounted(() => {
       </div>
     </form>
 
-    <section class="admin-card admin-bulk__recent" data-testid="bulk-section-recent">
+    <section
+      v-if="activeTab === 'bulk'"
+      class="admin-card admin-bulk__recent"
+      data-testid="bulk-section-recent"
+    >
       <h2>Recent operations</h2>
       <ul class="admin-bulk__list" data-testid="bulk-operations-list">
         <li v-for="op in operations" :key="op.id" class="op-card">
@@ -659,6 +695,24 @@ onUnmounted(() => {
   margin: 0;
   max-width: 48rem;
   color: var(--color-text-muted);
+}
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: var(--space-4) 0;
+  flex-wrap: wrap;
+}
+.tab {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  background: transparent;
+  color: inherit;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.tab--active {
+  background: rgb(255 255 255 / 10%);
+  border-color: rgb(255 255 255 / 28%);
 }
 .admin-bulk__grid {
   display: grid;

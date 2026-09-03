@@ -59,28 +59,9 @@ const scoringSeasonStatus = {
   seasons: [],
 };
 
-const relevantRefreshStatus = {
-  relevantRefreshEnabled: false,
-  refreshConcurrencyEnabled: false,
-  concurrencyOperation: 2,
-  concurrencyHardMax: 8,
-  relevantCandidateTarget: 500,
-  relevantCandidatePercentileBps: 9000,
-  relevantPopulationTopPercent: 10,
-  wclPreResetDrainSeconds: 300,
-  killSwitchActive: false,
-  appEnv: "development",
-  automaticSchedulingActive: false,
-  settingsVersion: 1,
-  updatedAt: null,
-};
-
 async function mountPage() {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation(async (url: string) => {
-    if (String(url).includes("/api/v1/admin/misc/relevant-refresh")) {
-      return jsonResponse(relevantRefreshStatus);
-    }
     if (String(url).includes("/api/v1/admin/misc/scoring-season")) {
       return jsonResponse(scoringSeasonStatus);
     }
@@ -252,75 +233,8 @@ describe("AdminMiscPage", () => {
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/synchronized/i);
   });
 
-  it("renders relevant refresh settings and saves through the misc API", async () => {
+  it("does not render relevant character refresh on /admin/misc anymore", async () => {
     const wrapper = await mountPage();
-    expect(wrapper.find("[data-testid='relevant-refresh-tool']").exists()).toBe(true);
-    expect(wrapper.get("[data-testid='relevant-refresh-app-env']").text()).toBe("development");
-    expect(wrapper.get("[data-testid='relevant-refresh-scheduling']").text()).toMatch(
-      /Disabled in local development/i,
-    );
-    expect((wrapper.get("[data-testid='relevant-candidate-target']").element as HTMLInputElement).value).toBe(
-      "500",
-    );
-    expect(
-      (wrapper.get("[data-testid='relevant-population-top-percent']").element as HTMLInputElement).value,
-    ).toBe("10");
-
-    fetchMock.mockClear();
-    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
-      if (String(url).includes("/api/v1/admin/misc/relevant-refresh") && init?.method === "PUT") {
-        return jsonResponse({
-          ...relevantRefreshStatus,
-          relevantRefreshEnabled: true,
-          settingsVersion: 2,
-        });
-      }
-      return jsonResponse(relevantRefreshStatus);
-    });
-
-    await wrapper.get("[data-testid='relevant-refresh-enabled']").setValue(true);
-    await wrapper.get("[data-testid='save-relevant-refresh-button']").trigger("click");
-    await flushPromises();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/admin/misc/relevant-refresh"),
-      expect.objectContaining({
-        method: "PUT",
-        credentials: "include",
-        body: expect.stringContaining('"relevantRefreshEnabled":true'),
-      }),
-    );
-    expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/saved/i);
-  });
-
-  it("queues relevant discovery now via admin Run Now", async () => {
-    const wrapper = await mountPage();
-    fetchMock.mockClear();
-    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
-      if (String(url).includes("/api/v1/admin/misc/relevant-refresh/run") && init?.method === "POST") {
-        return jsonResponse({
-          jobId: "job-1",
-          dedupeKey: "dedupe-1",
-          reused: false,
-          enqueued: true,
-          mode: "daily_discovery",
-          regionCode: "EU",
-          trigger: "admin",
-        });
-      }
-      return jsonResponse(relevantRefreshStatus);
-    });
-
-    await wrapper.get("[data-testid='run-relevant-discovery-button']").trigger("click");
-    await flushPromises();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/admin/misc/relevant-refresh/run"),
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining('"mode":"daily_discovery"'),
-      }),
-    );
-    expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/job-1/);
+    expect(wrapper.find("[data-testid='relevant-refresh-tool']").exists()).toBe(false);
   });
 });

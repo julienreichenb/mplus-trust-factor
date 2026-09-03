@@ -1,34 +1,67 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import type { CharacterProfileView } from "../../api/types";
-import { toCharacterMediaViewModel } from "../../lib/characterMediaViewModel";
+import { toCharacterMediaLadder } from "../../lib/characterMediaViewModel";
+import { useCharacterMediaLadder } from "../../composables/useCharacterMediaLadder";
 
 const props = withDefaults(
   defineProps<{
     profile: CharacterProfileView;
     /** Framed card (default) or borderless full-bleed model for the profile hero. */
     variant?: "default" | "bare";
+    /**
+     * When true, load the image eagerly (CharacterPage hero / active carousel slide).
+     * Inactive home slides may omit this so the browser can defer them.
+     */
+    priority?: boolean;
   }>(),
-  { variant: "default" },
+  { variant: "default", priority: false },
 );
 
-const media = computed(() => toCharacterMediaViewModel(props.profile));
-const imageFailed = ref(false);
-
-watch(
-  () => media.value.url,
-  () => {
-    imageFailed.value = false;
-  },
+const ladder = computed(() => toCharacterMediaLadder(props.profile));
+const identityKey = computed(
+  () =>
+    props.profile.characterId ||
+    `${props.profile.region}:${props.profile.realmSlug}:${props.profile.displayName}`,
 );
 
-function onImageError(): void {
-  imageFailed.value = true;
-}
+const {
+  requestUrl,
+  activeKind,
+  activeType,
+  showRemoteImage,
+  exhausted,
+  loadGeneration,
+  onImageError,
+} = useCharacterMediaLadder(() => ladder.value.candidates, { identityKey });
 
-const showImage = computed(
-  () => Boolean(media.value.url) && media.value.type !== "placeholder" && !imageFailed.value,
-);
+const fallback = computed(() => ladder.value.fallback);
+const showFallback = computed(() => !showRemoteImage.value);
+const loadingAttr = computed(() => (props.priority || props.variant === "bare" ? "eager" : "lazy"));
+
+const statusLabel = computed(() => {
+  if (showRemoteImage.value) {
+    return activeType.value === "avatar" || activeKind.value === "avatar" || activeKind.value === "inset"
+      ? "Character avatar"
+      : "Character render";
+  }
+  return "Character identity";
+});
+
+const mediaAlt = computed(() => {
+  if (showRemoteImage.value && activeType.value === "avatar") {
+    return `Avatar for ${fallback.value.displayName}`;
+  }
+  if (showRemoteImage.value) {
+    return `Character render for ${fallback.value.displayName}`;
+  }
+  return fallback.value.alt;
+});
+
+const mediaTypeAttr = computed(() => {
+  if (showRemoteImage.value) return activeType.value ?? "render";
+  return "placeholder";
+});
 </script>
 
 <template>
@@ -36,33 +69,47 @@ const showImage = computed(
     class="media-panel"
     :class="{ 'media-panel--bare': variant === 'bare' }"
     data-testid="character-media"
-    :data-media-type="media.type"
+    :data-media-type="mediaTypeAttr"
+    :data-media-kind="activeKind ?? 'fallback'"
+    :data-media-exhausted="exhausted ? 'true' : 'false'"
   >
-    <div class="media-panel__frame" :aria-hidden="showImage ? undefined : 'true'">
+    <div class="media-panel__frame" :aria-hidden="showRemoteImage ? undefined : 'true'">
       <img
-        v-if="showImage"
+        v-if="showRemoteImage && requestUrl"
+        :key="`${loadGeneration}:${requestUrl}`"
         class="media-panel__image"
-        :src="media.url!"
-        :alt="media.alt"
+        :src="requestUrl"
+        :alt="mediaAlt"
         width="320"
         height="427"
-        loading="lazy"
+        :loading="loadingAttr"
         decoding="async"
         @error="onImageError"
       />
-      <template v-else>
-        <div class="media-panel__glow" />
-        <div class="media-panel__silhouette" :data-role="profile.role ?? 'unknown'" />
-        <span class="media-panel__mark">M+TS</span>
-      </template>
+      <div
+        v-else
+        class="media-panel__identity"
+        :style="{ '--media-class-color': fallback.classColor }"
+        data-testid="character-media-fallback"
+        :data-role="fallback.role ?? 'unknown'"
+        :data-class="fallback.classSlug ?? 'unknown'"
+      >
+        <div class="media-panel__identity-glow" />
+        <div class="media-panel__identity-plate">
+          <div class="media-panel__identity-badge" aria-hidden="true">
+            <span class="media-panel__identity-initials">{{ fallback.initials }}</span>
+          </div>
+          <p class="media-panel__identity-name">{{ fallback.displayName }}</p>
+          <p class="media-panel__identity-meta">{{ fallback.caption }}</p>
+          <p v-if="fallback.role" class="media-panel__identity-role">{{ fallback.role }}</p>
+        </div>
+      </div>
     </div>
     <p v-if="variant !== 'bare'" class="media-panel__caption">
-      <span class="media-panel__status">
-        {{ showImage ? (media.type === "avatar" ? "Character avatar" : "Character render") : "Media placeholder" }}
-      </span>
-      <span>{{ media.caption }}</span>
+      <span class="media-panel__status">{{ statusLabel }}</span>
+      <span>{{ fallback.caption }}</span>
     </p>
-    <p v-if="!showImage || variant === 'bare'" class="sr-only">{{ media.alt }}</p>
+    <p v-if="showFallback || variant === 'bare'" class="sr-only">{{ mediaAlt }}</p>
   </div>
 </template>
 
@@ -113,38 +160,104 @@ const showImage = computed(
   object-position: center bottom;
 }
 
-.media-panel__glow {
+.media-panel__identity {
   position: absolute;
-  inset: auto 18% 12% 18%;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 28%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(165deg, var(--color-iron-800), var(--color-obsidian-950) 62%);
+}
+
+.media-panel--bare .media-panel__identity {
+  background:
+    radial-gradient(
+      circle at 58% 48%,
+      color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 34%, transparent),
+      transparent 68%
+    ),
+    transparent;
+}
+
+.media-panel__identity-glow {
+  position: absolute;
+  inset: auto 18% 18% 18%;
   height: 28%;
   border-radius: 50%;
-  background: rgb(var(--color-rank-rgb) / 18%);
+  background: color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 22%, transparent);
   filter: blur(18px);
+  pointer-events: none;
 }
 
-.media-panel__silhouette {
-  position: absolute;
-  inset: 18% 28% 16% 28%;
-  background: rgb(241 233 219 / 18%);
-  clip-path: polygon(50% 0%, 78% 14%, 72% 38%, 88% 100%, 12% 100%, 28% 38%, 22% 14%);
+.media-panel__identity-plate {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  text-align: center;
+  max-width: 14rem;
 }
 
-.media-panel__silhouette[data-role="TANK"] {
-  background: rgb(56 189 248 / 22%);
+.media-panel__identity-badge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
 }
 
-.media-panel__silhouette[data-role="HEALER"] {
-  background: rgb(163 230 53 / 20%);
+.media-panel__identity-initials {
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: var(--radius-control);
+  border: 1px solid color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 18%, transparent);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--media-class-color, var(--color-gold-400)) 34%, var(--color-obsidian-950)),
+      var(--color-obsidian-950)
+    );
 }
 
-.media-panel__mark {
-  position: absolute;
-  left: var(--space-3);
-  bottom: var(--space-3);
+.media-panel__identity-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.media-panel__identity-meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.media-panel__identity-role {
+  margin: 0;
   font-family: var(--font-data);
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--color-gold-300) 70%, transparent);
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--media-class-color, var(--color-gold-300)) 80%, var(--color-text-muted));
 }
 
 .media-panel__caption {
@@ -164,7 +277,7 @@ const showImage = computed(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .media-panel__glow {
+  .media-panel__identity-glow {
     filter: none;
   }
 }

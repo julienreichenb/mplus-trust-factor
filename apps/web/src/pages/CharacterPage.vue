@@ -2,16 +2,10 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { CharacterProfileView } from "../api/types";
-import type { ActiveRerollCharacterDTO, ActiveRerollsResponse, RefreshStatusResponse } from "@mplus/contracts";
+import type { ActiveRerollCharacterDTO, ActiveRerollsResponse } from "@mplus/contracts";
 import { useAbortableQuery } from "../composables/useAbortableQuery";
 import { useAuthSession } from "../composables/useAuthSession";
-import {
-  ADMIN_REFRESH_POLL_INTERVAL_MS,
-  ADMIN_REFRESH_POLL_MAX_MS,
-  NORMAL_REFRESH_POLL_INTERVAL_MS,
-  NORMAL_REFRESH_POLL_MAX_MS,
-  useRefreshPolling,
-} from "../composables/useRefreshPolling";
+import { useCharacterScoreAwait } from "../composables/useCharacterScoreAwait";
 import { useRecentSearchesStore } from "../stores/recentSearches";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import AppToast from "../components/common/AppToast.vue";
@@ -22,6 +16,7 @@ import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import BoostSuspicionSection from "../components/profile/BoostSuspicionSection.vue";
+import ScoreHistorySection from "../components/profile/ScoreHistorySection.vue";
 import BoostSuspicionAlertDialog from "../components/profile/BoostSuspicionAlertDialog.vue";
 import RunDetailsDrawer from "../components/profile/RunDetailsDrawer.vue";
 import type { RunDrawerModel } from "../components/profile/RunDetailsDrawer.vue";
@@ -37,11 +32,8 @@ import {
   loadWowheadTooltipScript,
   refreshWowheadTooltips,
 } from "../integrations/wowhead/tooltips";
-import {
-  inferBootstrapRepairRequired,
-  reconcileProfileRefreshStatus,
-  refreshStatusHasRealInFlightJob,
-} from "../lib/bootstrapRepair";
+import { inferBootstrapRepairRequired, refreshStatusHasRealInFlightJob } from "../lib/bootstrapRepair";
+import { isInitialScoreCalculating } from "../lib/characterScoreLoadState";
 
 const props = defineProps<{
   region: string;
@@ -51,7 +43,20 @@ const props = defineProps<{
 
 const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
-const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
+const {
+  polling,
+  timedOut,
+  lastRefreshStatus,
+  terminalFailure,
+  startAwaiting,
+  retryScoreLoad,
+  stopAwaiting,
+  scorePhaseFor,
+  showScoreLoadingUi,
+  showScoreContent,
+  applyRefreshStatusToProfile,
+  withBootstrapRepairSignal,
+} = useCharacterScoreAwait();
 const { canForceRefresh, authenticated, hasPermission, fetchAuthMe } = useAuthSession();
 
 const canOpenAdminCharacter = computed(
@@ -83,8 +88,6 @@ const profile = ref<CharacterProfileView | null>(null);
 const activeRerolls = ref<ActiveRerollCharacterDTO[]>([]);
 const displayedCharacterIsMain = ref(false);
 const repairing = ref(false);
-/** Latest refresh-status poll payload (ETA). Cleared when idle. */
-const lastRefreshStatus = ref<RefreshStatusResponse | null>(null);
 const boostAlertOpen = ref(false);
 const boostAlertAutoOpened = ref(false);
 const selectedDrawerRun = ref<RunDrawerModel | null>(null);
@@ -143,7 +146,10 @@ const bannerTitles = computed(() => {
   if (!profile.value) return [];
   const titles: string[] = [];
   // Quiet refresh UX (main): no in-flight queued/refreshing banners — chips cover those states.
-  if (timedOut.value) {
+  // Initial score calculation uses ScoreHeader loading mode instead of these banners.
+  if (showScoreLoadingUi(profile.value)) {
+    /* score-loading panel owns calculating / timeout / failure messaging */
+  } else if (timedOut.value) {
     titles.push("Refresh timed out");
   } else if (profile.value.refreshStatus === "STALE" && !polling.value) {
     titles.push("Data may be outdated");
@@ -162,43 +168,29 @@ const bannerTitles = computed(() => {
 
 const showBannerGroup = computed(() => bannerTitles.value.length > 0);
 
-function withBootstrapRepairSignal(data: CharacterProfileView): CharacterProfileView {
-  if (inferBootstrapRepairRequired(data) && data.bootstrapRepairRequired !== true) {
-    return { ...data, bootstrapRepairRequired: true };
-  }
-  return data;
-}
+const scoreLoadPhase = computed(() => scorePhaseFor(profile.value));
+const scoreLoadingPhase = computed(() => {
+  const phase = scoreLoadPhase.value;
+  if (phase === "calculating" || phase === "timed_out" || phase === "failed") return phase;
+  return null;
+});
 
-function applyRefreshStatusToProfile(
-  current: CharacterProfileView,
-  status: RefreshStatusResponse,
-): CharacterProfileView {
-  const next = {
-    ...current,
-    refreshStatus: reconcileProfileRefreshStatus({
-      hasScore: Boolean(current.score),
-      status,
-    }),
-    bootstrapRepairRequired:
-      status.bootstrapRepairRequired === true
-        ? true
-        : current.bootstrapRepairRequired === true
-          ? true
-          : inferBootstrapRepairRequired(current),
-  };
-  return withBootstrapRepairSignal(next);
-}
-
-function pollingOptions(identity: {
-  region: string;
-  realmSlug: string;
-  name: string;
-}) {
-  const admin = canForceRefresh.value;
+function currentIdentity() {
   return {
-    identity,
-    intervalMs: admin ? ADMIN_REFRESH_POLL_INTERVAL_MS : NORMAL_REFRESH_POLL_INTERVAL_MS,
-    maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : NORMAL_REFRESH_POLL_MAX_MS,
+    region: props.region.toUpperCase(),
+    realmSlug: props.realm.toLowerCase(),
+    name: props.name,
+  };
+}
+
+function awaitCallbacks() {
+  return {
+    onNotice: (message: string | null) => {
+      refreshNotice.value = message;
+    },
+    onError: (message: string | null) => {
+      error.value = message;
+    },
   };
 }
 
@@ -229,16 +221,12 @@ async function load(): Promise<void> {
   error.value = null;
   refreshNotice.value = null;
   notFound.value = false;
-  stopPolling();
-  lastRefreshStatus.value = null;
+  stopAwaiting();
+  terminalFailure.value = false;
   activeRerolls.value = [];
   displayedCharacterIsMain.value = false;
   const signal = nextSignal();
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  const identity = currentIdentity();
   try {
     await fetchAuthMe();
     const data = withBootstrapRepairSignal(await api.getCharacterProfile(identity, signal));
@@ -250,65 +238,17 @@ async function load(): Promise<void> {
       avatarUrl: data.media?.avatarUrl ?? data.media?.insetUrl ?? null,
     });
     void loadActiveRerolls();
-    if (data.refreshStatus === "QUEUED" || data.refreshStatus === "REFRESHING") {
-      // Reconcile once with refresh-status so a stale false QUEUED cannot start a poll loop.
-      let initialStatus: RefreshStatusResponse;
-      try {
-        initialStatus = await api.getRefreshStatus(identity, signal);
-      } catch {
-        initialStatus = {
-          characterId: data.characterId,
-          refreshStatus: data.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
-          job: null,
-          cooldownSecondsRemaining: 0,
-          bootstrapRepairRequired: data.bootstrapRepairRequired === true,
-        };
-      }
-      const reconciled = applyRefreshStatusToProfile(data, initialStatus);
-      profile.value = reconciled;
-      lastRefreshStatus.value = initialStatus;
-
-      const shouldPoll =
-        refreshStatusHasRealInFlightJob(initialStatus) &&
-        (initialStatus.refreshStatus === "QUEUED" ||
-          initialStatus.refreshStatus === "IN_PROGRESS");
-
-      if (!shouldPoll) {
-        return;
-      }
-
-      void startPolling({
-        ...pollingOptions(identity),
-        onUpdate: (status) => {
-          lastRefreshStatus.value = status;
-          if (profile.value) {
-            profile.value = applyRefreshStatusToProfile(profile.value, status);
-          }
-        },
-        onComplete: async (status) => {
-          lastRefreshStatus.value = status;
-          // CANCELLED is terminal but not a provider failure — no retry/backoff banner.
-          if (
-            status.job?.status !== "cancelled" &&
-            (status.refreshStatus === "FAILED" || status.job?.status === "failed")
-          ) {
-            error.value =
-              status.job?.errorMessage?.trim() ||
-              "Refresh failed. You can retry without losing the last available snapshot.";
-          }
-          const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
-          profile.value = refreshed;
-          if (
-            status.refreshStatus === "FRESH" ||
-            status.job?.status === "completed" ||
-            status.job?.status === "cancelled"
-          ) {
-            lastRefreshStatus.value = null;
-          }
-        },
-        onTimeout: () => {
-          error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
-        },
+    if (
+      data.refreshStatus === "QUEUED" ||
+      data.refreshStatus === "REFRESHING" ||
+      isInitialScoreCalculating(data)
+    ) {
+      await startAwaiting({
+        identity,
+        profile,
+        admin: canForceRefresh.value,
+        force: true,
+        ...awaitCallbacks(),
       });
     }
   } catch (err) {
@@ -326,13 +266,23 @@ async function load(): Promise<void> {
   }
 }
 
+/** Public-safe: re-read profile/status and restart polling. Never POSTs refresh. */
+async function retryScoreCalculation(): Promise<void> {
+  if (!profile.value) return;
+  error.value = null;
+  refreshNotice.value = null;
+  await retryScoreLoad({
+    identity: currentIdentity(),
+    profile,
+    admin: canForceRefresh.value,
+    force: true,
+    ...awaitCallbacks(),
+  });
+}
+
 async function repairBootstrap(): Promise<void> {
   if (!profile.value || repairing.value) return;
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  const identity = currentIdentity();
   repairing.value = true;
   error.value = null;
   refreshNotice.value = null;
@@ -376,44 +326,12 @@ async function repairBootstrap(): Promise<void> {
     }
 
     if (refreshed.refreshStatus === "QUEUED" || refreshed.refreshStatus === "REFRESHING") {
-      let statusCheck: RefreshStatusResponse;
-      try {
-        statusCheck = await api.getRefreshStatus(identity);
-      } catch {
-        statusCheck = {
-          characterId: refreshed.characterId,
-          refreshStatus: refreshed.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
-          job: null,
-          cooldownSecondsRemaining: 0,
-          bootstrapRepairRequired: false,
-        };
-      }
-      profile.value = applyRefreshStatusToProfile(refreshed, statusCheck);
-      if (!refreshStatusHasRealInFlightJob(statusCheck)) {
-        return;
-      }
-      void startPolling({
-        ...pollingOptions(identity),
-        onUpdate: (statusUpdate) => {
-          if (profile.value) {
-            profile.value = applyRefreshStatusToProfile(profile.value, statusUpdate);
-          }
-        },
-        onComplete: async (statusUpdate) => {
-          if (
-            statusUpdate.job?.status !== "cancelled" &&
-            (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
-          ) {
-            refreshNotice.value =
-              statusUpdate.job?.errorMessage?.trim() ||
-              "Refresh failed after profile repair. You can retry without losing restored metadata.";
-          }
-          const again = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
-          profile.value = again;
-        },
-        onTimeout: () => {
-          error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
-        },
+      await startAwaiting({
+        identity,
+        profile,
+        admin: canForceRefresh.value,
+        force: true,
+        ...awaitCallbacks(),
       });
     }
   } catch (err) {
@@ -423,16 +341,14 @@ async function repairBootstrap(): Promise<void> {
   }
 }
 
+/** Admin-only capability: POST refresh then poll via the same score-await lifecycle. */
 async function refresh(): Promise<void> {
-  if (!profile.value) return;
-  const identity = {
-    region: props.region.toUpperCase(),
-    realmSlug: props.realm.toLowerCase(),
-    name: props.name,
-  };
+  if (!profile.value || !canForceRefresh.value) return;
+  const identity = currentIdentity();
   const force = canForceRefresh.value;
   try {
     refreshNotice.value = null;
+    error.value = null;
     const status = await api.refreshCharacter(identity, undefined, { force });
     const inFlight = refreshStatusHasRealInFlightJob(status);
 
@@ -455,41 +371,18 @@ async function refresh(): Promise<void> {
       return;
     }
 
-    if (!inFlight) {
-      profile.value = applyRefreshStatusToProfile(profile.value, status);
-      return;
-    }
-
     profile.value = applyRefreshStatusToProfile(profile.value, status);
     lastRefreshStatus.value = status;
-    void startPolling({
-      ...pollingOptions(identity),
-      onUpdate: (statusUpdate) => {
-        lastRefreshStatus.value = statusUpdate;
-        if (profile.value) {
-          profile.value = applyRefreshStatusToProfile(profile.value, statusUpdate);
-        }
-      },
-      onComplete: async (statusUpdate) => {
-        lastRefreshStatus.value = statusUpdate;
-        if (
-          statusUpdate.job?.status !== "cancelled" &&
-          (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
-        ) {
-          refreshNotice.value =
-            statusUpdate.job?.errorMessage?.trim() ||
-            "Refresh failed. You can retry without losing the last available snapshot.";
-        }
-        const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
-        profile.value = refreshed;
-        if (
-          statusUpdate.refreshStatus === "FRESH" ||
-          statusUpdate.job?.status === "completed" ||
-          statusUpdate.job?.status === "cancelled"
-        ) {
-          lastRefreshStatus.value = null;
-        }
-      },
+
+    if (!inFlight) return;
+
+    await startAwaiting({
+      identity,
+      profile,
+      admin: true,
+      force: true,
+      seedStatus: status,
+      ...awaitCallbacks(),
     });
   } catch (err) {
     refreshNotice.value = (err as Error).message || "Refresh failed";
@@ -546,7 +439,7 @@ watch(
         @repair-bootstrap="repairBootstrap"
       />
       <CharacterRefreshEta
-        v-if="polling || lastRefreshStatus"
+        v-if="!scoreLoadingPhase && (polling || lastRefreshStatus)"
         :job="lastRefreshStatus?.job ?? null"
       />
 
@@ -626,18 +519,44 @@ watch(
         </div>
       </details>
 
-      <div class="character-page__hero">
+      <div
+        class="character-page__hero"
+        :class="{ 'character-page__hero--score-loading': Boolean(scoreLoadingPhase) }"
+      >
+        <!-- Keep Blizzard media visible during first-score calculation. -->
         <CharacterPortraitStage :profile="profile" />
         <ScoreHeader
+          v-if="scoreLoadingPhase || showScoreContent(profile) || !showScoreLoadingUi(profile)"
           :profile="profile"
           :active-rerolls="activeRerolls"
           :displayed-character-is-main="displayedCharacterIsMain"
+          :score-load-phase="scoreLoadingPhase"
+          :refresh-job="scoreLoadingPhase ? (lastRefreshStatus?.job ?? null) : null"
           @open-boost-alert="openBoostAlert"
+          @retry-score-load="retryScoreCalculation()"
         />
       </div>
 
+      <details
+        v-if="showScoreContent(profile)"
+        class="character-page__boost-disclosure"
+        data-testid="boost-suspicion-collapse"
+      >
+        <summary>Boost suspicion</summary>
+        <BoostSuspicionSection
+          :assessment="profile.boostAssessment ?? null"
+          :locked="!entitlements.detailsUnlocked"
+        />
+      </details>
+
+      <ScoreHistorySection
+        v-if="showScoreContent(profile)"
+        :identity="currentIdentity()"
+        :score-calculated-at="profile.score?.calculatedAt ?? null"
+      />
+
       <DimensionCards
-        v-if="profile.score"
+        v-if="showScoreContent(profile) && profile.score"
         :dimensions="visibleDimensions"
         :model-version="profile.score.modelVersion"
         :locked="!entitlements.detailsUnlocked"
@@ -651,12 +570,7 @@ watch(
         @open-run="selectedDrawerRun = $event"
       />
 
-      <BoostSuspicionSection
-        :assessment="profile.boostAssessment ?? null"
-        :locked="!entitlements.detailsUnlocked"
-      />
-
-      <MethodologyPanel :profile="profile" />
+      <MethodologyPanel v-if="showScoreContent(profile)" :profile="profile" />
     </template>
 
     <BoostSuspicionAlertDialog
@@ -691,6 +605,24 @@ watch(
   position: relative;
   isolation: isolate;
   overflow: visible;
+}
+
+.character-page__hero--score-loading {
+  /* Reserve portrait overflow space so media cannot cover loading content. */
+  min-height: min(62dvh, 32rem);
+  padding-bottom: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .character-page__hero--score-loading {
+    min-height: min(70dvh, 38rem);
+  }
+}
+
+@media (min-width: 1100px) {
+  .character-page__hero--score-loading {
+    min-height: min(74dvh, 44rem);
+  }
 }
 
 .character-page__loading {

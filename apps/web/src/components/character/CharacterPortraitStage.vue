@@ -82,11 +82,11 @@ defineProps<{
   transform-origin: center bottom;
 }
 
-.portrait-stage :deep(.media-panel--bare .media-panel__silhouette) {
-  inset: 4% 6% 0 22%;
+.portrait-stage :deep(.media-panel--bare .media-panel__identity) {
+  inset: 0;
 }
 
-.portrait-stage :deep(.media-panel--bare .media-panel__glow) {
+.portrait-stage :deep(.media-panel--bare .media-panel__identity-glow) {
   inset: auto 4% 0 28%;
   height: 34%;
 }

@@ -61,8 +61,8 @@ export function resolveExternalProfileLinks(profile: CharacterProfileView): Exte
     `https://worldofwarcraft.blizzard.com/${armoryLocale}/character/${region}/${encodePathSegment(realm)}/${encodePathSegment(nameLower)}`;
 
   return [
-    { id: "warcraftlogs", label: "warcraftlogs", href: wcl },
+    { id: "warcraftlogs", label: "warcraftlogs.com", href: wcl },
     { id: "raiderio", label: "raider.io", href: raiderIo },
-    { id: "armory", label: "blizzard", href: armory },
+    { id: "armory", label: "blizzard.com", href: armory },
   ];
 }

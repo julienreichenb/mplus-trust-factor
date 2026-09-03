@@ -137,6 +137,9 @@ describe.skipIf(!dbAvailable)("AbilityCatalogManualEditService", () => {
     expect(stormkeeper).toBeTruthy();
     const baseReleaseId = await activeBootstrapReleaseId();
 
+    await prisma.abilityCatalogDraftRule.deleteMany({
+      where: { canonicalKey: stormkeeper!.canonicalKey },
+    });
     await prisma.abilityCatalogDraftRule.create({
       data: {
         id: randomUUID(),

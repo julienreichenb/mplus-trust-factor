@@ -293,12 +293,14 @@ describe("equipment UI enrichment", () => {
 });
 
 describe("character media panel", () => {
-  it("renders a stable placeholder without media", () => {
+  it("renders a stable identity fallback without media", () => {
     const wrapper = mount(CharacterMediaPanel, {
       props: { profile: { ...FIXTURE_CHARACTERS[0]!.profile, media: null } },
     });
     expect(wrapper.attributes("data-media-type")).toBe("placeholder");
-    expect(wrapper.text()).toContain("Media placeholder");
+    expect(wrapper.text()).toContain("Character identity");
+    expect(wrapper.find("[data-testid='character-media-fallback']").exists()).toBe(true);
+    expect(wrapper.find(".media-panel__identity-initials").exists()).toBe(true);
   });
 });
 

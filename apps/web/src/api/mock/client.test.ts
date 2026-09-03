@@ -29,6 +29,7 @@ describe("mock API client", () => {
     expect(first.realmSlug).toBe("archimonde");
     await api.getRefreshStatus(identity);
     await api.getRefreshStatus(identity);
+    await api.getRefreshStatus(identity);
     const after = await api.getCharacterProfile(identity);
     expect(after.refreshStatus).toBe("FRESH");
     expect(after.score?.overallScore).toBe(62);
@@ -42,6 +43,7 @@ describe("mock API client", () => {
     await api.refreshCharacter(identity);
     const mid = await api.getRefreshStatus(identity);
     expect(mid.refreshStatus).toBe("IN_PROGRESS");
+    await api.getRefreshStatus(identity);
     const done = await api.getRefreshStatus(identity);
     expect(done.refreshStatus).toBe("FRESH");
     const after = await api.getCharacterProfile(identity);

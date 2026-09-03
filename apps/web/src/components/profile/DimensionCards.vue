@@ -60,10 +60,6 @@ const cards = computed(() =>
         (explain.strengths.length > 0 ||
           explain.weaknesses.length > 0 ||
           explain.facts.length > 0);
-        const showEvidenceNote =
-          explain.hasExplainability &&
-          explain.confidenceReasons.length > 0 &&
-          !explain.fullConfidence;
       return {
         ...d,
         dimKey,
@@ -71,7 +67,6 @@ const cards = computed(() =>
         unavailable,
         explain,
         hasScoreStory,
-        showEvidenceNote,
         weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
         confidenceLabel:
           unavailable || d.confidence == null ? "—" : formatPercent(d.confidence * 100, 0),
@@ -140,20 +135,6 @@ const cards = computed(() =>
 
         <template v-if="card.unavailable">
           <p class="card__empty">{{ card.unavailableNote }}</p>
-          <div
-            v-if="card.explain.confidenceReasons.length"
-            class="card__block"
-            data-testid="confidence-reasons"
-          >
-            <ul class="card__signals" :aria-label="`${card.label} confidence reasons`">
-              <KeySignalRow
-                v-for="(signal, index) in card.explain.confidenceReasons"
-                :key="`conf-${signal.code ?? signal.label}-${index}`"
-                :signal="signal"
-                hide-dimension
-              />
-            </ul>
-          </div>
         </template>
 
         <template v-else>
@@ -206,23 +187,6 @@ const cards = computed(() =>
             No key signals for this dimension
           </p>
 
-          <div
-            v-if="card.showEvidenceNote"
-            class="card__block card__block--confidence"
-            data-testid="confidence-reasons"
-          >
-            <ul
-              class="card__signals"
-              :aria-label="`${card.label} evidence notes`"
-            >
-              <KeySignalRow
-                v-for="(signal, index) in card.explain.confidenceReasons"
-                :key="`conf-${signal.code ?? signal.label}-${index}`"
-                :signal="signal"
-                hide-dimension
-              />
-            </ul>
-          </div>
         </template>
       </article>
     </div>
@@ -329,10 +293,6 @@ const cards = computed(() =>
   gap: var(--space-2);
   padding-top: var(--space-1);
   border-top: 1px solid var(--color-border);
-}
-
-.card__block--confidence {
-  border-top-style: dashed;
 }
 
 .card__group {
