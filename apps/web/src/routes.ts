@@ -19,6 +19,11 @@ export const routeDefs: RouteRecordRaw[] = [
   { path: "/compare", name: "compare", component: () => import("./pages/ComparePage.vue") },
   { path: "/faq", name: "faq", component: () => import("./pages/FaqPage.vue") },
   {
+    path: "/tools/exboss-voice-pack",
+    name: "exboss-voice-pack",
+    component: () => import("./pages/ExBossVoicePackPage.vue"),
+  },
+  {
     path: "/auth/signin",
     name: "auth-signin",
     component: () => import("./pages/AuthSignInPage.vue"),

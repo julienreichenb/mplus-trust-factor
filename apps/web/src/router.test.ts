@@ -24,6 +24,7 @@ describe("web router registration", () => {
     expect(names).toContain("character");
     expect(names).toContain("compare");
     expect(names).toContain("faq");
+    expect(names).toContain("exboss-voice-pack");
     expect(names).toContain("admin-scoring");
     expect(names).toContain("admin-character");
     expect(names).toContain("admin-ability-catalog");
