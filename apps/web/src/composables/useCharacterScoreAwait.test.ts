@@ -185,7 +185,7 @@ describe("useCharacterScoreAwait", () => {
     wrapper.unmount();
   });
 
-  it("marks timeout for initial calculation", async () => {
+  it("does not time out first-score observation after the former 30-minute boundary", async () => {
     vi.useFakeTimers();
     getRefreshStatus.mockResolvedValue(
       status({
@@ -214,9 +214,11 @@ describe("useCharacterScoreAwait", () => {
     await vi.advanceTimersByTimeAsync(31 * 60_000);
     await flushPromises();
 
-    expect(api.timedOut.value).toBe(true);
-    expect(api.scorePhaseFor(profile.value)).toBe("timed_out");
-    expect(onError).toHaveBeenCalled();
+    expect(api.timedOut.value).toBe(false);
+    expect(api.polling.value).toBe(true);
+    expect(api.scorePhaseFor(profile.value)).toBe("calculating");
+    expect(onError).not.toHaveBeenCalled();
+    expect(api.pollingOptions(false, true).maxDurationMs).toBeNull();
     wrapper.unmount();
   });
 

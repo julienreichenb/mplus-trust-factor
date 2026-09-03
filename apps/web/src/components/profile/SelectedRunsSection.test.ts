@@ -95,7 +95,7 @@ describe("SelectedRunsSection affordance", () => {
         ],
       },
     });
-    expect(wrapper.text()).toContain("Click a dungeon to inspect uptime evidence");
+    expect(wrapper.text()).toContain("Click a dungeon to inspect cooldown usage");
     const card = wrapper.findAll(".run-card").find((node) => node.attributes("data-missing") === "false");
     expect(card?.attributes("role")).toBe("button");
     expect(card?.attributes("tabindex")).toBe("0");

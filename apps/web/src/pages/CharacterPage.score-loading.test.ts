@@ -68,6 +68,18 @@ function queuedNoScoreProfile() {
       insetUrl: "https://render.worldofwarcraft.com/eu/characters/inset-fail.jpg",
       avatarUrl: "https://render.worldofwarcraft.com/eu/characters/avatar-fail.jpg",
     },
+    seasonSummary: { mythicRating: 2145.2 },
+    equipment: {
+      equippedItemLevel: 668,
+      averageItemLevel: 667,
+      items: [{ slot: "HEAD", name: "Test Helm", itemLevel: 668 }],
+      keyItems: [],
+    },
+    talents: {
+      summary: "Fire loadout",
+      loadoutCode: "ABC",
+      selectedTalents: [],
+    },
   };
 }
 
@@ -107,6 +119,20 @@ function scoredProfile() {
   };
 }
 
+const pageStubs = {
+  CharacterRealmSearch: true,
+  CharacterProfileToolbar: true,
+  BoostSuspicionSection: true,
+  BoostSuspicionAlertDialog: true,
+  RunDetailsDrawer: true,
+  WclVisibilityBanner: true,
+  MethodologyPanel: true,
+  AppToast: true,
+  StatusBanner: true,
+  HeroGearPanel: true,
+  HeroTalentPanel: true,
+};
+
 describe("CharacterPage first-score loading UI", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -125,26 +151,22 @@ describe("CharacterPage first-score loading UI", () => {
         startedAt: "2026-07-20T12:00:01.000Z",
         finishedAt: null,
         errorMessage: null,
+        queuePosition: 4,
+        estimatedWaitSeconds: 180,
+        estimateConfidence: "MEDIUM",
+        schedulingState: "RUNNING",
       },
       cooldownSecondsRemaining: 0,
     });
   });
 
-  it("shows loading panel without score cards, grade empty state, or portrait overflow host", async () => {
+  it("renders progressive Blizzard profile + media with score skeletons only", async () => {
     const wrapper = mount(CharacterPage, {
       props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
       global: {
         stubs: {
-          CharacterRealmSearch: true,
-          CharacterProfileToolbar: true,
+          ...pageStubs,
           CharacterRefreshEta: true,
-          BoostSuspicionSection: true,
-          BoostSuspicionAlertDialog: true,
-          RunDetailsDrawer: true,
-          WclVisibilityBanner: true,
-          MethodologyPanel: true,
-          AppToast: true,
-          StatusBanner: true,
         },
       },
     });
@@ -156,10 +178,76 @@ describe("CharacterPage first-score loading UI", () => {
     expect(wrapper.find("[data-testid='character-score-loading']").attributes("data-phase")).toBe(
       "calculating",
     );
+    expect(wrapper.find(".portrait-stage").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-name']").text()).toContain("Newchar");
+    expect(wrapper.find("[data-testid='score-loading-realm']").text()).toMatch(/tarren-mill/i);
+    expect(wrapper.find("[data-testid='score-loading-class']").text()).toMatch(/Fire Mage/i);
+    expect(wrapper.find("[data-testid='score-loading-role']").text()).toContain("DPS");
+    expect(wrapper.find("[data-testid='score-loading-equipment']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-talents']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-grade-skeleton']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='score-loading-radar-skeleton']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='dimension-cards']").exists()).toBe(false);
     expect(wrapper.text()).not.toMatch(/Grade unavailable/i);
-    expect(wrapper.find(".portrait-stage").exists()).toBe(false);
     expect(wrapper.text()).not.toMatch(/\/\s*100/);
+    wrapper.unmount();
+  });
+
+  it("integrates ETA into the loading panel without duplicating standalone ETA", async () => {
+    const wrapper = mount(CharacterPage, {
+      props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
+      global: { stubs: pageStubs },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find("[data-testid='character-score-loading']").text()).toMatch(
+      /queue wait about 2–5 min/i,
+    );
+    expect(wrapper.find("[data-testid='score-loading-jobs-ahead']").text()).toMatch(
+      /Approximately 4 jobs ahead/i,
+    );
+    expect(wrapper.find("[data-testid='refresh-eta']").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("omits duration when no reliable queue-wait estimate exists", async () => {
+    getRefreshStatus.mockResolvedValue({
+      characterId: "c-queued",
+      refreshStatus: "IN_PROGRESS",
+      job: {
+        jobId: "job-1",
+        queue: "refresh-character",
+        status: "active",
+        dedupeKey: null,
+        createdAt: "2026-07-20T12:00:00.000Z",
+        startedAt: "2026-07-20T12:00:01.000Z",
+        finishedAt: null,
+        errorMessage: null,
+        queuePosition: null,
+        estimatedWaitSeconds: null,
+        estimateConfidence: "LOW",
+        schedulingState: "RUNNING",
+      },
+      cooldownSecondsRemaining: 0,
+    });
+
+    const wrapper = mount(CharacterPage, {
+      props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
+      global: { stubs: { ...pageStubs, CharacterRefreshEta: true } },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find("[data-testid='character-score-loading']").text()).toContain(
+      "Trust Score in progress",
+    );
+    expect(wrapper.find("[data-testid='character-score-loading']").text()).not.toMatch(
+      /queue wait/i,
+    );
+    expect(wrapper.find("[data-testid='score-loading-jobs-ahead']").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -169,17 +257,9 @@ describe("CharacterPage first-score loading UI", () => {
       props: { region: "EU", realm: "tarren-mill", name: "Newchar" },
       global: {
         stubs: {
-          CharacterRealmSearch: true,
+          ...pageStubs,
           CharacterPortraitStage: true,
-          CharacterProfileToolbar: true,
           CharacterRefreshEta: true,
-          BoostSuspicionSection: true,
-          BoostSuspicionAlertDialog: true,
-          RunDetailsDrawer: true,
-          WclVisibilityBanner: true,
-          MethodologyPanel: true,
-          AppToast: true,
-          StatusBanner: true,
           ScoreHeader: true,
           DimensionCards: true,
         },

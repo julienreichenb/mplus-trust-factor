@@ -157,7 +157,7 @@ const aleriaScore = baseScore(
           {
             code: "performance.offensive_cooldown_discipline",
             labelKey: "score.performance.offensive_cooldown_discipline",
-            label: "Offensive uptime below neutral",
+            label: "Offensive cooldown discipline below neutral",
             direction: "NEGATIVE",
             value: 42,
           },

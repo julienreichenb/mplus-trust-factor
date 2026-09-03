@@ -103,7 +103,87 @@ describe("ScoreHistorySection", () => {
 
     await flushPromises();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ cache: "no-store" });
     expect(wrapper.findAll("circle.score-history__point--adjusted").length).toBe(1);
+  });
+
+  it("refetches history when scoreCalculatedAt changes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ snapshots: [snapshot({})] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ScoreHistorySection, {
+      props: {
+        identity,
+        scoreCalculatedAt: "2026-09-01T12:00:00.000Z",
+      },
+    });
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await wrapper.setProps({ scoreCalculatedAt: "2026-09-01T13:00:00.000Z" });
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a stale deferred response after identity changes", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          snapshots: [
+            snapshot({
+              calculatedAt: "2026-09-02T10:00:00.000Z",
+              overallScore: 91,
+              seasonSlug: "season-new",
+            }),
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ScoreHistorySection, {
+      props: { identity },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await wrapper.setProps({
+      identity: { region: "EU", realmSlug: "archimonde", name: "Other" },
+    });
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const freshPoint = wrapper.find("circle.score-history__point--adjusted");
+    expect(freshPoint.exists()).toBe(true);
+    expect(freshPoint.attributes("aria-label")).toContain("season-new");
+    expect(freshPoint.attributes("aria-label")).toContain("91");
+
+    resolveFirst({
+      ok: true,
+      json: async () => ({
+        snapshots: [
+          snapshot({
+            calculatedAt: "2026-08-01T10:00:00.000Z",
+            overallScore: 10,
+            seasonSlug: "season-stale",
+          }),
+        ],
+      }),
+    });
+    await flushPromises();
+
+    const afterStale = wrapper.find("circle.score-history__point--adjusted");
+    expect(afterStale.attributes("aria-label")).toContain("season-new");
+    expect(afterStale.attributes("aria-label")).toContain("91");
+    expect(afterStale.attributes("aria-label")).not.toContain("season-stale");
   });
 });
 

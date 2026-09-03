@@ -167,6 +167,45 @@ describe("useRefreshPolling", () => {
     wrapper.unmount();
   });
 
+  it("supports maxDurationMs null with no total timeout", async () => {
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "IN_PROGRESS",
+        job: {
+          jobId: "no-timeout",
+          queue: "refresh-character",
+          status: "active",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: null,
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const onTimeout = vi.fn();
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    void pollingApi.start({
+      identity,
+      intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
+      maxDurationMs: null,
+      onUpdate: () => undefined,
+      onComplete: () => undefined,
+      onTimeout,
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(31 * 60_000);
+    await flushPromises();
+
+    expect(pollingApi.polling.value).toBe(true);
+    expect(pollingApi.timedOut.value).toBe(false);
+    expect(onTimeout).not.toHaveBeenCalled();
+    expect(getRefreshStatus.mock.calls.length).toBeGreaterThan(1);
+    wrapper.unmount();
+  });
+
   it("stops on cancelled job status without treating it as active", async () => {
     const getRefreshStatus = vi.mocked(api.getRefreshStatus);
     getRefreshStatus.mockResolvedValue(

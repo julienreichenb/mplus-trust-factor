@@ -48,9 +48,9 @@ export const COMPONENT_HELP = {
       whatItMeans: "Damage parse measures throughput across the active dungeon pool.",
     },
     dpsCooldown: {
-      label: "Offensive uptime",
+      label: "Offensive cooldown",
       whatItMeans:
-        "Offensive uptime uses available run activity evidence from scored runs.",
+        "Offensive cooldown discipline measures use of eligible offensive cooldowns.",
     },
     tankDamageParse: {
       label: "Damage parse",

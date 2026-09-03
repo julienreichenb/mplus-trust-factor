@@ -72,7 +72,7 @@ describe("CooldownReplayTimeline", () => {
       props: { timeline: { status: "EMPTY", durationMs: 180_000, events: [] } },
     });
     expect(wrapper.find("[data-testid='cooldown-timeline-empty-tracked']").exists()).toBe(true);
-    expect(wrapper.text()).toContain("No tracked uptime evidence for this run.");
+    expect(wrapper.text()).toContain("No tracked cooldown usage for this run.");
     expect(wrapper.findAll(".event")).toHaveLength(0);
   });
 

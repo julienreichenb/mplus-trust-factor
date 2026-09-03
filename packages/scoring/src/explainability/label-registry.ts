@@ -51,7 +51,7 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
   },
   "performance.offensive_cooldown_discipline": {
     labelKey: "score.performance.offensive_cooldown_discipline",
-    template: "Offensive uptime scored {value}",
+    template: "Offensive cooldown discipline scored {value}",
     visibility: "PUBLIC",
   },
   /** Forensic / legacy — not emitted by active role-aware Performance. */
@@ -323,27 +323,27 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   },
   cooldown_evidence_unavailable: {
     labelKey: "confidence.performance.cooldown_evidence_unavailable",
-    template: "Offensive uptime evidence unavailable",
+    template: "Offensive cooldown evidence unavailable",
     visibility: "PUBLIC",
   },
   incomplete_cooldown_run_coverage: {
     labelKey: "confidence.performance.incomplete_cooldown_run_coverage",
-    template: "Incomplete uptime run coverage",
+    template: "Incomplete cooldown run coverage",
     visibility: "PUBLIC",
   },
   no_evaluable_cooldown_abilities: {
     labelKey: "confidence.performance.no_evaluable_cooldown_abilities",
-    template: "No evaluable offensive uptime evidence",
+    template: "No evaluable offensive cooldown abilities",
     visibility: "PUBLIC",
   },
   cooldown_catalogue_incompatible_runs: {
     labelKey: "confidence.performance.cooldown_catalogue_incompatible_runs",
-    template: "Some runs are incompatible with offensive uptime evidence",
+    template: "Some runs are incompatible with the cooldown catalogue",
     visibility: "PUBLIC",
   },
   cooldown_invalid_duration_runs: {
     labelKey: "confidence.performance.cooldown_invalid_duration_runs",
-    template: "Some runs lack valid fight duration for uptime scoring",
+    template: "Some runs lack valid fight duration for cooldown scoring",
     visibility: "PUBLIC",
   },
   phase1_unavailable: {
@@ -471,7 +471,7 @@ const CONFIDENCE_COMPONENT_ENTRIES: Record<string, LabelEntry> = {
   },
   cooldownEvidenceConfidence: {
     labelKey: "confidence.component.cooldown_evidence_confidence",
-    template: "Uptime evidence confidence component",
+    template: "Cooldown evidence confidence component",
     visibility: "PUBLIC",
   },
   phase1Weight: {
@@ -481,12 +481,12 @@ const CONFIDENCE_COMPONENT_ENTRIES: Record<string, LabelEntry> = {
   },
   cooldownWeight: {
     labelKey: "confidence.component.cooldown_weight",
-    template: "Uptime weight in confidence blend",
+    template: "Cooldown weight in confidence blend",
     visibility: "AUDIT_ONLY",
   },
   cooldownRunCoverage: {
     labelKey: "confidence.component.cooldown_run_coverage",
-    template: "Uptime usable-run coverage",
+    template: "Cooldown usable-run coverage",
     visibility: "PUBLIC",
   },
   dungeonCoverage: {

@@ -17,7 +17,6 @@ import {
   ADMIN_REFRESH_POLL_INTERVAL_MS,
   ADMIN_REFRESH_POLL_MAX_MS,
   FIRST_SCORE_POLL_INTERVAL_MS,
-  FIRST_SCORE_POLL_MAX_MS,
   NORMAL_REFRESH_POLL_INTERVAL_MS,
   NORMAL_REFRESH_POLL_MAX_MS,
   useRefreshPolling,
@@ -97,7 +96,9 @@ export function useCharacterScoreAwait() {
     if (awaitingFirstScore) {
       return {
         intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
-        maxDurationMs: FIRST_SCORE_POLL_MAX_MS,
+        // First-score observation has no total timeout; keep polling until
+        // publication, terminal failure/cancel, identity change, or unmount.
+        maxDurationMs: null,
       };
     }
     return {

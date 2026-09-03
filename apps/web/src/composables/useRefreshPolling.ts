@@ -8,6 +8,7 @@ export const NORMAL_REFRESH_POLL_INTERVAL_MS = 60_000;
 export const FIRST_SCORE_POLL_INTERVAL_MS = 5_000;
 export const ADMIN_REFRESH_POLL_INTERVAL_MS = 5_000;
 export const NORMAL_REFRESH_POLL_MAX_MS = 30 * 60_000;
+/** @deprecated Prefer `maxDurationMs: null` for first-score observation (no total timeout). */
 export const FIRST_SCORE_POLL_MAX_MS = 30 * 60_000;
 export const ADMIN_REFRESH_POLL_MAX_MS = 5 * 60_000;
 
@@ -17,7 +18,12 @@ export interface RefreshPollingOptions {
   onComplete: (status: RefreshStatusResponse) => void;
   /** Called when polling hits the bounded timeout without a terminal status. */
   onTimeout?: () => void;
-  maxDurationMs?: number;
+  /**
+   * Maximum wall-clock duration for this poll loop.
+   * Pass `null` for no total timeout (first-score observation).
+   * Omit to use the normal refresh default.
+   */
+  maxDurationMs?: number | null;
   /**
    * Fixed poll interval after the immediate first fetch.
    * First-score wait: 5s. Background refresh: 60s. Admins may pass a faster interval.
@@ -42,7 +48,8 @@ export function useRefreshPolling() {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let startedAt = 0;
-  let maxDuration = NORMAL_REFRESH_POLL_MAX_MS;
+  /** null = no total timeout (first-score observation). */
+  let maxDuration: number | null = NORMAL_REFRESH_POLL_MAX_MS;
   let intervalMs = NORMAL_REFRESH_POLL_INTERVAL_MS;
   let activeOptions: RefreshPollingOptions | null = null;
   /** At most one getRefreshStatus request at a time. */
@@ -83,7 +90,7 @@ export function useRefreshPolling() {
       return;
     }
 
-    if (Date.now() - startedAt >= maxDuration) {
+    if (maxDuration != null && Date.now() - startedAt >= maxDuration) {
       polling.value = false;
       timedOut.value = true;
       clearTimer();
@@ -133,7 +140,10 @@ export function useRefreshPolling() {
     activeOptions = options;
     startedAt = Date.now();
     intervalMs = options.intervalMs ?? NORMAL_REFRESH_POLL_INTERVAL_MS;
-    maxDuration = options.maxDurationMs ?? NORMAL_REFRESH_POLL_MAX_MS;
+    maxDuration =
+      options.maxDurationMs === undefined
+        ? NORMAL_REFRESH_POLL_MAX_MS
+        : options.maxDurationMs;
     await tick();
   }
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { CharacterIdentityInput, ScoreSnapshotDTO } from "@mplus/contracts";
 import { formatScore } from "../../lib/format";
 
 const props = defineProps<{
   identity: CharacterIdentityInput;
+  /** Published score timestamp — refetch history when this changes after background refresh. */
+  scoreCalculatedAt?: string | null;
   /** Test-only injection. When present, this component does not fetch. */
   snapshots?: ScoreSnapshotDTO[] | null;
   limit?: number;
@@ -13,6 +15,10 @@ const props = defineProps<{
 const loading = ref(false);
 const error = ref<string | null>(null);
 const fetchedSnapshots = ref<ScoreSnapshotDTO[]>([]);
+
+let requestEpoch = 0;
+let abortController: AbortController | null = null;
+let mounted = true;
 
 const effectiveSnapshots = computed<ScoreSnapshotDTO[]>(() => {
   return props.snapshots ?? fetchedSnapshots.value;
@@ -153,6 +159,11 @@ function seasonBandColor(seasonSlug: string, bandIndex: number): string {
 
 async function loadHistory(): Promise<void> {
   if (props.snapshots) return;
+  const epoch = ++requestEpoch;
+  abortController?.abort();
+  const controller = new AbortController();
+  abortController = controller;
+
   loading.value = true;
   error.value = null;
   try {
@@ -164,29 +175,51 @@ async function loadHistory(): Promise<void> {
     )}`;
     const res = await fetch(`${apiBase}${url}`, {
       credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
       headers: { Accept: "application/json" },
     });
+    if (!mounted || epoch !== requestEpoch) return;
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
       throw new Error(body?.error?.message ?? `Score history request failed (${res.status})`);
     }
     const body = (await res.json()) as { snapshots?: ScoreSnapshotDTO[] | null };
+    if (!mounted || epoch !== requestEpoch) return;
     fetchedSnapshots.value = Array.isArray(body.snapshots) ? body.snapshots : [];
   } catch (err) {
+    if (!mounted || epoch !== requestEpoch) return;
+    if (err instanceof DOMException && err.name === "AbortError") return;
     error.value = err instanceof Error ? err.message : "Score history unavailable";
     fetchedSnapshots.value = [];
   } finally {
-    loading.value = false;
+    if (mounted && epoch === requestEpoch) {
+      loading.value = false;
+    }
   }
 }
 
 watch(
-  () => [props.identity.region, props.identity.realmSlug, props.identity.name, props.snapshots] as const,
+  () =>
+    [
+      props.identity.region,
+      props.identity.realmSlug,
+      props.identity.name,
+      props.scoreCalculatedAt ?? null,
+      props.snapshots,
+    ] as const,
   () => {
     void loadHistory();
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  mounted = false;
+  requestEpoch += 1;
+  abortController?.abort();
+  abortController = null;
+});
 </script>
 
 <template>

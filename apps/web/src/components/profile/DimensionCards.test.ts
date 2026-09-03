@@ -24,7 +24,7 @@ const dims: DimensionScoreDTO[] = [
         {
           code: "performance.offensive_cooldown_discipline",
           labelKey: "score.performance.offensive_cooldown_discipline",
-          label: "Offensive uptime below neutral",
+          label: "Offensive cooldown below neutral",
           direction: "NEGATIVE",
           value: 42,
         },
@@ -131,7 +131,7 @@ describe("DimensionCards explainability", () => {
     expect(wrapper.find('[data-testid="dimension-cards"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain("What affects your score");
     expect(wrapper.text()).toContain("Strong Phase 1 performance");
-    expect(wrapper.text()).toContain("Offensive uptime below neutral");
+    expect(wrapper.text()).toContain("Offensive cooldown below neutral");
     expect(wrapper.text()).toContain("No strategic CC observed");
     expect(wrapper.text()).toContain("Previous-season activity: none confirmed");
     expect(wrapper.text()).not.toContain("Full confidence");
@@ -165,7 +165,7 @@ describe("DimensionCards explainability", () => {
                 {
                   code: "cooldown_evidence_unavailable",
                   labelKey: "confidence.performance.cooldown_evidence_unavailable",
-                  label: "Offensive uptime evidence unavailable",
+                  label: "Offensive cooldown evidence unavailable",
                 },
               ],
             },
@@ -175,7 +175,7 @@ describe("DimensionCards explainability", () => {
     });
 
     expect(wrapper.text()).toContain("Performance");
-    expect(wrapper.text()).not.toContain("Offensive uptime evidence unavailable");
+    expect(wrapper.text()).not.toContain("Offensive cooldown evidence unavailable");
   });
 
   it("shows legacy fallback when explainability is missing", () => {

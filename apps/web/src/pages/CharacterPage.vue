@@ -440,7 +440,7 @@ watch(
         @repair-bootstrap="repairBootstrap"
       />
       <CharacterRefreshEta
-        v-if="polling || lastRefreshStatus"
+        v-if="!scoreLoadingPhase && (polling || lastRefreshStatus)"
         :job="lastRefreshStatus?.job ?? null"
       />
 
@@ -520,15 +520,17 @@ watch(
         </div>
       </details>
 
-      <div class="character-page__hero">
-        <!-- Portrait is score-hero chrome; hide while the first-score loading panel owns the hero. -->
-        <CharacterPortraitStage
-          v-if="!scoreLoadingPhase"
-          :profile="profile"
-        />
+      <div
+        class="character-page__hero"
+        :class="{ 'character-page__hero--score-loading': Boolean(scoreLoadingPhase) }"
+      >
+        <!-- Keep Blizzard media visible during first-score calculation. -->
+        <CharacterPortraitStage :profile="profile" />
         <CharacterScoreLoadingPanel
           v-if="scoreLoadingPhase"
           :phase="scoreLoadingPhase"
+          :profile="profile"
+          :job="lastRefreshStatus?.job ?? null"
           @retry="retryScoreCalculation()"
         />
         <ScoreHeader
@@ -555,6 +557,7 @@ watch(
       <ScoreHistorySection
         v-if="showScoreContent(profile)"
         :identity="currentIdentity()"
+        :score-calculated-at="profile.score?.calculatedAt ?? null"
       />
 
       <DimensionCards
@@ -607,6 +610,24 @@ watch(
   position: relative;
   isolation: isolate;
   overflow: visible;
+}
+
+.character-page__hero--score-loading {
+  /* Reserve portrait overflow space so media cannot cover loading content. */
+  min-height: min(62dvh, 32rem);
+  padding-bottom: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .character-page__hero--score-loading {
+    min-height: min(70dvh, 38rem);
+  }
+}
+
+@media (min-width: 1100px) {
+  .character-page__hero--score-loading {
+    min-height: min(74dvh, 44rem);
+  }
 }
 
 .character-page__loading {

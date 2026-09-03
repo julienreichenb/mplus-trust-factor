@@ -1330,6 +1330,31 @@ describe("Score Explainability V1", () => {
       expect(driver?.qualitativeLabel).toBe("BAD");
       expect(driver?.label).toContain("top 10%");
     });
+
+    it("maps p750 (first band worse than Top 10%) to VERY BAD historical standing", () => {
+      const band = "p750" as const;
+      const score = NATIVE_BAND_STANDING_SCORES.p750;
+
+      const built = buildScoreExplainabilityV1({
+        performance: null,
+        survival: null,
+        utility: null,
+        experience: experienceFixture({
+          score,
+          historicalStandingScore: score,
+          previousStandingScore: score,
+          winningHistoricalProof: winningHistoricalProofForBand(band),
+        }),
+        composite: null,
+      });
+
+      const dim = projectScoreExplainabilityPublic(built).dimensions.EXPERIENCE;
+      const driver = dim.scoreDrivers.find(
+        (d) => d.code === "experience.historical_standing",
+      );
+      expect(driver?.qualitativeLabel).toBe("VERY BAD");
+      expect(driver?.label).toMatch(/top 25%|25%/i);
+    });
   });
 
   describe("ordering + public sanitizer", () => {
