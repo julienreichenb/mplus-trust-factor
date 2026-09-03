@@ -27,10 +27,10 @@ describe("characterViewModel", () => {
     expect(
       formatKeySignalDisplayText({
         kind: "positive",
-        label: "Offensive cooldown discipline scored 81",
+        label: "Offensive uptime scored 81",
         qualitativeLabel: "VERY GOOD",
       }),
-    ).toBe("Very good offensive cooldown discipline");
+    ).toBe("Very good offensive uptime");
     expect(
       formatKeySignalDisplayText({
         kind: "risk",

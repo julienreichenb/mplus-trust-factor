@@ -99,7 +99,7 @@ function artStyle(slug: string): Record<string, string> | undefined {
       No selected runs available for this character.
     </p>
     <template v-else>
-      <p class="runs-hint">Click a dungeon to inspect cooldown usage</p>
+      <p class="runs-hint">Click a dungeon to inspect uptime evidence</p>
       <div class="runs-grid">
       <article
         v-for="run in selection.selectedRuns"

@@ -11,7 +11,7 @@ export type CooldownTimelineEvent = RunTimelineEventPublicDTO;
 export type CooldownTimeline = RunCooldownTimelinePublicDTO;
 
 export const COOLDOWN_TIMELINE_UNAVAILABLE_COPY = "Cooldown replay unavailable for this run.";
-export const COOLDOWN_TIMELINE_EMPTY_COPY = "No tracked cooldown usage for this run.";
+export const COOLDOWN_TIMELINE_EMPTY_COPY = "No tracked uptime evidence for this run.";
 
 export function isDeathTimelineEvent(
   event: RunTimelineEventPublicDTO,
