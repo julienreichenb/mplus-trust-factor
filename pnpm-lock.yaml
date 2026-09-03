@@ -133,6 +133,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@mediabunny/mp3-encoder':
+        specifier: ^1.55.6
+        version: 1.55.6(mediabunny@1.55.6)
       '@mplus/abilities':
         specifier: workspace:*
         version: link:../../packages/abilities
@@ -142,6 +145,12 @@ importers:
       echarts:
         specifier: ^5.6.0
         version: 5.6.0
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      mediabunny:
+        specifier: ^1.55.6
+        version: 1.55.6
       pinia:
         specifier: ^3.0.3
         version: 3.0.4(typescript@5.9.3)(vue@3.5.40(typescript@5.9.3))
@@ -164,6 +173,9 @@ importers:
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
@@ -981,6 +993,11 @@ packages:
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
 
+  '@mediabunny/mp3-encoder@1.55.6':
+    resolution: {integrity: sha512-iVdDZNPOzbksGxup71PCMtbse9dJ/luPyQ1NG9HYE+wHRWyyV96T6fx8w10T2hnkF3mWmdrMGL7C6QNjvopL2w==}
+    peerDependencies:
+      mediabunny: ^1.0.0
+
   '@minimistjs/subarg@1.0.0':
     resolution: {integrity: sha512-Q/ONBiM2zNeYUy0mVSO44mWWKYM3UHuEK43PKIOzJCbvUnPoMH1K+gk3cf1kgnCVJFlWmddahQQCmrmBGlk9jQ==}
 
@@ -1199,6 +1216,12 @@ packages:
 
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
+
+  '@types/dom-mediacapture-transform@0.1.12':
+    resolution: {integrity: sha512-d7/QsLRwF864A5mgIM/YrfiglHoYn7zgCcAoJgW404r+2DwnNr7EBbLnCWpmOMgH8y0te73L1AV6H1bmauaWFw==}
+
+  '@types/dom-webcodecs@0.1.13':
+    resolution: {integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==}
 
   '@types/esrecurse@4.3.1':
     resolution: {integrity: sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw==}
@@ -1902,6 +1925,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -1961,6 +1985,10 @@ packages:
   exsolve@1.1.0:
     resolution: {integrity: sha512-D+42+T12DdIlJM3uepa55qGiL3sYdLBOxIl2ifQCzCHz4c7eiolaHsi3BIqEr7JxBzxv2pYZQX9kw16ziMcEmw==}
 
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
+
   fast-check@3.23.2:
     resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
     engines: {node: '>=8.0.0'}
@@ -2012,6 +2040,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
@@ -2333,6 +2364,9 @@ packages:
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
+
+  mediabunny@1.55.6:
+    resolution: {integrity: sha512-IuwxlL8GQ5qODxvdj0mm5bUumrwTr13ooX0UygsrT2u1uwERjV1Awv/zuFoY5iNeYic6SQU78BcGcGLnDgPQ9g==}
 
   mime-db@1.52.0:
     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
@@ -3546,6 +3580,10 @@ snapshots:
 
   '@lukeed/ms@2.0.2': {}
 
+  '@mediabunny/mp3-encoder@1.55.6(mediabunny@1.55.6)':
+    dependencies:
+      mediabunny: 1.55.6
+
   '@minimistjs/subarg@1.0.0':
     dependencies:
       minimist: 1.2.8
@@ -3707,6 +3745,12 @@ snapshots:
       assertion-error: 2.0.1
 
   '@types/deep-eql@4.0.2': {}
+
+  '@types/dom-mediacapture-transform@0.1.12':
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+
+  '@types/dom-webcodecs@0.1.13': {}
 
   '@types/esrecurse@4.3.1': {}
 
@@ -4601,6 +4645,8 @@ snapshots:
 
   exsolve@1.1.0: {}
 
+  fake-indexeddb@6.2.5: {}
+
   fast-check@3.23.2:
     dependencies:
       pure-rand: 6.1.0
@@ -4661,6 +4707,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
+
+  fflate@0.8.3: {}
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -5001,6 +5049,11 @@ snapshots:
   manage-path@2.0.0: {}
 
   math-intrinsics@1.1.0: {}
+
+  mediabunny@1.55.6:
+    dependencies:
+      '@types/dom-mediacapture-transform': 0.1.12
+      '@types/dom-webcodecs': 0.1.13
 
   mime-db@1.52.0: {}
 
