@@ -4,7 +4,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { useCharacterScoreAwait } from "./useCharacterScoreAwait";
 import type { CharacterProfileView, RefreshStatusResponse } from "../api/types";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
-import { FIRST_SCORE_POLL_INTERVAL_MS } from "./useRefreshPolling";
+import { FIRST_SCORE_POLL_INTERVAL_MS, ADMIN_REFRESH_POLL_MAX_MS } from "./useRefreshPolling";
 
 const getRefreshStatus = vi.fn();
 const getCharacterProfile = vi.fn();
@@ -382,8 +382,18 @@ describe("useCharacterScoreAwait", () => {
   it("uses a short first-score poll interval and a slow background interval", () => {
     const { api, wrapper } = mountAwaitHarness();
     expect(api.pollingOptions(false, true).intervalMs).toBe(FIRST_SCORE_POLL_INTERVAL_MS);
+    expect(api.pollingOptions(false, true).maxDurationMs).toBeNull();
     expect(api.pollingOptions(false, false).intervalMs).toBe(60_000);
     expect(api.pollingOptions(true, true).intervalMs).toBe(5_000);
+    wrapper.unmount();
+  });
+
+  it("uses no total timeout for admin observation of a first score", () => {
+    const { api, wrapper } = mountAwaitHarness();
+    const options = api.pollingOptions(true, true);
+    expect(options.intervalMs).toBe(FIRST_SCORE_POLL_INTERVAL_MS);
+    expect(options.maxDurationMs).toBeNull();
+    expect(api.pollingOptions(true, false).maxDurationMs).toBe(ADMIN_REFRESH_POLL_MAX_MS);
     wrapper.unmount();
   });
 });

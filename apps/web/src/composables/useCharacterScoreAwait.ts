@@ -87,18 +87,18 @@ export function useCharacterScoreAwait() {
    * Admins keep the faster 5s interval either way.
    */
   function pollingOptions(admin: boolean, awaitingFirstScore: boolean) {
+    // No published score: 5s GET observation with no total timeout, including
+    // an admin merely opening a character that is already queued/calculating.
+    if (awaitingFirstScore) {
+      return {
+        intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
+        maxDurationMs: null,
+      };
+    }
     if (admin) {
       return {
         intervalMs: ADMIN_REFRESH_POLL_INTERVAL_MS,
         maxDurationMs: ADMIN_REFRESH_POLL_MAX_MS,
-      };
-    }
-    if (awaitingFirstScore) {
-      return {
-        intervalMs: FIRST_SCORE_POLL_INTERVAL_MS,
-        // First-score observation has no total timeout; keep polling until
-        // publication, terminal failure/cancel, identity change, or unmount.
-        maxDurationMs: null,
       };
     }
     return {
